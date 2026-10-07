@@ -2,22 +2,16 @@
 
 #include <Windows.h>
 
-#include <cstring>
-
 namespace
 {
-// These helpers must not contain objects with destructors (required for __try/__except).
+// ReadProcessMemory on our own process fails gracefully (returns FALSE) on unmapped or protected
+// memory instead of raising an access violation. This is slower than a plain read but it does not
+// depend on compiler-specific SEH behaviour, so it is safe in every build configuration.
 bool GuardedCopy(uintptr_t aAddress, void* aOut, size_t aSize)
 {
-    __try
-    {
-        std::memcpy(aOut, reinterpret_cast<const void*>(aAddress), aSize);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
+    SIZE_T read = 0;
+    return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<LPCVOID>(aAddress), aOut, aSize, &read) &&
+           read == aSize;
 }
 
 struct ImageRange

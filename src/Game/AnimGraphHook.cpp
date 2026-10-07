@@ -17,7 +17,9 @@
 #include <atomic>
 #include <cstring>
 #include <malloc.h>
+#include <mutex>
 #include <string>
+#include <unordered_set>
 
 namespace
 {
@@ -102,6 +104,32 @@ bool IsProbePointer(uint64_t aValue, const std::array<uintptr_t, 32>& aPointers,
     return false;
 }
 
+// Each distinct context is scanned only once per session.
+std::mutex g_visitedMutex;
+std::unordered_set<uintptr_t> g_visitedContexts;
+
+bool MarkContextVisited(uintptr_t aContext)
+{
+    std::scoped_lock lock(g_visitedMutex);
+    return g_visitedContexts.insert(aContext).second;
+}
+
+// Reads a block; if the full range is not readable, retries with the part up to the next page boundary.
+size_t ReadBlock(uintptr_t aAddress, std::array<uint64_t, ProbeScanRange / 8>& aOut)
+{
+    if (APM::SafeMemory::ReadBytes(aAddress, aOut.data(), ProbeScanRange))
+    {
+        return aOut.size();
+    }
+    const size_t toPageEnd = 0x1000 - (aAddress & 0xFFF);
+    const size_t size = (toPageEnd / 8) * 8;
+    if (size >= 8 && size < ProbeScanRange && APM::SafeMemory::ReadBytes(aAddress, aOut.data(), size))
+    {
+        return size / 8;
+    }
+    return 0;
+}
+
 // Looks for a pointer to a registered entity/component inside the context (depth 2).
 void ProbeContext(uintptr_t aContext)
 {
@@ -112,13 +140,14 @@ void ProbeContext(uintptr_t aContext)
         return;
     }
 
-    for (uint32_t a = 0; a < ProbeScanRange; a += 8)
+    std::array<uint64_t, ProbeScanRange / 8> level1{};
+    std::array<uint64_t, ProbeScanRange / 8> level2{};
+    const size_t count1 = ReadBlock(aContext, level1);
+
+    for (size_t i = 0; i < count1; ++i)
     {
-        uint64_t first = 0;
-        if (!APM::SafeMemory::ReadU64(aContext + a, first))
-        {
-            continue;
-        }
+        const uint32_t a = static_cast<uint32_t>(i * 8);
+        const uint64_t first = level1[i];
 
         if (IsProbePointer(first, pointers, count))
         {
@@ -137,13 +166,11 @@ void ProbeContext(uintptr_t aContext)
             continue;
         }
 
-        for (uint32_t b = 0; b < ProbeScanRange; b += 8)
+        const size_t count2 = ReadBlock(first, level2);
+        for (size_t j = 0; j < count2; ++j)
         {
-            uint64_t second = 0;
-            if (!APM::SafeMemory::ReadU64(first + b, second))
-            {
-                break;
-            }
+            const uint32_t b = static_cast<uint32_t>(j * 8);
+            const uint64_t second = level2[j];
             if (IsProbePointer(second, pointers, count))
             {
                 const uint32_t path = (a << 16) | b;
@@ -260,19 +287,16 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut)
 
     if (path == PathUnknown)
     {
-        // Probe phase: spend a limited budget looking for the mapping.
-        uint32_t budget = g_probeBudget.load();
-        while (budget > 0 && !g_probeBudget.compare_exchange_weak(budget, budget - 1))
+        // Probe phase: every distinct context is scanned once, up to the budget.
+        if (g_probeBudget.load() == 0 || !MarkContextVisited(context))
         {
+            return;
         }
-        if (budget > 0)
+        if (g_probeBudget.fetch_sub(1) == 1)
         {
-            ProbeContext(context);
-            if (budget == 1)
-            {
-                APM::Log::Warn("Probe: budget exhausted, context mapping not found");
-            }
+            APM::Log::Warn("Probe: budget exhausted, context mapping not found");
         }
+        ProbeContext(context);
         return;
     }
 
@@ -391,6 +415,10 @@ void OnPhotoModeActivated()
 
     g_poseInfoLogged = false;
     g_countMismatchLogged = false;
+    {
+        std::scoped_lock lock(g_visitedMutex);
+        g_visitedContexts.clear();
+    }
     g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
 
     // Keep a mapping learned in a previous session; it does not change while the game runs.

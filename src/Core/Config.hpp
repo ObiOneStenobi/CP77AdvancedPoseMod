@@ -11,7 +11,7 @@ struct Values
 {
     // Research probe (phase 0): discovers how the animation context maps to an entity.
     bool probeEnabled = true;
-    uint32_t probeScanBudget = 20000; // max number of Sample() calls inspected per Photo Mode session
+    uint32_t probeScanBudget = 4096;  // max number of distinct animation contexts inspected per session
     bool probeDumpRig = true;         // write the rig bone list to probe/rig_*.txt
 
     // Proof of concept: rotate a single bone of V while Photo Mode is active.
