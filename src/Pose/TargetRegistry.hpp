@@ -33,10 +33,13 @@ bool FindByPointer(uintptr_t aPointer, Target& aOut);
 // Fast, allocation-free check used in the animation hot path.
 bool ContainsPointer(uintptr_t aPointer);
 
-// Pointers (entities + animated components) the research probe looks for.
-size_t GetProbePointers(std::array<uintptr_t, 32>& aOut);
+// Pointers (entities, animated components, rigs) the research probe looks for.
+size_t GetProbePointers(std::array<uintptr_t, 64>& aOut);
 
 // Resolve a bone index by name for the target that owns the pointer. Returns -1 if not found.
 int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash);
+
+// True if any registered target has a rig with exactly this many bones (probe heuristic).
+bool HasBoneCount(uint32_t aCount);
 } // namespace TargetRegistry
 } // namespace APM::Pose

@@ -10,7 +10,7 @@ SRWLOCK g_lock = SRWLOCK_INIT;
 std::vector<APM::Pose::Target> g_targets;
 
 // Flat copy of all known pointers for lock-cheap scanning.
-std::array<uintptr_t, 32> g_pointers{};
+std::array<uintptr_t, 64> g_pointers{};
 size_t g_pointerCount = 0;
 
 struct SharedGuard
@@ -48,12 +48,18 @@ void Set(std::vector<Target> aTargets)
     g_pointerCount = 0;
     for (const auto& target : g_targets)
     {
-        if (g_pointerCount + 2 > g_pointers.size())
+        for (const uintptr_t pointer : {target.entity, target.animatedComponent, target.rig})
         {
-            break;
+            if (!pointer || g_pointerCount >= g_pointers.size())
+            {
+                continue;
+            }
+            if (std::find(g_pointers.begin(), g_pointers.begin() + g_pointerCount, pointer) ==
+                g_pointers.begin() + g_pointerCount)
+            {
+                g_pointers[g_pointerCount++] = pointer;
+            }
         }
-        g_pointers[g_pointerCount++] = target.entity;
-        g_pointers[g_pointerCount++] = target.animatedComponent;
     }
 }
 
@@ -97,7 +103,7 @@ bool ContainsPointer(uintptr_t aPointer)
     return false;
 }
 
-size_t GetProbePointers(std::array<uintptr_t, 32>& aOut)
+size_t GetProbePointers(std::array<uintptr_t, 64>& aOut)
 {
     SharedGuard guard;
     aOut = g_pointers;
@@ -119,5 +125,21 @@ int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash)
         return -1;
     }
     return static_cast<int32_t>(std::distance(target->boneNames.begin(), it));
+}
+} // namespace APM::Pose::TargetRegistry
+
+namespace APM::Pose::TargetRegistry
+{
+bool HasBoneCount(uint32_t aCount)
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.boneNames.size() == aCount)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 } // namespace APM::Pose::TargetRegistry

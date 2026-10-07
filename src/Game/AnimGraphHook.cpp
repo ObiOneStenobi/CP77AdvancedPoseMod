@@ -64,6 +64,47 @@ std::atomic<uint32_t> g_probeBudget{0};
 std::atomic<bool> g_poseInfoLogged{false};
 std::atomic<bool> g_countMismatchLogged{false};
 
+// Diagnostics (logged periodically while Photo Mode is active)
+std::atomic<uint64_t> g_statAllCalls{0};
+std::atomic<uint64_t> g_statOuterCalls{0};
+std::atomic<uint64_t> g_statContexts{0};
+std::atomic<uint64_t> g_statCandidates{0};
+std::atomic<uint64_t> g_statLastLogTick{0};
+std::atomic<uint32_t> g_candidateDumps{0};
+constexpr uint32_t MaxCandidateDumps = 12;
+
+// Distinct pose bone counts seen in new contexts (helps to spot V's graphs).
+std::mutex g_boneCountsMutex;
+std::array<uint32_t, 48> g_boneCountsSeen{};
+size_t g_boneCountsSeenSize = 0;
+
+void RecordBoneCount(uint32_t aCount)
+{
+    std::scoped_lock lock(g_boneCountsMutex);
+    for (size_t i = 0; i < g_boneCountsSeenSize; ++i)
+    {
+        if (g_boneCountsSeen[i] == aCount)
+        {
+            return;
+        }
+    }
+    if (g_boneCountsSeenSize < g_boneCountsSeen.size())
+    {
+        g_boneCountsSeen[g_boneCountsSeenSize++] = aCount;
+    }
+}
+
+std::string BoneCountsSeen()
+{
+    std::scoped_lock lock(g_boneCountsMutex);
+    std::string text;
+    for (size_t i = 0; i < g_boneCountsSeenSize; ++i)
+    {
+        text += (i ? "," : "") + std::to_string(g_boneCountsSeen[i]);
+    }
+    return text.empty() ? "-" : text;
+}
+
 // Proof-of-concept override (single bone)
 std::atomic<bool> g_testEnabled{false};
 std::atomic<uint64_t> g_testBoneHash{0};
@@ -92,7 +133,7 @@ uintptr_t ResolveTargetFromContext(uintptr_t aContext, uint32_t aPath)
     return inner;
 }
 
-bool IsProbePointer(uint64_t aValue, const std::array<uintptr_t, 32>& aPointers, size_t aCount)
+bool IsProbePointer(uint64_t aValue, const std::array<uintptr_t, 64>& aPointers, size_t aCount)
 {
     for (size_t i = 0; i < aCount; ++i)
     {
@@ -133,7 +174,7 @@ size_t ReadBlock(uintptr_t aAddress, std::array<uint64_t, ProbeScanRange / 8>& a
 // Looks for a pointer to a registered entity/component inside the context (depth 2).
 void ProbeContext(uintptr_t aContext)
 {
-    std::array<uintptr_t, 32> pointers{};
+    std::array<uintptr_t, 64> pointers{};
     const size_t count = APM::Pose::TargetRegistry::GetProbePointers(pointers);
     if (count == 0)
     {
@@ -275,6 +316,68 @@ void ApplyTestOverride(const SampleOutput* aOut, uintptr_t aTargetPointer, const
     rotation.r = result.r;
 }
 
+// Describes a qword: plain value, pointer into the game image, or heap object with a vtable in the image.
+std::string DescribeValue(uint64_t aValue)
+{
+    char text[96]{};
+    const auto base = APM::SafeMemory::GetGameImageBase();
+    if (APM::SafeMemory::IsInGameImage(aValue))
+    {
+        std::snprintf(text, sizeof(text), "image+0x%llX", static_cast<unsigned long long>(aValue - base));
+        return text;
+    }
+    uint64_t vtbl = 0;
+    if (APM::SafeMemory::LooksLikePointer(aValue) && APM::SafeMemory::ReadU64(aValue, vtbl) &&
+        APM::SafeMemory::IsInGameImage(vtbl))
+    {
+        std::snprintf(text, sizeof(text), "%p (object, vtbl=+0x%llX)", reinterpret_cast<void*>(aValue),
+                      static_cast<unsigned long long>(vtbl - base));
+        return text;
+    }
+    std::snprintf(text, sizeof(text), "%016llX", static_cast<unsigned long long>(aValue));
+    return text;
+}
+
+// A context whose pose has the same bone count as one of V's rigs is a strong candidate.
+// Dump its layout so the mapping can be found offline.
+void DumpCandidate(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uint32_t aBoneCount)
+{
+    if (g_candidateDumps.fetch_add(1) >= MaxCandidateDumps)
+    {
+        return;
+    }
+
+    uint64_t nodeVtbl = 0;
+    APM::SafeMemory::ReadU64(reinterpret_cast<uintptr_t>(aNode), nodeVtbl);
+    APM::Log::Info("Candidate: ctx=%p bones=%u node=%p nodeVtbl=+0x%llX pose=%p", reinterpret_cast<void*>(aContext),
+                   aBoneCount, aNode,
+                   static_cast<unsigned long long>(nodeVtbl - APM::SafeMemory::GetGameImageBase()),
+                   reinterpret_cast<void*>(aOut->pose));
+
+    std::array<uint64_t, ProbeScanRange / 8> block{};
+    const size_t count = ReadBlock(aContext, block);
+    for (size_t i = 0; i < count && i < 0x100 / 8; ++i)
+    {
+        APM::Log::Info("Candidate:   ctx+0x%03zX = %s", i * 8, DescribeValue(block[i]).c_str());
+    }
+}
+
+void LogStatsPeriodically()
+{
+    const uint64_t now = GetTickCount64();
+    uint64_t last = g_statLastLogTick.load();
+    if (now - last < 3000 || !g_statLastLogTick.compare_exchange_strong(last, now))
+    {
+        return;
+    }
+    APM::Log::Info("Stats: sampleCalls=%llu outermost=%llu contextsScanned=%llu candidates=%llu mapping=%s boneCounts=[%s]",
+                   static_cast<unsigned long long>(g_statAllCalls.load()),
+                   static_cast<unsigned long long>(g_statOuterCalls.load()),
+                   static_cast<unsigned long long>(g_statContexts.load()),
+                   static_cast<unsigned long long>(g_statCandidates.load()),
+                   g_contextPath.load() == PathUnknown ? "unknown" : "found", BoneCountsSeen().c_str());
+}
+
 void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut)
 {
     if (!aOut || !aOut->pose || APM::Pose::TargetRegistry::Count() == 0)
@@ -296,6 +399,20 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut)
         {
             APM::Log::Warn("Probe: budget exhausted, context mapping not found");
         }
+        g_statContexts.fetch_add(1);
+
+        uint32_t boneCount = 0;
+        const bool hasCount = APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount);
+        if (hasCount)
+        {
+            RecordBoneCount(boneCount);
+        }
+        if (hasCount && APM::Pose::TargetRegistry::HasBoneCount(boneCount))
+        {
+            g_statCandidates.fetch_add(1);
+            DumpCandidate(aNode, context, aOut, boneCount);
+        }
+
         ProbeContext(context);
         return;
     }
@@ -322,11 +439,20 @@ void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
     g_origSample(aNode, aContext, a3, aOut);
     --t_depth;
 
-    // Only the outermost output node carries the final pose of a graph.
-    if (t_depth != 0 || !APM::PhotoModeTracker::IsActive())
+    if (!APM::PhotoModeTracker::IsActive())
     {
         return;
     }
+
+    g_statAllCalls.fetch_add(1, std::memory_order_relaxed);
+    LogStatsPeriodically();
+
+    // Only the outermost output node carries the final pose of a graph.
+    if (t_depth != 0)
+    {
+        return;
+    }
+    g_statOuterCalls.fetch_add(1, std::memory_order_relaxed);
 
     OnPoseSampled(aNode, aContext, aOut);
 }
@@ -420,6 +546,15 @@ void OnPhotoModeActivated()
         g_visitedContexts.clear();
     }
     g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
+    g_statAllCalls = 0;
+    g_statOuterCalls = 0;
+    g_statContexts = 0;
+    g_statCandidates = 0;
+    g_candidateDumps = 0;
+    {
+        std::scoped_lock lock(g_boneCountsMutex);
+        g_boneCountsSeenSize = 0;
+    }
 
     // Keep a mapping learned in a previous session; it does not change while the game runs.
     if (g_contextPath.load() == PathUnknown && !config.probeEnabled)
