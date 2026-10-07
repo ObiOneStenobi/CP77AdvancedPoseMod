@@ -12,6 +12,7 @@
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
 #include <algorithm>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -281,7 +282,8 @@ void PrefSet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 // --- Gizmos ------------------------------------------------------------------------------------------------------
 
-// World position of the main bone of a body part (index in the body part list); w = 1 when valid.
+// Model-space position (relative to V's entity: X right, Y forward, Z up) of the main bone of a body part
+// (index in the body part list); w = 1 when valid.
 void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t part = 0;
@@ -292,11 +294,29 @@ void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     const auto& catalog = APM::Ui::GetBoneCatalog();
     APM::Math::Vec3 position{};
     if (part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
-        APM::Pose::GizmoState::GetBoneWorldPosition(RED4ext::CName(catalog[part].bones.front()).hash, position))
+        APM::Pose::GizmoState::GetBoneModelPosition(RED4ext::CName(catalog[part].bones.front()).hash, position))
     {
         result = {position.x, position.y, position.z, 1.f};
     }
     Return(aOut, result);
+}
+
+// V's Photo Mode puppet, so scripts can read its world transform. Null when unknown.
+void GizmoGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+
+    RED4ext::Handle<RED4ext::ISerializable> handle;
+    const auto entity = APM::Pose::GizmoState::GetEntity();
+    if (entity && APM::Pose::TargetRegistry::ContainsPointer(entity))
+    {
+        // Share the entity's existing reference count instead of creating a new one.
+        handle = reinterpret_cast<RED4ext::ISerializable*>(entity)->ref.Lock();
+    }
+    if (aOut)
+    {
+        new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
+    }
 }
 
 // IK chain driven by a body part (0..3), or -1.
@@ -323,7 +343,7 @@ void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, chain);
 }
 
-// Moves the IK target of a chain by a world-space vector (meters) and pins the chain.
+// Moves the IK target of a chain by a model-space vector (meters, X right, Y forward, Z up) and pins the chain.
 void GizmoMoveIk(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t chain = 0;
@@ -334,7 +354,7 @@ void GizmoMoveIk(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
     if (chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount))
     {
-        const auto model = APM::Pose::GizmoState::WorldToModelDirection({delta.X, delta.Y, delta.Z});
+        const APM::Math::Vec3 model{delta.X, delta.Y, delta.Z};
         auto settings = APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain));
         settings.enabled = true;
         settings.offset[0] = std::clamp(settings.offset[0] + model.x, -0.8f, 0.8f);
@@ -502,7 +522,8 @@ void Register()
 
     ::Register("APM_GizmoGetPartPosition", &GizmoGetPartPosition, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
-    ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "worldDelta"}});
+    ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
+    ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
 
     ::Register("APM_UiIsOwnAttribute", &UiIsOwnAttribute, "Bool", {{"Uint32", "attribute"}});
     ::Register("APM_UiSetValue", &UiSetValue, nullptr, {{"Uint32", "attribute"}, {"Float", "value"}});

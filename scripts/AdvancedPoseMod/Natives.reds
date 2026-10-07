@@ -58,9 +58,11 @@ public native func APM_PrefGet(key: String, fallback: Float) -> Float
 public native func APM_PrefSet(key: String, value: Float) -> Bool
 
 // Gizmos
-// World position of the main bone of a body part; w = 1 when valid
+// Model-space position (relative to V: X right, Y forward, Z up) of the main bone of a body part; w = 1 when valid
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
+// V's Photo Mode puppet (null when unknown)
+public native func APM_GizmoGetEntity() -> ref<Entity>
 // IK chain (0 left hand, 1 right hand, 2 left foot, 3 right foot) moved by dragging this part, or -1
 public native func APM_GizmoGetPartIkChain(part: Int32) -> Int32
-// Moves an IK target by a world-space vector (meters) and pins it
-public native func APM_GizmoMoveIk(chain: Int32, worldDelta: Vector4) -> Bool
+// Moves an IK target by a model-space vector (meters) and pins it
+public native func APM_GizmoMoveIk(chain: Int32, modelDelta: Vector4) -> Bool

@@ -155,6 +155,17 @@ public class APM_Marker extends IScriptable {
     public let isHovered: Bool;
 }
 
+// World position of a body part (w = 1 when valid): V's world transform applied to the model-space bone position.
+public func APM_PartWorldPosition(entity: ref<Entity>, part: Int32) -> Vector4 {
+    let model = APM_GizmoGetPartPosition(part);
+    if !IsDefined(entity) || model.W < 0.5 {
+        return APM_Vector(0.0, 0.0, 0.0, 0.0);
+    }
+    let origin = entity.GetWorldPosition();
+    let offset = Quaternion.Transform(entity.GetWorldOrientation(), APM_Vector(model.X, model.Y, model.Z, 0.0));
+    return APM_Vector(origin.X + offset.X, origin.Y + offset.Y, origin.Z + offset.Z, 1.0);
+}
+
 // --- Panel -------------------------------------------------------------------------------------------------------
 
 public class APM_PoseEditor extends IScriptable {
@@ -824,6 +835,11 @@ public class APM_PoseEditor extends IScriptable {
         let cameraTransform: Transform;
         let hasCamera = camera.GetActiveCameraWorldTransform(cameraTransform);
         let forward = camera.GetActiveCameraForward();
+        let entity = APM_GizmoGetEntity();
+        if !IsDefined(entity) {
+            this.m_gizmoLayer.SetVisible(false);
+            return;
+        }
         let selected = Cast<Int32>(APM_UiGetValue(7701u));
         let selectedGroup = APM_UiGetOptionGroup(7701u, selected);
         let s = APM_UiScale();
@@ -836,7 +852,7 @@ public class APM_PoseEditor extends IScriptable {
             if APM_IsHandGroup(marker.group) && !Equals(marker.group, selectedGroup) {
                 show = false;
             }
-            let world = APM_GizmoGetPartPosition(marker.part);
+            let world = APM_PartWorldPosition(entity, marker.part);
             if world.W < 0.5 {
                 show = false;
             }
@@ -882,7 +898,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
         let cameraTransform: Transform;
-        let world = APM_GizmoGetPartPosition(part);
+        let world = APM_PartWorldPosition(APM_GizmoGetEntity(), part);
         if world.W < 0.5 || !camera.GetActiveCameraWorldTransform(cameraTransform) {
             return 0.002;
         }
@@ -899,8 +915,14 @@ public class APM_PoseEditor extends IScriptable {
             }
             let camera = GameInstance.GetCameraSystem(player.GetGame());
             let axis = horizontal ? camera.GetActiveCameraRight() : camera.GetActiveCameraUp();
+            let entity = APM_GizmoGetEntity();
+            if !IsDefined(entity) {
+                return;
+            }
             let meters = amount * this.DragMetersPerUnit(marker.part);
-            APM_GizmoMoveIk(marker.chain, APM_Vector(axis.X * meters, axis.Y * meters, axis.Z * meters, 0.0));
+            let worldDelta = APM_Vector(axis.X * meters, axis.Y * meters, axis.Z * meters, 0.0);
+            let modelDelta = Quaternion.Transform(Quaternion.Conjugate(entity.GetWorldOrientation()), worldDelta);
+            APM_GizmoMoveIk(marker.chain, modelDelta);
         } else {
             // Rotate the part: left/right bends sideways, up/down bends forward/back.
             let attribute = horizontal ? 7703u : 7702u;

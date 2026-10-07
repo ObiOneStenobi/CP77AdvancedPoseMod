@@ -22,6 +22,12 @@ bool GetEntityTransform(Math::Vec3& aPosition, Math::Quat& aOrientation);
 // World position of a bone of the main skeleton. False if the pose or the bone is unknown.
 bool GetBoneWorldPosition(uint64_t aBoneHash, Math::Vec3& aOut);
 
+// Model-space position of a bone of the main skeleton (relative to V's entity). False if unknown.
+bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut);
+
+// V's entity (ent::Entity*), 0 if unknown.
+uintptr_t GetEntity();
+
 // World-space vector -> V's model space (X right, Y forward, Z up). Returns the input if V is unknown.
 Math::Vec3 WorldToModelDirection(const Math::Vec3& aWorld);
 } // namespace APM::Pose::GizmoState

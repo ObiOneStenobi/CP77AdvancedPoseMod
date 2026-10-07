@@ -155,4 +155,27 @@ Math::Vec3 WorldToModelDirection(const Math::Vec3& aWorld)
     }
     return Math::Rotate(Math::Conjugate(orientation), aWorld);
 }
+
+bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto it = std::find(g_boneNames.begin(), g_boneNames.end(), aBoneHash);
+    if (it == g_boneNames.end())
+    {
+        return false;
+    }
+    const auto index = static_cast<size_t>(std::distance(g_boneNames.begin(), it));
+    if (index >= g_positions.size())
+    {
+        return false;
+    }
+    aOut = g_positions[index];
+    return true;
+}
+
+uintptr_t GetEntity()
+{
+    std::scoped_lock lock(g_mutex);
+    return g_entity;
+}
 } // namespace APM::Pose::GizmoState
