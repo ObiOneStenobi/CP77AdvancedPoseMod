@@ -28,6 +28,9 @@ bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut);
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();
 
+// Animated component of V's main skeleton (ent::AnimatedComponent*); bone model space is relative to it. 0 if unknown.
+uintptr_t GetComponent();
+
 // World-space vector -> V's model space (X right, Y forward, Z up). Returns the input if V is unknown.
 Math::Vec3 WorldToModelDirection(const Math::Vec3& aWorld);
 } // namespace APM::Pose::GizmoState

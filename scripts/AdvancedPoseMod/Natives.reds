@@ -62,6 +62,8 @@ public native func APM_PrefSet(key: String, value: Float) -> Bool
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
+// Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)
+public native func APM_GizmoGetComponent() -> ref<IPlacedComponent>
 // IK chain (0 left hand, 1 right hand, 2 left foot, 3 right foot) moved by dragging this part, or -1
 public native func APM_GizmoGetPartIkChain(part: Int32) -> Int32
 // Moves an IK target by a model-space vector (meters) and pins it

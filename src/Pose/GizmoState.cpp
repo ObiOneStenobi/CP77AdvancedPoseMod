@@ -19,6 +19,7 @@ constexpr float FixedPointScale = 1.f / 131072.f; // FixedPoint: 17 fractional b
 
 std::mutex g_mutex;
 uintptr_t g_entity = 0;
+uintptr_t g_component = 0;
 std::vector<uint64_t> g_boneNames;
 std::vector<Vec3> g_positions; // model space
 
@@ -90,6 +91,7 @@ void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t
 
     std::scoped_lock lock(g_mutex);
     g_entity = aTarget.entity;
+    g_component = aTarget.animatedComponent;
     if (g_boneNames.size() != aTarget.boneNames.size())
     {
         g_boneNames = aTarget.boneNames;
@@ -101,6 +103,7 @@ void Clear()
 {
     std::scoped_lock lock(g_mutex);
     g_entity = 0;
+    g_component = 0;
     g_boneNames.clear();
     g_positions.clear();
 }
@@ -177,5 +180,11 @@ uintptr_t GetEntity()
 {
     std::scoped_lock lock(g_mutex);
     return g_entity;
+}
+
+uintptr_t GetComponent()
+{
+    std::scoped_lock lock(g_mutex);
+    return g_component;
 }
 } // namespace APM::Pose::GizmoState

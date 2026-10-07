@@ -319,6 +319,23 @@ void GizmoGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     }
 }
 
+// Animated component of V's main skeleton: its GetLocalToWorld() maps bone model space to the world.
+void GizmoGetComponent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+
+    RED4ext::Handle<RED4ext::ISerializable> handle;
+    const auto component = APM::Pose::GizmoState::GetComponent();
+    if (component && APM::Pose::TargetRegistry::ContainsPointer(component))
+    {
+        handle = reinterpret_cast<RED4ext::ISerializable*>(component)->ref.Lock();
+    }
+    if (aOut)
+    {
+        new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
+    }
+}
+
 // IK chain driven by a body part (0..3), or -1.
 void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -524,6 +541,7 @@ void Register()
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
+    ::Register("APM_GizmoGetComponent", &GizmoGetComponent, "handle:entIPlacedComponent", {});
 
     ::Register("APM_UiIsOwnAttribute", &UiIsOwnAttribute, "Bool", {{"Uint32", "attribute"}});
     ::Register("APM_UiSetValue", &UiSetValue, nullptr, {{"Uint32", "attribute"}, {"Float", "value"}});

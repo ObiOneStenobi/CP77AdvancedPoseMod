@@ -155,15 +155,26 @@ public class APM_Marker extends IScriptable {
     public let isHovered: Bool;
 }
 
-// World position of a body part (w = 1 when valid): V's world transform applied to the model-space bone position.
-public func APM_PartWorldPosition(entity: ref<Entity>, part: Int32) -> Vector4 {
+// World position of a body part (w = 1 when valid): the bone's model-space position through the animated
+// component's local-to-world matrix (the puppet's entity transform is not where Photo Mode draws it).
+public func APM_PartWorldPosition(toWorld: Matrix, part: Int32) -> Vector4 {
     let model = APM_GizmoGetPartPosition(part);
-    if !IsDefined(entity) || model.W < 0.5 {
+    if model.W < 0.5 {
         return APM_Vector(0.0, 0.0, 0.0, 0.0);
     }
-    let origin = entity.GetWorldPosition();
-    let offset = Quaternion.Transform(entity.GetWorldOrientation(), APM_Vector(model.X, model.Y, model.Z, 0.0));
-    return APM_Vector(origin.X + offset.X, origin.Y + offset.Y, origin.Z + offset.Z, 1.0);
+    let world = Vector4.Transform(toWorld, APM_Vector(model.X, model.Y, model.Z, 1.0));
+    return APM_Vector(world.X, world.Y, world.Z, 1.0);
+}
+
+// World direction -> model space of the animated component (projection on its axes).
+public func APM_WorldToModelDirection(toWorld: Matrix, world: Vector4) -> Vector4 {
+    let axisX = Vector4.TransformDir(toWorld, APM_Vector(1.0, 0.0, 0.0, 0.0));
+    let axisY = Vector4.TransformDir(toWorld, APM_Vector(0.0, 1.0, 0.0, 0.0));
+    let axisZ = Vector4.TransformDir(toWorld, APM_Vector(0.0, 0.0, 1.0, 0.0));
+    let x = (world.X * axisX.X + world.Y * axisX.Y + world.Z * axisX.Z) / MaxF(axisX.X * axisX.X + axisX.Y * axisX.Y + axisX.Z * axisX.Z, 0.0001);
+    let y = (world.X * axisY.X + world.Y * axisY.Y + world.Z * axisY.Z) / MaxF(axisY.X * axisY.X + axisY.Y * axisY.Y + axisY.Z * axisY.Z, 0.0001);
+    let z = (world.X * axisZ.X + world.Y * axisZ.Y + world.Z * axisZ.Z) / MaxF(axisZ.X * axisZ.X + axisZ.Y * axisZ.Y + axisZ.Z * axisZ.Z, 0.0001);
+    return APM_Vector(x, y, z, 0.0);
 }
 
 // --- Panel -------------------------------------------------------------------------------------------------------
@@ -835,11 +846,12 @@ public class APM_PoseEditor extends IScriptable {
         let cameraTransform: Transform;
         let hasCamera = camera.GetActiveCameraWorldTransform(cameraTransform);
         let forward = camera.GetActiveCameraForward();
-        let entity = APM_GizmoGetEntity();
-        if !IsDefined(entity) {
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(component) {
             this.m_gizmoLayer.SetVisible(false);
             return;
         }
+        let toWorld = component.GetLocalToWorld();
         let selected = Cast<Int32>(APM_UiGetValue(7701u));
         let selectedGroup = APM_UiGetOptionGroup(7701u, selected);
         let s = APM_UiScale();
@@ -852,7 +864,7 @@ public class APM_PoseEditor extends IScriptable {
             if APM_IsHandGroup(marker.group) && !Equals(marker.group, selectedGroup) {
                 show = false;
             }
-            let world = APM_PartWorldPosition(entity, marker.part);
+            let world = APM_PartWorldPosition(toWorld, marker.part);
             if world.W < 0.5 {
                 show = false;
             }
@@ -890,6 +902,32 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
+    // One-line positions readout (entity, animated component, hips) to check the gizmo placement.
+    private func GizmoDiagnostics() -> String {
+        let text = "Gizmos " + (this.m_gizmosOn ? "on" : "off");
+        let entity = APM_GizmoGetEntity();
+        if IsDefined(entity) {
+            let p = entity.GetWorldPosition();
+            text += " | ent " + FloatToStringPrec(p.X, 1) + " " + FloatToStringPrec(p.Y, 1) + " " + FloatToStringPrec(p.Z, 1);
+        }
+        let component = APM_GizmoGetComponent();
+        if IsDefined(component) {
+            let toWorld = component.GetLocalToWorld();
+            let c = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
+            text += " | cmp " + FloatToStringPrec(c.X, 1) + " " + FloatToStringPrec(c.Y, 1) + " " + FloatToStringPrec(c.Z, 1);
+            let hips = APM_GizmoGetPartPosition(0);
+            text += " | hips " + FloatToStringPrec(hips.X, 2) + " " + FloatToStringPrec(hips.Y, 2) + " " + FloatToStringPrec(hips.Z, 2);
+        }
+        let player = this.m_controller.GetPlayerControlledObject();
+        if IsDefined(player) {
+            let cameraTransform: Transform;
+            if GameInstance.GetCameraSystem(player.GetGame()).GetActiveCameraWorldTransform(cameraTransform) {
+                text += " | cam " + FloatToStringPrec(cameraTransform.position.X, 1) + " " + FloatToStringPrec(cameraTransform.position.Y, 1) + " " + FloatToStringPrec(cameraTransform.position.Z, 1);
+            }
+        }
+        return text;
+    }
+
     // Meters of movement per unit of mouse movement, growing with the distance from the camera.
     private func DragMetersPerUnit(part: Int32) -> Float {
         let player = this.m_controller.GetPlayerControlledObject();
@@ -898,8 +936,12 @@ public class APM_PoseEditor extends IScriptable {
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
         let cameraTransform: Transform;
-        let world = APM_PartWorldPosition(APM_GizmoGetEntity(), part);
-        if world.W < 0.5 || !camera.GetActiveCameraWorldTransform(cameraTransform) {
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(component) || !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            return 0.002;
+        }
+        let world = APM_PartWorldPosition(component.GetLocalToWorld(), part);
+        if world.W < 0.5 {
             return 0.002;
         }
         let distance = Vector4.Distance(APM_Vector(world.X, world.Y, world.Z, 0.0), APM_Vector(cameraTransform.position.X, cameraTransform.position.Y, cameraTransform.position.Z, 0.0));
@@ -915,13 +957,13 @@ public class APM_PoseEditor extends IScriptable {
             }
             let camera = GameInstance.GetCameraSystem(player.GetGame());
             let axis = horizontal ? camera.GetActiveCameraRight() : camera.GetActiveCameraUp();
-            let entity = APM_GizmoGetEntity();
-            if !IsDefined(entity) {
+            let component = APM_GizmoGetComponent();
+            if !IsDefined(component) {
                 return;
             }
             let meters = amount * this.DragMetersPerUnit(marker.part);
             let worldDelta = APM_Vector(axis.X * meters, axis.Y * meters, axis.Z * meters, 0.0);
-            let modelDelta = Quaternion.Transform(Quaternion.Conjugate(entity.GetWorldOrientation()), worldDelta);
+            let modelDelta = APM_WorldToModelDirection(component.GetLocalToWorld(), worldDelta);
             APM_GizmoMoveIk(marker.chain, modelDelta);
         } else {
             // Rotate the part: left/right bends sideways, up/down bends forward/back.
@@ -971,6 +1013,7 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "gizmos") {
             this.m_gizmosOn = !this.m_gizmosOn;
             APM_PrefSet("Gizmos", this.m_gizmosOn ? 1.0 : 0.0);
+            this.SetStatus(this.GizmoDiagnostics());
         } else if Equals(prefix, "group") {
             let groupIndex = StringToInt(arg);
             if groupIndex >= 0 && groupIndex < ArraySize(this.m_groupNames) {
