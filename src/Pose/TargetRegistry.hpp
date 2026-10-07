@@ -30,7 +30,7 @@ size_t Count();
 // Copy of the target that owns the given entity or animated component pointer.
 bool FindByPointer(uintptr_t aPointer, Target& aOut);
 
-// Fast, allocation-free check used in the animation hot path.
+// Fast, allocation-free check used in the animation hot path (entities and animated components only).
 bool ContainsPointer(uintptr_t aPointer);
 
 // Pointers (entities, animated components, rigs) the research probe looks for.

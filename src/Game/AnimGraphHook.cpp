@@ -58,9 +58,17 @@ thread_local int t_depth = 0;
 // Encoded as (offsetA << 16) | offsetB, where offsetB == 0xFFFF means a direct pointer at ctx+offsetA.
 // ---------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t PathUnknown = 0xFFFFFFFF;
+
+// Known mapping for game 2.31 (found by the probe):
+//   ctx+0x48 -> runtime animated object, +0x118 -> entAnimatedComponent
+// If it stops resolving (game update), the plugin falls back to the probe automatically.
+constexpr uint32_t KnownContextPath = (0x48u << 16) | 0x118u;
+constexpr uint32_t PathValidationMisses = 500;
+std::atomic<uint32_t> g_pathHits{0};
+std::atomic<uint32_t> g_pathMisses{0};
 constexpr uint32_t ProbeScanRange = 0x200;
 
-std::atomic<uint32_t> g_contextPath{PathUnknown};
+std::atomic<uint32_t> g_contextPath{KnownContextPath};
 std::atomic<uint32_t> g_probeBudget{0};
 std::atomic<bool> g_poseInfoLogged{false};
 std::atomic<bool> g_countMismatchLogged{false};
@@ -181,7 +189,7 @@ void ProbeContext(uintptr_t aContext)
         const uint32_t a = static_cast<uint32_t>(i * 8);
         const uint64_t first = level1[i];
 
-        if (IsProbePointer(first, pointers, count))
+        if (APM::Pose::TargetRegistry::ContainsPointer(first))
         {
             const uint32_t path = (a << 16) | 0xFFFF;
             uint32_t expected = PathUnknown;
@@ -203,7 +211,7 @@ void ProbeContext(uintptr_t aContext)
         {
             const uint32_t b = static_cast<uint32_t>(j * 8);
             const uint64_t second = level2[j];
-            if (IsProbePointer(second, pointers, count))
+            if (APM::Pose::TargetRegistry::ContainsPointer(second))
             {
                 const uint32_t path = (a << 16) | b;
                 uint32_t expected = PathUnknown;
@@ -424,7 +432,8 @@ void LogStatsPeriodically()
                    static_cast<unsigned long long>(g_statOuterCalls.load()),
                    static_cast<unsigned long long>(g_statContexts.load()),
                    static_cast<unsigned long long>(g_statCandidates.load()),
-                   g_contextPath.load() == PathUnknown ? "unknown" : "found", BoneCountsSeen().c_str());
+                   g_contextPath.load() == PathUnknown ? "unknown" : "known", BoneCountsSeen().c_str());
+    APM::Log::Info("Stats: mappingHits=%u mappingMisses=%u", g_pathHits.load(), g_pathMisses.load());
 }
 
 void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aReturnAddress, uintptr_t aStackPointer)
@@ -472,8 +481,22 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aR
     const uintptr_t targetPointer = ResolveTargetFromContext(context, path);
     if (!APM::Pose::TargetRegistry::ContainsPointer(targetPointer))
     {
+        // Validate the mapping: samples with V's bone counts must resolve to V at least sometimes.
+        if (g_pathHits.load(std::memory_order_relaxed) == 0)
+        {
+            uint32_t boneCount = 0;
+            if (APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount) &&
+                APM::Pose::TargetRegistry::HasBoneCount(boneCount) &&
+                g_pathMisses.fetch_add(1) + 1 == PathValidationMisses)
+            {
+                APM::Log::Warn("Mapping ctx[+0x%X][+0x%X] does not resolve to any target, falling back to the probe",
+                               path >> 16, path & 0xFFFF);
+                g_contextPath = PathUnknown;
+            }
+        }
         return;
     }
+    g_pathHits.fetch_add(1, std::memory_order_relaxed);
 
     APM::Pose::Target target;
     if (!APM::Pose::TargetRegistry::FindByPointer(targetPointer, target))
@@ -600,6 +623,8 @@ void OnPhotoModeActivated()
     g_statContexts = 0;
     g_statCandidates = 0;
     g_candidateDumps = 0;
+    g_pathHits = 0;
+    g_pathMisses = 0;
     {
         std::scoped_lock lock(g_boneCountsMutex);
         g_boneCountsSeenSize = 0;

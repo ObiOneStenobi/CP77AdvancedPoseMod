@@ -37,10 +37,24 @@ the plugin never hardcodes them, it resolves them at runtime.
 Found in the "reset to reference pose" helper (2.31 `+0x2CE7EC`) and the
 "copy reference pose" helper (2.31 `+0x2CF6AC`).
 
-## Context -> entity mapping (open question)
+## Context -> entity mapping
 
-`ctx` does not obviously reference the entity. The phase 0 probe scans `ctx` (depth 2, `0x200` bytes per level)
-for a pointer to the Photo Mode puppet entity or its `entAnimatedComponent` and logs the path it finds.
+Sampling contexts are pooled per worker thread (only ~16 distinct contexts in a scene), so a context must be
+resolved on every call, never cached.
+
+Found by the probe (2.31), for V's body graph (`root` component, 71 bones):
+
+| Path | Points to |
+|------|-----------|
+| `ctx+0x48` -> `+0x118` | `entAnimatedComponent` being sampled |
+| `ctx+0x40` -> `+0x00` | `animRig` (shared between entities, not unique) |
+| `ctx+0x108`, `ctx+0x140` | `animRig` |
+| `ctx+0x188` -> `+0xB8` | owning entity |
+
+Call stack of the outermost `Output::Sample` (2.31): `+0x2CA36F +0x2CA19B +0x1E1AFB +0x328B35 +0x1D31F9 ...`
+
+V's Photo Mode puppet has these animated components: `root` (71, main skeleton incl. fingers),
+`deformations` (181), `face_rig` (344), `shadow` (56), `breasts` (20), 3x `hair_dangle`, and one weapon/prop rig.
 
 ## Photo Mode
 

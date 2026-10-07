@@ -13,6 +13,10 @@ std::vector<APM::Pose::Target> g_targets;
 std::array<uintptr_t, 64> g_pointers{};
 size_t g_pointerCount = 0;
 
+// Entities and animated components only: these identify a target unambiguously (rigs are shared).
+std::array<uintptr_t, 64> g_identities{};
+size_t g_identityCount = 0;
+
 struct SharedGuard
 {
     SharedGuard() { AcquireSRWLockShared(&g_lock); }
@@ -46,8 +50,19 @@ void Set(std::vector<Target> aTargets)
     g_targets = std::move(aTargets);
 
     g_pointerCount = 0;
+    g_identityCount = 0;
     for (const auto& target : g_targets)
     {
+        for (const uintptr_t pointer : {target.entity, target.animatedComponent})
+        {
+            if (pointer && g_identityCount < g_identities.size() &&
+                std::find(g_identities.begin(), g_identities.begin() + g_identityCount, pointer) ==
+                    g_identities.begin() + g_identityCount)
+            {
+                g_identities[g_identityCount++] = pointer;
+            }
+        }
+
         for (const uintptr_t pointer : {target.entity, target.animatedComponent, target.rig})
         {
             if (!pointer || g_pointerCount >= g_pointers.size())
@@ -93,9 +108,9 @@ bool ContainsPointer(uintptr_t aPointer)
     }
 
     SharedGuard guard;
-    for (size_t i = 0; i < g_pointerCount; ++i)
+    for (size_t i = 0; i < g_identityCount; ++i)
     {
-        if (g_pointers[i] == aPointer)
+        if (g_identities[i] == aPointer)
         {
             return true;
         }
