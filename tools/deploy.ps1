@@ -37,6 +37,11 @@ if (-not (Test-Path $config)) {
     Copy-Item (Join-Path $root "data\config.ini") $config
 }
 
+# Redscript (Photo Mode menu items)
+$scriptsTarget = Join-Path $GamePath "r6\scripts\AdvancedPoseMod"
+New-Item -ItemType Directory -Force -Path $scriptsTarget | Out-Null
+Copy-Item (Join-Path $root "scripts\AdvancedPoseMod\*.reds") $scriptsTarget -Force
+
 # Developer debug window for Cyber Engine Tweaks
 $cetTarget = Join-Path $GamePath "bin\x64\plugins\cyber_engine_tweaks\mods\AdvancedPoseModDebug"
 New-Item -ItemType Directory -Force -Path $cetTarget | Out-Null

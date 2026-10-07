@@ -68,3 +68,15 @@ Hashes and `gamePhotoModeSystem` offsets come from PhotoModeEx (psiberx, MIT):
 
 `anim::Rig` (resource): `parentIndices` at `+0x40`, `referencePoseLS` at `+0x48`, `boneNames` at `+0x50`
 (see RED4ext.SDK `animRig.hpp`).
+
+## Photo Mode menu
+
+The menu is built natively but every widget step goes through script callbacks of
+`gameuiPhotoModeMenuController` (`OnAddMenuItem`, `OnAddingMenuItemsFinished`, `OnSetupScrollBar`,
+`OnSetupOptionSelector`, `OnForceAttributeVaulue`, ...). Pages: 0 camera, 1 time/weather, 2 pose, 3 NPC, 4 lights,
+5 effects, 6 color, 7 stickers, 8 load/save.
+
+Value changes of list items call the native `OnAttributeUpdated(attribute, value, apply)`. Its handler (2.31
+`+0x27D7740`) parses the arguments and calls `Forward(this + 0x130, attribute, value, apply)` (2.31 `+0x27D62E8`).
+The plugin locates that call at runtime (pattern `48 8D 8F 30 01 00 00` + `E8`) and drops keys 7700-7799,
+so AdvancedPoseMod's own items never reach the game's Photo Mode system.

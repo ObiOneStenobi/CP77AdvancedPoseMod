@@ -172,6 +172,7 @@ void SetRotation(const std::string& aBone, float aX, float aY, float aZ)
     auto& bone = FindOrAddLocked(aBone);
     bone.rotationEuler = {aX, aY, aZ};
     bone.rotation = Math::FromEulerXYZDegrees(aX, aY, aZ);
+    bone.hasUiAngles = false;
     bone.hasRotation = !IsZero(bone.rotationEuler);
     PublishLocked();
     g_enabled = true;
@@ -185,6 +186,28 @@ void SetTranslation(const std::string& aBone, float aX, float aY, float aZ)
     bone.hasTranslation = !IsZero(bone.translation);
     PublishLocked();
     g_enabled = true;
+}
+
+void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, const std::array<float, 3>& aUiAngles)
+{
+    std::scoped_lock lock(g_mutex);
+    auto& bone = FindOrAddLocked(aBone);
+    bone.rotation = Math::Normalize(aRotation);
+    bone.rotationEuler = {};
+    bone.uiAngles = aUiAngles;
+    bone.hasUiAngles = true;
+    bone.hasRotation = !IsZero(aUiAngles);
+    PublishLocked();
+    g_enabled = true;
+}
+
+bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto* bone = FindLocked(aBone);
+    const bool has = bone && bone->hasRotation && bone->hasUiAngles;
+    aOut = has ? bone->uiAngles : std::array<float, 3>{};
+    return has;
 }
 
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut)
@@ -258,7 +281,15 @@ bool Save(const std::string& aName)
         entry["name"] = bone.boneName;
         if (bone.hasRotation)
         {
-            entry["rotation"] = bone.rotationEuler;
+            if (bone.hasUiAngles)
+            {
+                entry["rotationQuat"] = {bone.rotation.i, bone.rotation.j, bone.rotation.k, bone.rotation.r};
+                entry["ui"] = bone.uiAngles;
+            }
+            else
+            {
+                entry["rotation"] = bone.rotationEuler;
+            }
         }
         if (bone.hasTranslation)
         {
@@ -345,7 +376,15 @@ bool Load(const std::string& aName)
             BoneOverride bone;
             bone.boneName = entry.at("name").get<std::string>();
             bone.boneHash = HashBone(bone.boneName);
-            if (entry.contains("rotation"))
+            if (entry.contains("rotationQuat"))
+            {
+                const auto q = entry["rotationQuat"].get<std::array<float, 4>>();
+                bone.rotation = Math::Normalize(Math::Quat{q[0], q[1], q[2], q[3]});
+                bone.uiAngles = entry.value("ui", std::array<float, 3>{});
+                bone.hasUiAngles = entry.contains("ui");
+                bone.hasRotation = true;
+            }
+            else if (entry.contains("rotation"))
             {
                 bone.rotationEuler = entry["rotation"].get<std::array<float, 3>>();
                 bone.rotation = Math::FromEulerXYZDegrees(bone.rotationEuler[0], bone.rotationEuler[1],

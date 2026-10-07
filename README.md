@@ -2,9 +2,9 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-> Status: **phase 2 – bone overrides + two-bone IK**. Any bone of V's main skeleton can be rotated/moved on top of the
-> current Photo Mode pose; poses can be saved to and loaded from JSON files. A temporary CET debug window
-> is used to drive it until the in-Photo-Mode UI exists.
+> Status: **phase 3 – Photo Mode menu**. Body parts of V can be bent/twisted/moved on top of the current
+> Photo Mode pose, hands and feet can be pinned with IK, poses can be saved to slots. Everything is available
+> at the bottom of the **Pose** page of the Photo Mode menu. A CET debug window is kept for development.
 
 ## Requirements
 
@@ -35,11 +35,17 @@ powershell -ExecutionPolicy Bypass -File tools\deploy.ps1
 This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 `<game>\red4ext\plugins\AdvancedPoseMod\`.
 
-## Test (phase 1)
+## Use
 
-1. Start the game, load a save, open Photo Mode.
-2. Open the CET overlay: the **AdvancedPoseMod (debug)** window lists V's bones.
-3. Select a bone and move the sliders; save/load poses at the bottom.
+1. Open Photo Mode, go to the **Pose** page and scroll to the bottom.
+2. **Body part** selects what to edit; **Bend forward / back**, **Bend sideways** and **Twist** rotate it,
+   **Move ...** sliders are available for the body (hips).
+3. **IK limb** + **IK pin hand / foot** keep a hand/foot in place (e.g. while moving the hips); the IK sliders
+   move it and turn the elbow/knee.
+4. **Pose slot** + **Save pose to slot** / **Load pose from slot** (slot files: `poses\slot_01.json` ...).
+5. **Advanced pose** turns the custom pose on/off; it is turned off when leaving Photo Mode.
+
+The CET overlay still has the **AdvancedPoseMod (debug)** window with raw bone access.
 
 Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.json`.
 
@@ -73,7 +79,8 @@ src/Game      engine hooks (Photo Mode, animation graph)
 src/Math      quaternion helpers
 src/Pose      pose targets, override layer, pose files (later: IK)
 src/Scripting native functions exposed to redscript / CET (APM_*)
-scripts/      redscript declarations (not deployed yet)
+scripts/      redscript: native declarations + Photo Mode menu items
+src/Ui        menu state, body part catalog
 cet/          developer debug window for Cyber Engine Tweaks
 data/         files shipped next to the DLL
 docs/         research notes

@@ -34,3 +34,13 @@ public native func APM_LoadPose(name: String) -> Bool
 // Refreshes the list of saved poses and returns its size
 public native func APM_GetPoseCount() -> Int32
 public native func APM_GetPoseName(index: Int32) -> String
+
+// Photo Mode menu items (see PhotoModeUi.reds); attribute keys 7700-7799
+public native func APM_UiIsOwnAttribute(attribute: Uint32) -> Bool
+public native func APM_UiSetValue(attribute: Uint32, value: Float) -> Void
+public native func APM_UiGetValue(attribute: Uint32) -> Float
+public native func APM_UiIsAttributeEnabled(attribute: Uint32) -> Bool
+public native func APM_UiConsumeRefresh() -> Bool
+public native func APM_UiRequestRefresh() -> Void
+public native func APM_UiGetOptionCount(attribute: Uint32) -> Int32
+public native func APM_UiGetOptionLabel(attribute: Uint32, index: Int32) -> String

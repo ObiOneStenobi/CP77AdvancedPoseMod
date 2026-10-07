@@ -256,6 +256,15 @@ void RefreshTargets(void* aSystem)
                     target.parents.push_back(rig->parentIndices ? rig->parentIndices[i] : int16_t(-1));
                 }
                 target.refRotationsMS = ComputeModelSpaceRotations(rig);
+                if (rig->referencePoseLS)
+                {
+                    for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
+                    {
+                        const auto& t = rig->referencePoseLS[i];
+                        target.refRotationsLS.push_back({t.Rotation.i, t.Rotation.j, t.Rotation.k, t.Rotation.r});
+                        target.refTranslationsLS.push_back({t.Translation.X, t.Translation.Y, t.Translation.Z});
+                    }
+                }
             }
 
             if (config.probeEnabled && config.probeDumpRig)

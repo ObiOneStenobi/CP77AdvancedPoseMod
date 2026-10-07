@@ -1,0 +1,27 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+// Player-facing list of posable body parts of V's main skeleton.
+// One entry can drive several bones (both eyes, the three segments of a finger).
+namespace APM::Ui
+{
+enum class EntryMode
+{
+    Single, // one bone
+    Mirror, // same rotation on every bone (e.g. both eyes)
+    Curl,   // finger: "bend" goes to every segment, the other axes only to the first one
+};
+
+struct CatalogEntry
+{
+    const char* label;
+    std::vector<const char*> bones; // first bone is the primary one (used to read values back)
+    EntryMode mode = EntryMode::Single;
+    bool allowsTranslation = false;
+};
+
+const std::vector<CatalogEntry>& GetBoneCatalog();
+} // namespace APM::Ui

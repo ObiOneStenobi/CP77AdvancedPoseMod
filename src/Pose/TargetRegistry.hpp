@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Quat.hpp"
+#include "Math/Vec3.hpp"
 
 #include <array>
 #include <functional>
@@ -32,6 +33,8 @@ struct Target
     std::vector<uint64_t> boneNames; // CName hashes, rig order
     std::vector<int16_t> parents;    // parent index per bone (-1 for root)
     std::vector<Math::Quat> refRotationsMS; // reference pose rotations in model space
+    std::vector<Math::Quat> refRotationsLS; // reference pose rotations in local space
+    std::vector<Math::Vec3> refTranslationsLS; // reference pose translations in local (parent) space
     std::vector<LinkedBone> linkedBones;
     std::string debugName;
 };
@@ -59,6 +62,13 @@ int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash);
 
 // True if any registered target has a rig with exactly this many bones (probe heuristic).
 bool HasBoneCount(uint32_t aCount);
+
+// Player-friendly rotation axes of a bone of V's main skeleton, expressed in the bone's local space:
+//   bend1  = bend forward/back (or swing forward/back for horizontal limbs)
+//   bend2  = bend sideways (or raise/lower for horizontal limbs)
+//   twist  = along the bone
+// Returns false if the main skeleton is not available or the bone is unknown.
+bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist);
 
 // Bone names of V's main skeleton ("root" component), for UIs. Empty if not available.
 std::vector<uint64_t> GetMainSkeletonBones();

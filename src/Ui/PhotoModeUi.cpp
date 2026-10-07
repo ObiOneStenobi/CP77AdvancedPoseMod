@@ -1,0 +1,375 @@
+#include "Ui/PhotoModeUi.hpp"
+
+#include "Core/Log.hpp"
+#include "Math/Vec3.hpp"
+#include "Pose/PoseOverrides.hpp"
+#include "Pose/TargetRegistry.hpp"
+#include "Ui/BoneCatalog.hpp"
+
+#include <RED4ext/CName.hpp>
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <filesystem>
+
+namespace
+{
+using namespace APM;
+using namespace APM::Ui::PhotoModeUi;
+
+constexpr int32_t SlotCount = 10;
+constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
+constexpr const char* OnOffLabels[] = {"Off", "On"};
+constexpr const char* ActionLabels[] = {"-", "Apply"};
+
+// Main-thread state (natives are called from redscript on the game thread).
+int32_t g_bodyPart = 0;
+int32_t g_ikLimb = 0;
+int32_t g_slot = 0; // 0-based slot index
+std::atomic<bool> g_refresh{true};
+
+const Ui::CatalogEntry& CurrentEntry()
+{
+    const auto& catalog = Ui::GetBoneCatalog();
+    return catalog[std::clamp<int32_t>(g_bodyPart, 0, static_cast<int32_t>(catalog.size()) - 1)];
+}
+
+Pose::IkChain CurrentChain()
+{
+    return static_cast<Pose::IkChain>(std::clamp<int32_t>(g_ikLimb, 0, Pose::IkChainCount - 1));
+}
+
+std::string SlotName(int32_t aSlot)
+{
+    char name[16]{};
+    std::snprintf(name, sizeof(name), "slot_%02d", aSlot);
+    return name;
+}
+
+bool SlotExists(int32_t aSlot)
+{
+    std::error_code ec;
+    return std::filesystem::exists(Pose::PoseOverrides::GetPoseDirectory() / (SlotName(aSlot) + ".json"), ec);
+}
+
+bool Same(float a, float b)
+{
+    return std::abs(a - b) < 1e-4f;
+}
+
+std::array<float, 3> CurrentAngles()
+{
+    std::array<float, 3> angles{};
+    Pose::PoseOverrides::GetUiAngles(CurrentEntry().bones.front(), angles);
+    return angles;
+}
+
+std::array<float, 3> CurrentTranslation()
+{
+    std::array<float, 3> translation{};
+    Pose::PoseOverrides::GetTranslation(CurrentEntry().bones.front(), translation);
+    return translation;
+}
+
+Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngles)
+{
+    Math::Vec3 bend1;
+    Math::Vec3 bend2;
+    Math::Vec3 twist;
+    if (!Pose::TargetRegistry::GetBoneAxes(RED4ext::CName(aBone).hash, bend1, bend2, twist))
+    {
+        // Main skeleton not available yet: fall back to the bone's raw local axes.
+        return Math::FromEulerXYZDegrees(aAngles[0], aAngles[1], aAngles[2]);
+    }
+    const auto q1 = Math::FromAxisAngle(bend1, Math::DegToRad(aAngles[0]));
+    const auto q2 = Math::FromAxisAngle(bend2, Math::DegToRad(aAngles[1]));
+    const auto q3 = Math::FromAxisAngle(twist, Math::DegToRad(aAngles[2]));
+    return Math::Normalize(Math::Mul(Math::Mul(q1, q2), q3));
+}
+
+void ApplyAngles(const std::array<float, 3>& aAngles)
+{
+    const auto& entry = CurrentEntry();
+    for (size_t i = 0; i < entry.bones.size(); ++i)
+    {
+        std::array<float, 3> angles = aAngles;
+        if (entry.mode == Ui::EntryMode::Curl && i > 0)
+        {
+            angles = {aAngles[0], 0.f, 0.f}; // only the curl reaches the outer finger segments
+        }
+        Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles), angles);
+    }
+}
+
+void ResetCurrentPart()
+{
+    for (const auto* bone : CurrentEntry().bones)
+    {
+        Pose::PoseOverrides::ResetBone(bone);
+    }
+}
+
+void RunAction(uint32_t aAttribute)
+{
+    switch (aAttribute)
+    {
+    case Attr::ResetPart:
+        ResetCurrentPart();
+        break;
+    case Attr::ResetAll:
+        Pose::PoseOverrides::ResetAll();
+        break;
+    case Attr::SavePose:
+        Pose::PoseOverrides::Save(SlotName(g_slot + 1));
+        break;
+    case Attr::LoadPose:
+        Pose::PoseOverrides::Load(SlotName(g_slot + 1));
+        break;
+    default:
+        return;
+    }
+    RequestRefresh(); // action selectors go back to "-", values and slot labels are redrawn
+}
+} // namespace
+
+namespace APM::Ui::PhotoModeUi
+{
+bool IsOwnAttribute(uint32_t aAttribute)
+{
+    return aAttribute >= Attr::First && aAttribute <= Attr::Last;
+}
+
+void RequestRefresh()
+{
+    g_refresh = true;
+}
+
+bool ConsumeRefresh()
+{
+    return g_refresh.exchange(false);
+}
+
+float GetValue(uint32_t aAttribute)
+{
+    switch (aAttribute)
+    {
+    case Attr::Enabled:
+        return Pose::PoseOverrides::IsEnabled() ? 1.f : 0.f;
+    case Attr::BodyPart:
+        return static_cast<float>(g_bodyPart);
+    case Attr::Bend1:
+    case Attr::Bend2:
+    case Attr::Twist:
+        return CurrentAngles()[aAttribute - Attr::Bend1];
+    case Attr::MoveX:
+    case Attr::MoveY:
+    case Attr::MoveZ:
+        return CurrentEntry().allowsTranslation ? CurrentTranslation()[aAttribute - Attr::MoveX] : 0.f;
+    case Attr::IkLimb:
+        return static_cast<float>(g_ikLimb);
+    case Attr::IkPin:
+        return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled ? 1.f : 0.f;
+    case Attr::IkX:
+    case Attr::IkY:
+    case Attr::IkZ:
+        return Pose::PoseOverrides::GetIkChain(CurrentChain()).offset[aAttribute - Attr::IkX];
+    case Attr::IkSwivel:
+        return Pose::PoseOverrides::GetIkChain(CurrentChain()).swivel;
+    case Attr::Slot:
+        return static_cast<float>(g_slot);
+    default:
+        return 0.f; // action selectors always rest on "-"
+    }
+}
+
+void SetValue(uint32_t aAttribute, float aValue)
+{
+    // Redrawing the menu feeds the current values back here: ignore anything that does not change.
+    switch (aAttribute)
+    {
+    case Attr::Enabled:
+    {
+        const bool enabled = aValue > 0.5f;
+        if (enabled != Pose::PoseOverrides::IsEnabled())
+        {
+            Pose::PoseOverrides::SetEnabled(enabled);
+        }
+        break;
+    }
+    case Attr::BodyPart:
+    {
+        const auto index = static_cast<int32_t>(std::lround(aValue));
+        if (index != g_bodyPart)
+        {
+            g_bodyPart = std::clamp<int32_t>(index, 0, static_cast<int32_t>(GetBoneCatalog().size()) - 1);
+            RequestRefresh();
+        }
+        break;
+    }
+    case Attr::Bend1:
+    case Attr::Bend2:
+    case Attr::Twist:
+    {
+        auto angles = CurrentAngles();
+        auto& angle = angles[aAttribute - Attr::Bend1];
+        if (!Same(angle, aValue))
+        {
+            angle = aValue;
+            ApplyAngles(angles);
+        }
+        break;
+    }
+    case Attr::MoveX:
+    case Attr::MoveY:
+    case Attr::MoveZ:
+    {
+        if (!CurrentEntry().allowsTranslation)
+        {
+            break;
+        }
+        auto translation = CurrentTranslation();
+        auto& component = translation[aAttribute - Attr::MoveX];
+        if (!Same(component, aValue))
+        {
+            component = aValue;
+            Pose::PoseOverrides::SetTranslation(CurrentEntry().bones.front(), translation[0], translation[1],
+                                                translation[2]);
+        }
+        break;
+    }
+    case Attr::IkLimb:
+    {
+        const auto index = std::clamp<int32_t>(static_cast<int32_t>(std::lround(aValue)), 0, Pose::IkChainCount - 1);
+        if (index != g_ikLimb)
+        {
+            g_ikLimb = index;
+            RequestRefresh();
+        }
+        break;
+    }
+    case Attr::IkPin:
+    case Attr::IkX:
+    case Attr::IkY:
+    case Attr::IkZ:
+    case Attr::IkSwivel:
+    {
+        auto settings = Pose::PoseOverrides::GetIkChain(CurrentChain());
+        auto updated = settings;
+        if (aAttribute == Attr::IkPin)
+        {
+            updated.enabled = aValue > 0.5f;
+        }
+        else if (aAttribute == Attr::IkSwivel)
+        {
+            updated.swivel = aValue;
+        }
+        else
+        {
+            updated.offset[aAttribute - Attr::IkX] = aValue;
+        }
+
+        const bool changed = updated.enabled != settings.enabled || !Same(updated.swivel, settings.swivel) ||
+                             !Same(updated.offset[0], settings.offset[0]) ||
+                             !Same(updated.offset[1], settings.offset[1]) ||
+                             !Same(updated.offset[2], settings.offset[2]);
+        if (changed)
+        {
+            Pose::PoseOverrides::SetIkChain(CurrentChain(), updated);
+            if (aAttribute == Attr::IkPin)
+            {
+                RequestRefresh(); // offset sliders become (un)available
+            }
+        }
+        break;
+    }
+    case Attr::Slot:
+    {
+        g_slot = std::clamp<int32_t>(static_cast<int32_t>(std::lround(aValue)), 0, SlotCount - 1);
+        break;
+    }
+    case Attr::ResetPart:
+    case Attr::ResetAll:
+    case Attr::SavePose:
+    case Attr::LoadPose:
+        if (aValue > 0.5f)
+        {
+            RunAction(aAttribute);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+bool IsAttributeEnabled(uint32_t aAttribute)
+{
+    switch (aAttribute)
+    {
+    case Attr::MoveX:
+    case Attr::MoveY:
+    case Attr::MoveZ:
+        return CurrentEntry().allowsTranslation;
+    case Attr::IkX:
+    case Attr::IkY:
+    case Attr::IkZ:
+    case Attr::IkSwivel:
+        return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled;
+    default:
+        return true;
+    }
+}
+
+int32_t GetOptionCount(uint32_t aAttribute)
+{
+    switch (aAttribute)
+    {
+    case Attr::Enabled:
+    case Attr::IkPin:
+        return 2;
+    case Attr::BodyPart:
+        return static_cast<int32_t>(GetBoneCatalog().size());
+    case Attr::IkLimb:
+        return static_cast<int32_t>(std::size(IkLimbLabels));
+    case Attr::Slot:
+        return SlotCount;
+    case Attr::ResetPart:
+    case Attr::ResetAll:
+    case Attr::SavePose:
+    case Attr::LoadPose:
+        return static_cast<int32_t>(std::size(ActionLabels));
+    default:
+        return 0;
+    }
+}
+
+std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex)
+{
+    if (aIndex < 0 || aIndex >= GetOptionCount(aAttribute))
+    {
+        return {};
+    }
+    switch (aAttribute)
+    {
+    case Attr::Enabled:
+    case Attr::IkPin:
+        return OnOffLabels[aIndex];
+    case Attr::BodyPart:
+        return GetBoneCatalog()[aIndex].label;
+    case Attr::IkLimb:
+        return IkLimbLabels[aIndex];
+    case Attr::Slot:
+    {
+        const int32_t slot = aIndex + 1;
+        return "Slot " + std::to_string(slot) + (SlotExists(slot) ? " (saved)" : " (empty)");
+    }
+    case Attr::ResetPart:
+    case Attr::ResetAll:
+    case Attr::SavePose:
+    case Attr::LoadPose:
+        return ActionLabels[aIndex];
+    default:
+        return {};
+    }
+}
+} // namespace APM::Ui::PhotoModeUi

@@ -4,6 +4,7 @@
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
+#include "Ui/PhotoModeUi.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
@@ -240,6 +241,72 @@ void GetPoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, CString(valid ? g_poseNames[index].c_str() : ""));
 }
 
+// --- Photo Mode menu (see scripts/AdvancedPoseMod/PhotoModeUi.reds) ----------------------------------------------
+
+void UiIsOwnAttribute(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsOwnAttribute(attribute));
+}
+
+void UiSetValue(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    uint32_t attribute = 0;
+    float value = 0.f;
+    RED4ext::GetParameter(aFrame, &attribute);
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetValue(attribute, value);
+}
+
+void UiGetValue(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::GetValue(attribute));
+}
+
+void UiIsAttributeEnabled(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsAttributeEnabled(attribute));
+}
+
+void UiConsumeRefresh(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::ConsumeRefresh());
+}
+
+void UiRequestRefresh(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::RequestRefresh();
+}
+
+void UiGetOptionCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::GetOptionCount(attribute));
+}
+
+void UiGetOptionLabel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    Return(aOut, CString(APM::Ui::PhotoModeUi::GetOptionLabel(attribute, index).c_str()));
+}
+
 // --- Registration ------------------------------------------------------------------------------------------------
 
 struct Param
@@ -298,6 +365,15 @@ void Register()
     ::Register("APM_LoadPose", &LoadPose, "Bool", {{"String", "name"}});
     ::Register("APM_GetPoseCount", &GetPoseCount, "Int32", {});
     ::Register("APM_GetPoseName", &GetPoseName, "String", {{"Int32", "index"}});
+
+    ::Register("APM_UiIsOwnAttribute", &UiIsOwnAttribute, "Bool", {{"Uint32", "attribute"}});
+    ::Register("APM_UiSetValue", &UiSetValue, nullptr, {{"Uint32", "attribute"}, {"Float", "value"}});
+    ::Register("APM_UiGetValue", &UiGetValue, "Float", {{"Uint32", "attribute"}});
+    ::Register("APM_UiIsAttributeEnabled", &UiIsAttributeEnabled, "Bool", {{"Uint32", "attribute"}});
+    ::Register("APM_UiConsumeRefresh", &UiConsumeRefresh, "Bool", {});
+    ::Register("APM_UiRequestRefresh", &UiRequestRefresh, nullptr, {});
+    ::Register("APM_UiGetOptionCount", &UiGetOptionCount, "Int32", {{"Uint32", "attribute"}});
+    ::Register("APM_UiGetOptionLabel", &UiGetOptionLabel, "String", {{"Uint32", "attribute"}, {"Int32", "index"}});
 
     Log::Info("Script API registered");
 }

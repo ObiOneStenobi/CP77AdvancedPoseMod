@@ -24,6 +24,8 @@ struct BoneOverride
     bool hasRotation = false;
     std::array<float, 3> rotationEuler{}; // degrees, applied Z * Y * X around local axes
     Math::Quat rotation{};
+    bool hasUiAngles = false;             // set when edited from the Photo Mode UI
+    std::array<float, 3> uiAngles{};      // bend1, bend2, twist (degrees) as shown in the UI
 
     bool hasTranslation = false;
     std::array<float, 3> translation{}; // meters
@@ -90,6 +92,9 @@ std::shared_ptr<const OverrideSnapshot> GetSnapshot();
 
 void SetRotation(const std::string& aBone, float aX, float aY, float aZ);
 void SetTranslation(const std::string& aBone, float aX, float aY, float aZ);
+// Rotation given directly as a quaternion, remembering the UI angles that produced it.
+void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, const std::array<float, 3>& aUiAngles);
+bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut);
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut);
 bool GetTranslation(const std::string& aBone, std::array<float, 3>& aOut);
 void SetIkChain(IkChain aChain, const IkChainSettings& aSettings);

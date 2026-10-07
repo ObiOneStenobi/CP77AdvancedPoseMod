@@ -1,0 +1,49 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+// State behind the "Advanced pose" items added to the Pose page of the Photo Mode menu.
+// The redscript side (scripts/AdvancedPoseMod/PhotoModeUi.reds) creates the menu items and forwards
+// every value change here; when values must be redrawn (e.g. another body part was selected) it
+// polls ConsumeRefresh() and reads them back with GetValue().
+namespace APM::Ui::PhotoModeUi
+{
+// Attribute keys used by the menu items. The game uses keys < 100, PhotoModeEx uses 34xx.
+namespace Attr
+{
+constexpr uint32_t First = 7700;
+constexpr uint32_t Enabled = 7700;
+constexpr uint32_t BodyPart = 7701;
+constexpr uint32_t Bend1 = 7702;
+constexpr uint32_t Bend2 = 7703;
+constexpr uint32_t Twist = 7704;
+constexpr uint32_t MoveX = 7705;
+constexpr uint32_t MoveY = 7706;
+constexpr uint32_t MoveZ = 7707;
+constexpr uint32_t IkLimb = 7710;
+constexpr uint32_t IkPin = 7711;
+constexpr uint32_t IkX = 7712;
+constexpr uint32_t IkY = 7713;
+constexpr uint32_t IkZ = 7714;
+constexpr uint32_t IkSwivel = 7715;
+constexpr uint32_t Slot = 7720;
+// Action items: a selector with two options ("-" / "Apply"); choosing "Apply" runs the action.
+constexpr uint32_t ResetPart = 7721;
+constexpr uint32_t ResetAll = 7722;
+constexpr uint32_t SavePose = 7723;
+constexpr uint32_t LoadPose = 7724;
+constexpr uint32_t Last = 7799;
+} // namespace Attr
+
+bool IsOwnAttribute(uint32_t aAttribute);
+void SetValue(uint32_t aAttribute, float aValue);
+float GetValue(uint32_t aAttribute);
+bool IsAttributeEnabled(uint32_t aAttribute);
+bool ConsumeRefresh();
+void RequestRefresh();
+
+// Option lists for selector items.
+int32_t GetOptionCount(uint32_t aAttribute);
+std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex);
+} // namespace APM::Ui::PhotoModeUi

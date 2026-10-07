@@ -1,7 +1,9 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Scripting/ScriptApi.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 
@@ -27,8 +29,10 @@ std::filesystem::path ResolvePluginDir()
 
 void OnPostRegisterTypes()
 {
-    // RTTI is ready here, so the animation node classes can be inspected.
+    // RTTI is ready here, so the animation node classes can be inspected and natives registered.
     APM::AnimGraphHook::Install();
+    APM::PhotoModeMenuGuard::Install();
+    APM::ScriptApi::Register();
 }
 } // namespace
 
@@ -57,6 +61,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
     case RED4ext::v1::EMainReason::Unload:
     {
         APM::AnimGraphHook::Uninstall();
+        APM::PhotoModeMenuGuard::Uninstall();
         APM::PhotoModeTracker::Uninstall();
         APM::Log::Info("AdvancedPoseMod unloaded");
         break;
