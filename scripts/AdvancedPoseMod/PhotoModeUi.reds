@@ -58,15 +58,16 @@ public func APM_MenuItems() -> array<APM_MenuItem> {
     ArrayPush(items, APM_Slider(7702u, "Bend forward / back", -180.0, 180.0, 1.0));
     ArrayPush(items, APM_Slider(7703u, "Bend sideways", -180.0, 180.0, 1.0));
     ArrayPush(items, APM_Slider(7704u, "Twist", -180.0, 180.0, 1.0));
-    ArrayPush(items, APM_Slider(7705u, "Move left / right", -1.0, 1.0, 0.01));
-    ArrayPush(items, APM_Slider(7706u, "Move forward / back", -1.0, 1.0, 0.01));
-    ArrayPush(items, APM_Slider(7707u, "Move up / down", -1.0, 1.0, 0.01));
+    // Distances in centimeters: whole-number steps keep the sliders updating while dragging.
+    ArrayPush(items, APM_Slider(7705u, "Move left / right (cm)", -100.0, 100.0, 1.0));
+    ArrayPush(items, APM_Slider(7706u, "Move forward / back (cm)", -100.0, 100.0, 1.0));
+    ArrayPush(items, APM_Slider(7707u, "Move up / down (cm)", -100.0, 100.0, 1.0));
     ArrayPush(items, APM_Selector(7721u, "Reset body part"));
     ArrayPush(items, APM_Selector(7710u, "IK limb"));
     ArrayPush(items, APM_Selector(7711u, "IK pin hand / foot"));
-    ArrayPush(items, APM_Slider(7712u, "IK move right / left", -0.8, 0.8, 0.01));
-    ArrayPush(items, APM_Slider(7713u, "IK move forward / back", -0.8, 0.8, 0.01));
-    ArrayPush(items, APM_Slider(7714u, "IK move up / down", -0.8, 0.8, 0.01));
+    ArrayPush(items, APM_Slider(7712u, "IK move right / left (cm)", -80.0, 80.0, 1.0));
+    ArrayPush(items, APM_Slider(7713u, "IK move forward / back (cm)", -80.0, 80.0, 1.0));
+    ArrayPush(items, APM_Slider(7714u, "IK move up / down (cm)", -80.0, 80.0, 1.0));
     ArrayPush(items, APM_Slider(7715u, "IK elbow / knee direction", -180.0, 180.0, 1.0));
     ArrayPush(items, APM_Selector(7720u, "Pose slot"));
     ArrayPush(items, APM_Selector(7723u, "Save pose to slot"));

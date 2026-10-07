@@ -80,3 +80,23 @@ Value changes of list items call the native `OnAttributeUpdated(attribute, value
 `+0x27D7740`) parses the arguments and calls `Forward(this + 0x130, attribute, value, apply)` (2.31 `+0x27D62E8`).
 The plugin locates that call at runtime (pattern `48 8D 8F 30 01 00 00` + `E8`) and drops keys 7700-7799,
 so AdvancedPoseMod's own items never reach the game's Photo Mode system.
+
+## Twist helper bones (deformations skeleton)
+
+The `deformations` component (181 bones) holds CDPR's twist helpers, all placed on the bone line (local X):
+
+| Helper | Parent | Position along the bone |
+|---|---|---|
+| `l/r_Wrist_0/1/2_JNT` | ForeArm | 0.33 / 0.67 / 0.98 |
+| `l/r_SHL_0/1_JNT` | Arm | 0.33 / 0.67 |
+| `l/r_thigh_0/1_JNT` | UpLeg | 0.33 / 0.67 |
+| `l/r_calf_0_JNT` | Leg | 0.75 |
+
+Muscle correctives (`*_mscl_JNT`, `*_out_JNT`) hang below them. The game computes the helpers before our Output hook,
+so `PoseProcessor` adds the twist part of our own change: forearm helpers take a share of the added hand twist,
+upper arm / thigh helpers cancel part of the added arm / thigh twist. Calf helpers take half of the added foot twist.
+
+## Photo Mode sliders
+
+Sliders with a fractional step (0.01) only reported changes on release in testing; distances are therefore shown in
+whole centimeters.

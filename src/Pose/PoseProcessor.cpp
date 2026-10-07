@@ -8,6 +8,9 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <iterator>
 #include <mutex>
 #include <vector>
 
@@ -251,27 +254,180 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Twist helper bones
+//
+// The "deformations" skeleton has CDPR's twist helpers (l_Wrist_0..2 along the forearm, l_SHL_0..1 along the upper
+// arm, l_thigh_0..1, l_calf_0). The game computes them from the animation *before* our hook runs, so a twist we add
+// to the hand or the upper arm would otherwise collapse the skin at a single joint ("candy wrapper").
+// We spread the twist part of our own change over the helpers, by how far along the bone each one sits.
+// ---------------------------------------------------------------------------------------------------------------------
+enum class TwistMode
+{
+    // Helper is a sibling of the driver (both children of the same bone), e.g. forearm helpers driven by the hand:
+    // the helper takes `weight` of the driver's added twist.
+    FollowChild,
+    // Helper is a child of the driver, e.g. upper arm helpers: it keeps only `weight` of the driver's added twist.
+    DampenParent,
+};
+
+struct TwistHelper
+{
+    const char* helper;
+    const char* driver;
+    TwistMode mode;
+    float weight;
+};
+
+constexpr TwistHelper TwistHelpers[] = {
+    {"l_Wrist_0_JNT", "LeftHand", TwistMode::FollowChild, 0.33f},
+    {"l_Wrist_1_JNT", "LeftHand", TwistMode::FollowChild, 0.67f},
+    {"l_Wrist_2_JNT", "LeftHand", TwistMode::FollowChild, 0.95f},
+    {"r_Wrist_0_JNT", "RightHand", TwistMode::FollowChild, 0.33f},
+    {"r_Wrist_1_JNT", "RightHand", TwistMode::FollowChild, 0.67f},
+    {"r_Wrist_2_JNT", "RightHand", TwistMode::FollowChild, 0.95f},
+    {"l_SHL_0_JNT", "LeftArm", TwistMode::DampenParent, 0.33f},
+    {"l_SHL_1_JNT", "LeftArm", TwistMode::DampenParent, 0.67f},
+    {"r_SHL_0_JNT", "RightArm", TwistMode::DampenParent, 0.33f},
+    {"r_SHL_1_JNT", "RightArm", TwistMode::DampenParent, 0.67f},
+    {"l_thigh_0_JNT", "LeftUpLeg", TwistMode::DampenParent, 0.33f},
+    {"l_thigh_1_JNT", "LeftUpLeg", TwistMode::DampenParent, 0.67f},
+    {"r_thigh_0_JNT", "RightUpLeg", TwistMode::DampenParent, 0.33f},
+    {"r_thigh_1_JNT", "RightUpLeg", TwistMode::DampenParent, 0.67f},
+    {"l_calf_0_JNT", "LeftFoot", TwistMode::FollowChild, 0.5f},
+    {"r_calf_0_JNT", "RightFoot", TwistMode::FollowChild, 0.5f},
+};
+
+constexpr size_t TwistHelperCount = std::size(TwistHelpers);
+
+// Signed twist angle (radians) of `q` around the unit axis `aAxis` (swing-twist decomposition).
+float TwistAngle(const Quat& q, const Vec3& aAxis)
+{
+    const float projection = q.i * aAxis.x + q.j * aAxis.y + q.k * aAxis.z;
+    float angle = 2.f * std::atan2(projection, q.r);
+    constexpr float Pi = 3.14159265358979f;
+    if (angle > Pi)
+    {
+        angle -= 2.f * Pi;
+    }
+    else if (angle < -Pi)
+    {
+        angle += 2.f * Pi;
+    }
+    return angle;
+}
+
+struct ResolvedTwistHelper
+{
+    int32_t helper = -1;
+    int32_t driver = -1;
+    Vec3 axis{}; // twist axis in the helper's parent space
+};
+
+// Indices of the helpers present in this skeleton (empty for skeletons without helpers).
+void ResolveTwistHelpers(const APM::Pose::Target& aTarget, uint32_t aCount,
+                         std::array<ResolvedTwistHelper, TwistHelperCount>& aOut, bool& aAny)
+{
+    aAny = false;
+    for (size_t i = 0; i < TwistHelperCount; ++i)
+    {
+        auto& resolved = aOut[i];
+        resolved = {};
+        const int32_t helper = IndexOf(aTarget, Hash(TwistHelpers[i].helper));
+        const int32_t driver = IndexOf(aTarget, Hash(TwistHelpers[i].driver));
+        if (helper < 0 || driver < 0 || static_cast<uint32_t>(helper) >= aCount ||
+            static_cast<uint32_t>(driver) >= aCount || static_cast<size_t>(helper) >= aTarget.refTranslationsLS.size())
+        {
+            continue;
+        }
+        // Helpers sit on the bone line, so their offset from the parent is the bone (twist) axis.
+        const Vec3 offset = aTarget.refTranslationsLS[helper];
+        if (APM::Math::Length(offset) < 1e-4f)
+        {
+            continue;
+        }
+        resolved.helper = helper;
+        resolved.driver = driver;
+        resolved.axis = APM::Math::Normalize(offset);
+        aAny = true;
+    }
+}
+
+void ApplyTwistHelpers(const std::array<ResolvedTwistHelper, TwistHelperCount>& aHelpers,
+                       const std::vector<Quat>& aOriginalLocal, RED4ext::QsTransform* aBones)
+{
+    for (size_t i = 0; i < TwistHelperCount; ++i)
+    {
+        const auto& resolved = aHelpers[i];
+        if (resolved.helper < 0)
+        {
+            continue;
+        }
+        const Quat original = aOriginalLocal[resolved.driver];
+        const Quat current = GetRotation(aBones[resolved.driver]);
+
+        float factor = 0.f;
+        Quat change{};
+        if (TwistHelpers[i].mode == TwistMode::FollowChild)
+        {
+            // Our change of the driver, expressed in the shared parent's space.
+            change = APM::Math::Mul(current, APM::Math::Conjugate(original));
+            factor = TwistHelpers[i].weight;
+        }
+        else
+        {
+            // Our change of the driver, expressed in the driver's own space (= the helper's parent space).
+            change = APM::Math::Mul(APM::Math::Conjugate(original), current);
+            factor = TwistHelpers[i].weight - 1.f;
+        }
+
+        const float angle = TwistAngle(APM::Math::Normalize(change), resolved.axis) * factor;
+        if (std::abs(angle) < 1e-5f)
+        {
+            continue;
+        }
+        const Quat twist = APM::Math::FromAxisAngle(resolved.axis, angle);
+        SetRotation(aBones[resolved.helper], APM::Math::Mul(twist, GetRotation(aBones[resolved.helper])));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Secondary skeletons: FK + IK deltas from the main skeleton
 // ---------------------------------------------------------------------------------------------------------------------
 void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                               const APM::Pose::OverrideSnapshot& aPose)
 {
-    ApplyForwardOverrides(aTarget, aBones, aCount, aPose);
-
-    if (!AnyIkEnabled(aPose))
+    thread_local std::array<ResolvedTwistHelper, TwistHelperCount> helpers;
+    thread_local std::vector<Quat> originalLocal;
+    bool hasHelpers = false;
+    ResolveTwistHelpers(aTarget, aCount, helpers, hasHelpers);
+    if (hasHelpers)
     {
-        return;
+        originalLocal.resize(aCount);
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            originalLocal[i] = GetRotation(aBones[i]);
+        }
     }
 
-    thread_local std::vector<IkDelta> deltas;
-    ReadIkDeltas(aTarget.entity, deltas);
-    for (const auto& delta : deltas)
+    ApplyForwardOverrides(aTarget, aBones, aCount, aPose);
+
+    if (AnyIkEnabled(aPose))
     {
-        const int32_t index = IndexOf(aTarget, delta.bone);
-        if (index >= 0 && static_cast<uint32_t>(index) < aCount)
+        thread_local std::vector<IkDelta> deltas;
+        ReadIkDeltas(aTarget.entity, deltas);
+        for (const auto& delta : deltas)
         {
-            SetRotation(aBones[index], APM::Math::Mul(GetRotation(aBones[index]), delta.delta));
+            const int32_t index = IndexOf(aTarget, delta.bone);
+            if (index >= 0 && static_cast<uint32_t>(index) < aCount)
+            {
+                SetRotation(aBones[index], APM::Math::Mul(GetRotation(aBones[index]), delta.delta));
+            }
         }
+    }
+
+    if (hasHelpers)
+    {
+        ApplyTwistHelpers(helpers, originalLocal, aBones);
     }
 }
 } // namespace

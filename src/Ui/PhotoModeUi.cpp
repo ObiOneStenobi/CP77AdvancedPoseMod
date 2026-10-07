@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cmath>
 #include <filesystem>
+#include <utility>
 
 namespace
 {
@@ -22,6 +23,9 @@ constexpr int32_t SlotCount = 10;
 constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
 constexpr const char* OnOffLabels[] = {"Off", "On"};
 constexpr const char* ActionLabels[] = {"-", "Apply"};
+
+// Distances are shown in centimeters: the game's sliders only update live with whole-number steps.
+constexpr float CentimetersPerMeter = 100.f;
 
 // Main-thread state (natives are called from redscript on the game thread).
 int32_t g_bodyPart = 0;
@@ -72,7 +76,9 @@ std::array<float, 3> CurrentTranslation()
     return translation;
 }
 
-Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngles)
+// aSwapBends: fingers point sideways like the arms, but for them "bend forward / back" must be the curl
+// (rotation around the forward axis) and "bend sideways" the spread (rotation around the vertical axis).
+Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngles, bool aSwapBends)
 {
     Math::Vec3 bend1;
     Math::Vec3 bend2;
@@ -81,6 +87,10 @@ Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngl
     {
         // Main skeleton not available yet: fall back to the bone's raw local axes.
         return Math::FromEulerXYZDegrees(aAngles[0], aAngles[1], aAngles[2]);
+    }
+    if (aSwapBends)
+    {
+        std::swap(bend1, bend2);
     }
     const auto q1 = Math::FromAxisAngle(bend1, Math::DegToRad(aAngles[0]));
     const auto q2 = Math::FromAxisAngle(bend2, Math::DegToRad(aAngles[1]));
@@ -98,7 +108,9 @@ void ApplyAngles(const std::array<float, 3>& aAngles)
         {
             angles = {aAngles[0], 0.f, 0.f}; // only the curl reaches the outer finger segments
         }
-        Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles), angles);
+        const bool isFinger = entry.mode == Ui::EntryMode::Curl;
+        Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles, isFinger),
+                                             angles);
     }
 }
 
@@ -165,7 +177,9 @@ float GetValue(uint32_t aAttribute)
     case Attr::MoveX:
     case Attr::MoveY:
     case Attr::MoveZ:
-        return CurrentEntry().allowsTranslation ? CurrentTranslation()[aAttribute - Attr::MoveX] : 0.f;
+        return CurrentEntry().allowsTranslation
+                   ? CurrentTranslation()[aAttribute - Attr::MoveX] * CentimetersPerMeter
+                   : 0.f;
     case Attr::IkLimb:
         return static_cast<float>(g_ikLimb);
     case Attr::IkPin:
@@ -173,7 +187,7 @@ float GetValue(uint32_t aAttribute)
     case Attr::IkX:
     case Attr::IkY:
     case Attr::IkZ:
-        return Pose::PoseOverrides::GetIkChain(CurrentChain()).offset[aAttribute - Attr::IkX];
+        return Pose::PoseOverrides::GetIkChain(CurrentChain()).offset[aAttribute - Attr::IkX] * CentimetersPerMeter;
     case Attr::IkSwivel:
         return Pose::PoseOverrides::GetIkChain(CurrentChain()).swivel;
     case Attr::Slot:
@@ -230,9 +244,10 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
         auto translation = CurrentTranslation();
         auto& component = translation[aAttribute - Attr::MoveX];
-        if (!Same(component, aValue))
+        const float meters = aValue / CentimetersPerMeter;
+        if (!Same(component, meters))
         {
-            component = aValue;
+            component = meters;
             Pose::PoseOverrides::SetTranslation(CurrentEntry().bones.front(), translation[0], translation[1],
                                                 translation[2]);
         }
@@ -266,7 +281,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
         else
         {
-            updated.offset[aAttribute - Attr::IkX] = aValue;
+            updated.offset[aAttribute - Attr::IkX] = aValue / CentimetersPerMeter;
         }
 
         const bool changed = updated.enabled != settings.enabled || !Same(updated.swivel, settings.swivel) ||
