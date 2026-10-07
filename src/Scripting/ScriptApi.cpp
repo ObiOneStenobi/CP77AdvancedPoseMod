@@ -137,6 +137,20 @@ void ResetAll(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Pose::PoseOverrides::ResetAll();
 }
 
+void SetEnabled(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool enabled = false;
+    RED4ext::GetParameter(aFrame, &enabled);
+    aFrame->code++;
+    APM::Pose::PoseOverrides::SetEnabled(enabled);
+}
+
+void IsEnabled(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Pose::PoseOverrides::IsEnabled());
+}
+
 // --- Pose files --------------------------------------------------------------------------------------------------
 
 void SavePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -216,6 +230,9 @@ void Register()
     ::Register("APM_GetBoneTranslation", &GetBoneTranslation, "Vector4", {{"CName", "bone"}});
     ::Register("APM_ResetBone", &ResetBone, nullptr, {{"CName", "bone"}});
     ::Register("APM_ResetAll", &ResetAll, nullptr, {});
+
+    ::Register("APM_SetEnabled", &SetEnabled, nullptr, {{"Bool", "enabled"}});
+    ::Register("APM_IsEnabled", &IsEnabled, "Bool", {});
 
     ::Register("APM_SavePose", &SavePose, "Bool", {{"String", "name"}});
     ::Register("APM_LoadPose", &LoadPose, "Bool", {{"String", "name"}});

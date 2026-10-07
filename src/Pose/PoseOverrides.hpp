@@ -36,6 +36,11 @@ struct OverrideSnapshot
 
 namespace PoseOverrides
 {
+// Master switch. Editing a bone or loading a pose enables it; leaving Photo Mode disables it
+// (the edited pose stays in memory so the player can turn it back on).
+void SetEnabled(bool aEnabled);
+bool IsEnabled();
+
 // Snapshot used by the animation hook. Never null.
 std::shared_ptr<const OverrideSnapshot> GetSnapshot();
 

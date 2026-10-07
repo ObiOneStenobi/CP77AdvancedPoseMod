@@ -24,6 +24,12 @@ inline Quat Mul(const Quat& a, const Quat& b)
     };
 }
 
+// Inverse of a unit quaternion.
+inline Quat Conjugate(const Quat& q)
+{
+    return {-q.i, -q.j, -q.k, q.r};
+}
+
 inline Quat Normalize(const Quat& q)
 {
     const float len = std::sqrt(q.i * q.i + q.j * q.j + q.k * q.k + q.r * q.r);

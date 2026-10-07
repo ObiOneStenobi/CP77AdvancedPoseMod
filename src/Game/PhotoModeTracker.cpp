@@ -6,6 +6,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -96,6 +97,85 @@ void DumpRig(const APM::Pose::Target& aTarget, RED4ext::anim::Rig* aRig)
     APM::Log::Info("Probe: rig with %u bones written to probe/%s", aRig->boneNames.Size(), fileName);
 }
 
+// Composes local reference rotations along the hierarchy (parents always precede children in CDPR rigs).
+std::vector<APM::Math::Quat> ComputeModelSpaceRotations(RED4ext::anim::Rig* aRig)
+{
+    const uint32_t count = aRig->boneNames.Size();
+    std::vector<APM::Math::Quat> result(count);
+    if (!aRig->referencePoseLS || !aRig->parentIndices)
+    {
+        return result;
+    }
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const auto& r = aRig->referencePoseLS[i].Rotation;
+        const APM::Math::Quat local{r.i, r.j, r.k, r.r};
+        const int16_t parent = aRig->parentIndices[i];
+        result[i] = (parent >= 0 && static_cast<uint32_t>(parent) < i)
+                        ? APM::Math::Normalize(APM::Math::Mul(result[parent], local))
+                        : local;
+    }
+    return result;
+}
+
+// Bones edited on the main skeleton that drive a differently named bone on another skeleton of the same character.
+struct BoneLinkRule
+{
+    const char* source;
+    const char* target;
+};
+constexpr BoneLinkRule BoneLinkRules[] = {
+    {"LeftEye", "l_J_eye_JNT"},
+    {"RightEye", "r_J_eye_JNT"},
+};
+
+int32_t IndexOf(const APM::Pose::Target& aTarget, uint64_t aHash)
+{
+    for (size_t i = 0; i < aTarget.boneNames.size(); ++i)
+    {
+        if (aTarget.boneNames[i] == aHash)
+        {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+void LinkBones(std::vector<APM::Pose::Target>& aTargets)
+{
+    using namespace APM::Math;
+    for (auto& target : aTargets)
+    {
+        for (const auto& rule : BoneLinkRules)
+        {
+            const uint64_t sourceHash = RED4ext::CName(rule.source).hash;
+            const int32_t dst = IndexOf(target, RED4ext::CName(rule.target).hash);
+            if (dst < 0 || static_cast<size_t>(dst) >= target.refRotationsMS.size())
+            {
+                continue;
+            }
+            for (const auto& source : aTargets)
+            {
+                const int32_t src = IndexOf(source, sourceHash);
+                if (source.entity != target.entity || src < 0 ||
+                    static_cast<size_t>(src) >= source.refRotationsMS.size())
+                {
+                    continue;
+                }
+                const Quat a = source.refRotationsMS[src];
+                const Quat b = target.refRotationsMS[dst];
+                APM::Pose::LinkedBone link;
+                link.sourceBone = sourceHash;
+                link.targetIndex = static_cast<uint32_t>(dst);
+                link.pre = Normalize(Mul(Conjugate(b), a));
+                link.post = Normalize(Mul(Conjugate(a), b));
+                target.linkedBones.push_back(link);
+                break;
+            }
+        }
+    }
+}
+
 void RefreshTargets(void* aSystem)
 {
     using namespace APM;
@@ -175,6 +255,7 @@ void RefreshTargets(void* aSystem)
                     target.boneNames.push_back(rig->boneNames[i].hash);
                     target.parents.push_back(rig->parentIndices ? rig->parentIndices[i] : int16_t(-1));
                 }
+                target.refRotationsMS = ComputeModelSpaceRotations(rig);
             }
 
             if (config.probeEnabled && config.probeDumpRig)
@@ -185,6 +266,8 @@ void RefreshTargets(void* aSystem)
             targets.push_back(std::move(target));
         }
     }
+
+    LinkBones(targets);
 
     // ApplyPuppetTransforms runs often; only log when the set of targets actually changes.
     static std::vector<std::pair<uintptr_t, uintptr_t>> s_lastKeys;
@@ -224,6 +307,8 @@ void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
     APM::Pose::TargetRegistry::Clear();
+    // The custom pose is kept in memory but must be re-enabled by the player next time.
+    APM::Pose::PoseOverrides::SetEnabled(false);
     APM::Log::Info("PhotoMode: deactivated");
     g_origDeactivate(aSystem);
 }

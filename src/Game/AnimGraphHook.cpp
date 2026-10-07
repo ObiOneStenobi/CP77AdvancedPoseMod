@@ -273,6 +273,10 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
 // Applies the user's bone overrides (additive) to the final local-space pose of a target.
 void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
+    if (!APM::Pose::PoseOverrides::IsEnabled())
+    {
+        return;
+    }
     const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
     if (snapshot->bones.empty())
     {
@@ -300,8 +304,31 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        const auto rotate = [](RED4ext::QsTransform& aTransform, const APM::Math::Quat& aOffset) {
+            const APM::Math::Quat current{aTransform.Rotation.i, aTransform.Rotation.j, aTransform.Rotation.k,
+                                          aTransform.Rotation.r};
+            const auto result = APM::Math::Normalize(APM::Math::Mul(current, aOffset));
+            aTransform.Rotation.i = result.i;
+            aTransform.Rotation.j = result.j;
+            aTransform.Rotation.k = result.k;
+            aTransform.Rotation.r = result.r;
+        };
+
         for (const auto& bone : snapshot->bones)
         {
+            // Bones on this skeleton that follow a differently named bone (e.g. face eyes).
+            if (bone.hasRotation)
+            {
+                for (const auto& link : aTarget.linkedBones)
+                {
+                    if (link.sourceBone == bone.boneHash && link.targetIndex < boneCount)
+                    {
+                        rotate(bones[link.targetIndex],
+                               APM::Math::Normalize(APM::Math::Mul(APM::Math::Mul(link.pre, bone.rotation), link.post)));
+                    }
+                }
+            }
+
             const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), bone.boneHash);
             if (it == aTarget.boneNames.end())
             {
@@ -311,13 +338,7 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
 
             if (bone.hasRotation)
             {
-                const APM::Math::Quat current{transform.Rotation.i, transform.Rotation.j, transform.Rotation.k,
-                                              transform.Rotation.r};
-                const auto result = APM::Math::Normalize(APM::Math::Mul(current, bone.rotation));
-                transform.Rotation.i = result.i;
-                transform.Rotation.j = result.j;
-                transform.Rotation.k = result.k;
-                transform.Rotation.r = result.r;
+                rotate(transform, bone.rotation);
             }
             if (bone.hasTranslation)
             {

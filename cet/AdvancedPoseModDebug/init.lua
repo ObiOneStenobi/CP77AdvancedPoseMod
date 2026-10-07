@@ -151,6 +151,11 @@ registerForEvent("onDraw", function()
             refreshPoses()
         end
 
+        local enabled = call("APM_IsEnabled") or false
+        local newEnabled, pressed = ImGui.Checkbox("Custom pose enabled", enabled)
+        if pressed then call("APM_SetEnabled", newEnabled) end
+        ImGui.Separator()
+
         drawBoneList()
         ImGui.SameLine()
         drawBoneEditor()

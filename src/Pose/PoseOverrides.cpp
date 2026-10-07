@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <mutex>
 
@@ -15,6 +16,7 @@ namespace
 constexpr const char* PoseFormat = "AdvancedPoseMod.Pose";
 constexpr int PoseFormatVersion = 1;
 
+std::atomic<bool> g_enabled{false};
 std::mutex g_mutex; // guards g_bones and g_snapshot replacement
 std::vector<APM::Pose::BoneOverride> g_bones;
 std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
@@ -93,6 +95,19 @@ std::string SanitizeName(const std::string& aName)
 
 namespace APM::Pose::PoseOverrides
 {
+void SetEnabled(bool aEnabled)
+{
+    if (g_enabled.exchange(aEnabled) != aEnabled)
+    {
+        Log::Info("Custom pose %s", aEnabled ? "enabled" : "disabled");
+    }
+}
+
+bool IsEnabled()
+{
+    return g_enabled.load(std::memory_order_relaxed);
+}
+
 std::shared_ptr<const OverrideSnapshot> GetSnapshot()
 {
     std::scoped_lock lock(g_snapshotMutex);
@@ -107,6 +122,7 @@ void SetRotation(const std::string& aBone, float aX, float aY, float aZ)
     bone.rotation = Math::FromEulerXYZDegrees(aX, aY, aZ);
     bone.hasRotation = !IsZero(bone.rotationEuler);
     PublishLocked();
+    g_enabled = true;
 }
 
 void SetTranslation(const std::string& aBone, float aX, float aY, float aZ)
@@ -116,6 +132,7 @@ void SetTranslation(const std::string& aBone, float aX, float aY, float aZ)
     bone.translation = {aX, aY, aZ};
     bone.hasTranslation = !IsZero(bone.translation);
     PublishLocked();
+    g_enabled = true;
 }
 
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut)
@@ -267,6 +284,7 @@ bool Load(const std::string& aName)
         g_bones = std::move(loaded);
         PublishLocked();
     }
+    g_enabled = true;
     Log::Info("Pose loaded: %s (%zu bones)", name.c_str(), Count());
     return true;
 }

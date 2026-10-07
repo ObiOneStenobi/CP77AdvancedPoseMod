@@ -16,6 +16,10 @@ public native func APM_GetBoneTranslation(bone: CName) -> Vector4
 public native func APM_ResetBone(bone: CName) -> Void
 public native func APM_ResetAll() -> Void
 
+// Master switch: editing a bone or loading a pose turns it on, leaving Photo Mode turns it off.
+public native func APM_SetEnabled(enabled: Bool) -> Void
+public native func APM_IsEnabled() -> Bool
+
 // Pose files: red4ext/plugins/AdvancedPoseMod/poses/<name>.json
 public native func APM_SavePose(name: String) -> Bool
 public native func APM_LoadPose(name: String) -> Bool
