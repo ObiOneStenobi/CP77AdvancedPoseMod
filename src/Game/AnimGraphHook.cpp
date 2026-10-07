@@ -7,6 +7,7 @@
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
 #include "Pose/PoseOverrides.hpp"
+#include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -278,7 +279,7 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
         return;
     }
     const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
-    if (snapshot->bones.empty())
+    if (snapshot->IsEmpty())
     {
         return;
     }
@@ -303,50 +304,8 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
             return;
         }
 
-        auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
-        const auto rotate = [](RED4ext::QsTransform& aTransform, const APM::Math::Quat& aOffset) {
-            const APM::Math::Quat current{aTransform.Rotation.i, aTransform.Rotation.j, aTransform.Rotation.k,
-                                          aTransform.Rotation.r};
-            const auto result = APM::Math::Normalize(APM::Math::Mul(current, aOffset));
-            aTransform.Rotation.i = result.i;
-            aTransform.Rotation.j = result.j;
-            aTransform.Rotation.k = result.k;
-            aTransform.Rotation.r = result.r;
-        };
-
-        for (const auto& bone : snapshot->bones)
-        {
-            // Bones on this skeleton that follow a differently named bone (e.g. face eyes).
-            if (bone.hasRotation)
-            {
-                for (const auto& link : aTarget.linkedBones)
-                {
-                    if (link.sourceBone == bone.boneHash && link.targetIndex < boneCount)
-                    {
-                        rotate(bones[link.targetIndex],
-                               APM::Math::Normalize(APM::Math::Mul(APM::Math::Mul(link.pre, bone.rotation), link.post)));
-                    }
-                }
-            }
-
-            const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), bone.boneHash);
-            if (it == aTarget.boneNames.end())
-            {
-                continue;
-            }
-            auto& transform = bones[std::distance(aTarget.boneNames.begin(), it)];
-
-            if (bone.hasRotation)
-            {
-                rotate(transform, bone.rotation);
-            }
-            if (bone.hasTranslation)
-            {
-                transform.Translation.X += bone.translation[0];
-                transform.Translation.Y += bone.translation[1];
-                transform.Translation.Z += bone.translation[2];
-            }
-        }
+        APM::Pose::PoseProcessor::Process(aTarget, reinterpret_cast<RED4ext::QsTransform*>(bonesAddress), boneCount,
+                                          *snapshot);
     });
 }
 

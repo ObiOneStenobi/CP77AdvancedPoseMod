@@ -1,0 +1,292 @@
+#include "Pose/PoseProcessor.hpp"
+
+#include "Math/Vec3.hpp"
+#include "Pose/TwoBoneIk.hpp"
+
+#include <RED4ext/CName.hpp>
+
+#include <Windows.h>
+
+#include <algorithm>
+#include <mutex>
+#include <vector>
+
+namespace
+{
+using APM::Math::Quat;
+using APM::Math::Vec3;
+using APM::Pose::IkChain;
+using APM::Pose::IkChainCount;
+
+constexpr const char* MainSkeletonName = "root";
+
+struct ChainBones
+{
+    const char* upper;
+    const char* middle;
+    const char* end;
+};
+
+constexpr ChainBones ChainDefinitions[IkChainCount] = {
+    {"LeftArm", "LeftForeArm", "LeftHand"},
+    {"RightArm", "RightForeArm", "RightHand"},
+    {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+    {"RightUpLeg", "RightLeg", "RightFoot"},
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
+// IK result shared between the skeletons of the same character (main skeleton writes, others read).
+// ---------------------------------------------------------------------------------------------------------------------
+struct IkDelta
+{
+    uint64_t bone;
+    Quat delta; // newLocal = oldLocal * delta
+};
+
+std::mutex g_ikMutex;
+uintptr_t g_ikEntity = 0;
+std::vector<IkDelta> g_ikDeltas;
+
+void PublishIkDeltas(uintptr_t aEntity, const std::vector<IkDelta>& aDeltas)
+{
+    std::scoped_lock lock(g_ikMutex);
+    g_ikEntity = aEntity;
+    g_ikDeltas = aDeltas;
+}
+
+void ReadIkDeltas(uintptr_t aEntity, std::vector<IkDelta>& aOut)
+{
+    std::scoped_lock lock(g_ikMutex);
+    if (g_ikEntity == aEntity)
+    {
+        aOut = g_ikDeltas;
+    }
+    else
+    {
+        aOut.clear();
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------------------------------------------
+Quat GetRotation(const RED4ext::QsTransform& aTransform)
+{
+    return {aTransform.Rotation.i, aTransform.Rotation.j, aTransform.Rotation.k, aTransform.Rotation.r};
+}
+
+void SetRotation(RED4ext::QsTransform& aTransform, const Quat& aRotation)
+{
+    const auto q = APM::Math::Normalize(aRotation);
+    aTransform.Rotation.i = q.i;
+    aTransform.Rotation.j = q.j;
+    aTransform.Rotation.k = q.k;
+    aTransform.Rotation.r = q.r;
+}
+
+int32_t IndexOf(const APM::Pose::Target& aTarget, uint64_t aHash)
+{
+    const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), aHash);
+    return it == aTarget.boneNames.end() ? -1 : static_cast<int32_t>(std::distance(aTarget.boneNames.begin(), it));
+}
+
+uint64_t Hash(const char* aName)
+{
+    return RED4ext::CName(aName).hash;
+}
+
+// Model-space pose computed from local transforms (scale is ignored: CDPR rigs use unit scale).
+struct ModelPose
+{
+    std::vector<Vec3> positions;
+    std::vector<Quat> rotations;
+};
+
+void ComputeModelPose(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount,
+                      ModelPose& aOut)
+{
+    aOut.positions.resize(aCount);
+    aOut.rotations.resize(aCount);
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        const Vec3 localPos{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+        const Quat localRot = GetRotation(aBones[i]);
+        const int16_t parent = i < aTarget.parents.size() ? aTarget.parents[i] : int16_t(-1);
+        if (parent >= 0 && static_cast<uint32_t>(parent) < i)
+        {
+            aOut.positions[i] = aOut.positions[parent] + APM::Math::Rotate(aOut.rotations[parent], localPos);
+            aOut.rotations[i] = APM::Math::Normalize(APM::Math::Mul(aOut.rotations[parent], localRot));
+        }
+        else
+        {
+            aOut.positions[i] = localPos;
+            aOut.rotations[i] = localRot;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FK overrides (rotation / translation per bone, plus linked bones such as the face eyes)
+// ---------------------------------------------------------------------------------------------------------------------
+void ApplyForwardOverrides(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                           const APM::Pose::OverrideSnapshot& aPose)
+{
+    for (const auto& bone : aPose.bones)
+    {
+        if (bone.hasRotation)
+        {
+            for (const auto& link : aTarget.linkedBones)
+            {
+                if (link.sourceBone == bone.boneHash && link.targetIndex < aCount)
+                {
+                    const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, bone.rotation), link.post);
+                    SetRotation(aBones[link.targetIndex],
+                                APM::Math::Mul(GetRotation(aBones[link.targetIndex]), converted));
+                }
+            }
+        }
+
+        const int32_t index = IndexOf(aTarget, bone.boneHash);
+        if (index < 0 || static_cast<uint32_t>(index) >= aCount)
+        {
+            continue;
+        }
+        auto& transform = aBones[index];
+        if (bone.hasRotation)
+        {
+            SetRotation(transform, APM::Math::Mul(GetRotation(transform), bone.rotation));
+        }
+        if (bone.hasTranslation)
+        {
+            transform.Translation.X += bone.translation[0];
+            transform.Translation.Y += bone.translation[1];
+            transform.Translation.Z += bone.translation[2];
+        }
+    }
+}
+
+bool AnyIkEnabled(const APM::Pose::OverrideSnapshot& aPose)
+{
+    return std::any_of(aPose.ik.begin(), aPose.ik.end(), [](const auto& c) { return c.enabled; });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Main skeleton: FK + IK
+// ---------------------------------------------------------------------------------------------------------------------
+void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                         const APM::Pose::OverrideSnapshot& aPose)
+{
+    thread_local ModelPose originalPose;
+    thread_local ModelPose currentPose;
+    thread_local std::vector<IkDelta> deltas;
+    deltas.clear();
+
+    const bool useIk = AnyIkEnabled(aPose);
+    if (useIk)
+    {
+        // Where the animation (before any edit) puts the hands and feet: IK pins them there.
+        ComputeModelPose(aTarget, aBones, aCount, originalPose);
+    }
+
+    ApplyForwardOverrides(aTarget, aBones, aCount, aPose);
+
+    if (useIk)
+    {
+        ComputeModelPose(aTarget, aBones, aCount, currentPose);
+
+        for (size_t chainIndex = 0; chainIndex < IkChainCount; ++chainIndex)
+        {
+            const auto& settings = aPose.ik[chainIndex];
+            if (!settings.enabled)
+            {
+                continue;
+            }
+
+            const auto& chain = ChainDefinitions[chainIndex];
+            const int32_t a = IndexOf(aTarget, Hash(chain.upper));
+            const int32_t b = IndexOf(aTarget, Hash(chain.middle));
+            const int32_t c = IndexOf(aTarget, Hash(chain.end));
+            if (a < 0 || b < 0 || c < 0 || static_cast<uint32_t>(c) >= aCount || static_cast<uint32_t>(b) >= aCount)
+            {
+                continue;
+            }
+
+            const Vec3 offset{settings.offset[0], settings.offset[1], settings.offset[2]};
+
+            APM::Pose::TwoBoneIkInput input;
+            input.a = currentPose.positions[a];
+            input.b = currentPose.positions[b];
+            input.c = currentPose.positions[c];
+            input.aGlobal = currentPose.rotations[a];
+            input.bGlobal = currentPose.rotations[b];
+            input.aLocal = GetRotation(aBones[a]);
+            input.bLocal = GetRotation(aBones[b]);
+            input.target = originalPose.positions[c] + offset;
+            input.swivelRadians = APM::Math::DegToRad(settings.swivel);
+
+            const auto result = APM::Pose::SolveTwoBoneIk(input);
+
+            // The hand/foot keeps its current world orientation instead of following the new forearm/shin.
+            const Quat cLocalOld = GetRotation(aBones[c]);
+            const Quat cLocalNew =
+                APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), currentPose.rotations[c]));
+
+            const Quat aLocalOld = input.aLocal;
+            const Quat bLocalOld = input.bLocal;
+            SetRotation(aBones[a], result.aLocal);
+            SetRotation(aBones[b], result.bLocal);
+            SetRotation(aBones[c], cLocalNew);
+
+            deltas.push_back({aTarget.boneNames[a], APM::Math::Mul(APM::Math::Conjugate(aLocalOld), result.aLocal)});
+            deltas.push_back({aTarget.boneNames[b], APM::Math::Mul(APM::Math::Conjugate(bLocalOld), result.bLocal)});
+            deltas.push_back({aTarget.boneNames[c], APM::Math::Mul(APM::Math::Conjugate(cLocalOld), cLocalNew)});
+
+            // Keep the cached model pose valid for chains processed later (they never share bones).
+            currentPose.rotations[a] = result.aGlobal;
+            currentPose.rotations[b] = result.bGlobal;
+        }
+    }
+
+    PublishIkDeltas(aTarget.entity, deltas);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Secondary skeletons: FK + IK deltas from the main skeleton
+// ---------------------------------------------------------------------------------------------------------------------
+void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                              const APM::Pose::OverrideSnapshot& aPose)
+{
+    ApplyForwardOverrides(aTarget, aBones, aCount, aPose);
+
+    if (!AnyIkEnabled(aPose))
+    {
+        return;
+    }
+
+    thread_local std::vector<IkDelta> deltas;
+    ReadIkDeltas(aTarget.entity, deltas);
+    for (const auto& delta : deltas)
+    {
+        const int32_t index = IndexOf(aTarget, delta.bone);
+        if (index >= 0 && static_cast<uint32_t>(index) < aCount)
+        {
+            SetRotation(aBones[index], APM::Math::Mul(GetRotation(aBones[index]), delta.delta));
+        }
+    }
+}
+} // namespace
+
+namespace APM::Pose::PoseProcessor
+{
+void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBoneCount, const OverrideSnapshot& aPose)
+{
+    if (aTarget.debugName == MainSkeletonName)
+    {
+        ProcessMainSkeleton(aTarget, aBones, aBoneCount, aPose);
+    }
+    else
+    {
+        ProcessSecondarySkeleton(aTarget, aBones, aBoneCount, aPose);
+    }
+}
+} // namespace APM::Pose::PoseProcessor

@@ -12,7 +12,11 @@ local state = {
     poseName = "my_pose",
     poses = {},
     message = "",
+    ik = {},             -- chain name -> { enabled, x, y, z, swivel }
 }
+
+local ikChains = { "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
+local readIk -- defined below, used by earlier functions
 
 local function call(name, ...)
     local fn = Game[name]
@@ -114,8 +118,56 @@ local function drawBoneEditor()
     if ImGui.Button("Reset all") then
         call("APM_ResetAll")
         readSelected()
+        readIk()
     end
     ImGui.EndGroup()
+end
+
+readIk = function()
+    for _, chain in ipairs(ikChains) do
+        local name = CName.new(chain)
+        local v = call("APM_GetIkChain", name)
+        local enabled = call("APM_IsIkChainEnabled", name) or false
+        if v then
+            state.ik[chain] = { enabled = enabled, x = v.x, y = v.y, z = v.z, swivel = v.w }
+        else
+            state.ik[chain] = { enabled = false, x = 0, y = 0, z = 0, swivel = 0 }
+        end
+    end
+end
+
+local function drawIk()
+    if not ImGui.CollapsingHeader("IK (hands / feet)") then return end
+    ImGui.TextWrapped("Enabled = the hand/foot stays where the original pose put it (try moving Hips or the spine), " ..
+        "plus the offset below. Swivel turns the elbow/knee.")
+    for _, chain in ipairs(ikChains) do
+        local c = state.ik[chain]
+        if c then
+            ImGui.PushID(chain)
+            local changed, used = false, false
+            c.enabled, used = ImGui.Checkbox(chain, c.enabled)
+            changed = changed or used
+            if c.enabled then
+                c.x, used = ImGui.SliderFloat("Right (+) / Left (-)", c.x, -0.8, 0.8, "%.3f m")
+                changed = changed or used
+                c.y, used = ImGui.SliderFloat("Forward (+) / Back (-)", c.y, -0.8, 0.8, "%.3f m")
+                changed = changed or used
+                c.z, used = ImGui.SliderFloat("Up (+) / Down (-)", c.z, -0.8, 0.8, "%.3f m")
+                changed = changed or used
+                c.swivel, used = ImGui.SliderFloat("Swivel", c.swivel, -180, 180, "%.1f deg")
+                changed = changed or used
+                if ImGui.Button("Reset offset") then
+                    c.x, c.y, c.z, c.swivel = 0, 0, 0, 0
+                    changed = true
+                end
+            end
+            if changed then
+                call("APM_SetIkChain", CName.new(chain), c.enabled, c.x, c.y, c.z, c.swivel)
+            end
+            ImGui.Separator()
+            ImGui.PopID()
+        end
+    end
 end
 
 local function drawPoseFiles()
@@ -133,6 +185,7 @@ local function drawPoseFiles()
             state.message = call("APM_LoadPose", name) and ("Loaded " .. name) or "Load failed"
             state.poseName = name
             readSelected()
+            readIk()
         end
     end
 end
@@ -149,6 +202,7 @@ registerForEvent("onDraw", function()
         if active and #state.bones == 0 then
             refreshBones()
             refreshPoses()
+            readIk()
         end
 
         local enabled = call("APM_IsEnabled") or false
@@ -159,6 +213,7 @@ registerForEvent("onDraw", function()
         drawBoneList()
         ImGui.SameLine()
         drawBoneEditor()
+        drawIk()
         drawPoseFiles()
 
         if state.message ~= "" then

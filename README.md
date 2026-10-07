@@ -2,7 +2,7 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-> Status: **phase 1 – bone overrides**. Any bone of V's main skeleton can be rotated/moved on top of the
+> Status: **phase 2 – bone overrides + two-bone IK**. Any bone of V's main skeleton can be rotated/moved on top of the
 > current Photo Mode pose; poses can be saved to and loaded from JSON files. A temporary CET debug window
 > is used to drive it until the in-Photo-Mode UI exists.
 
@@ -61,6 +61,9 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
 
 - `rotation`: degrees around the bone's local axes, applied Z * Y * X, on top of the current pose.
 - `translation`: meters in the parent bone's space, added to the current pose.
+- `ik` (optional): `{ "LeftHand": { "offset": [x, y, z], "swivel": deg }, ... }` for `LeftHand`, `RightHand`,
+  `LeftFoot`, `RightFoot`. An enabled chain pins the hand/foot where the original pose put it, plus `offset`
+  (meters, character space: X right, Y forward, Z up); `swivel` turns the elbow/knee around the limb axis.
 
 ## Layout
 

@@ -16,6 +16,14 @@ public native func APM_GetBoneTranslation(bone: CName) -> Vector4
 public native func APM_ResetBone(bone: CName) -> Void
 public native func APM_ResetAll() -> Void
 
+// IK chains: n"LeftHand", n"RightHand", n"LeftFoot", n"RightFoot".
+// Enabled = the hand/foot is pinned where the original pose put it, plus an offset in meters
+// (model space: X right, Y forward, Z up). swivel (degrees) turns the elbow/knee around the limb axis.
+public native func APM_SetIkChain(chain: CName, enabled: Bool, x: Float, y: Float, z: Float, swivel: Float) -> Bool
+// (offsetX, offsetY, offsetZ, swivel)
+public native func APM_GetIkChain(chain: CName) -> Vector4
+public native func APM_IsIkChainEnabled(chain: CName) -> Bool
+
 // Master switch: editing a bone or loading a pose turns it on, leaving Photo Mode turns it off.
 public native func APM_SetEnabled(enabled: Bool) -> Void
 public native func APM_IsEnabled() -> Bool

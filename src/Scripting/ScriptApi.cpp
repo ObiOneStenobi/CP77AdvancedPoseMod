@@ -137,6 +137,61 @@ void ResetAll(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Pose::PoseOverrides::ResetAll();
 }
 
+// --- IK chains: "LeftHand", "RightHand", "LeftFoot", "RightFoot" ------------------------------------------------
+
+void SetIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CName chainName;
+    bool enabled = false;
+    float x = 0.f, y = 0.f, z = 0.f, swivel = 0.f;
+    RED4ext::GetParameter(aFrame, &chainName);
+    RED4ext::GetParameter(aFrame, &enabled);
+    RED4ext::GetParameter(aFrame, &x);
+    RED4ext::GetParameter(aFrame, &y);
+    RED4ext::GetParameter(aFrame, &z);
+    RED4ext::GetParameter(aFrame, &swivel);
+    aFrame->code++;
+
+    APM::Pose::IkChain chain;
+    if (!APM::Pose::ParseIkChain(ToString(chainName), chain))
+    {
+        Return(aOut, false);
+        return;
+    }
+    APM::Pose::IkChainSettings settings;
+    settings.enabled = enabled;
+    settings.offset = {x, y, z};
+    settings.swivel = swivel;
+    APM::Pose::PoseOverrides::SetIkChain(chain, settings);
+    Return(aOut, true);
+}
+
+// Returns (offsetX, offsetY, offsetZ, swivel). Use APM_IsIkChainEnabled for the switch.
+void GetIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CName chainName;
+    RED4ext::GetParameter(aFrame, &chainName);
+    aFrame->code++;
+
+    APM::Pose::IkChain chain;
+    APM::Pose::IkChainSettings settings;
+    if (APM::Pose::ParseIkChain(ToString(chainName), chain))
+    {
+        settings = APM::Pose::PoseOverrides::GetIkChain(chain);
+    }
+    Return(aOut, RED4ext::Vector4{settings.offset[0], settings.offset[1], settings.offset[2], settings.swivel});
+}
+
+void IsIkChainEnabled(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CName chainName;
+    RED4ext::GetParameter(aFrame, &chainName);
+    aFrame->code++;
+
+    APM::Pose::IkChain chain;
+    Return(aOut, APM::Pose::ParseIkChain(ToString(chainName), chain) && APM::Pose::PoseOverrides::GetIkChain(chain).enabled);
+}
+
 void SetEnabled(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     bool enabled = false;
@@ -230,6 +285,11 @@ void Register()
     ::Register("APM_GetBoneTranslation", &GetBoneTranslation, "Vector4", {{"CName", "bone"}});
     ::Register("APM_ResetBone", &ResetBone, nullptr, {{"CName", "bone"}});
     ::Register("APM_ResetAll", &ResetAll, nullptr, {});
+
+    ::Register("APM_SetIkChain", &SetIkChain, "Bool",
+               {{"CName", "chain"}, {"Bool", "enabled"}, {"Float", "x"}, {"Float", "y"}, {"Float", "z"}, {"Float", "swivel"}});
+    ::Register("APM_GetIkChain", &GetIkChain, "Vector4", {{"CName", "chain"}});
+    ::Register("APM_IsIkChainEnabled", &IsIkChainEnabled, "Bool", {{"CName", "chain"}});
 
     ::Register("APM_SetEnabled", &SetEnabled, nullptr, {{"Bool", "enabled"}});
     ::Register("APM_IsEnabled", &IsEnabled, "Bool", {});

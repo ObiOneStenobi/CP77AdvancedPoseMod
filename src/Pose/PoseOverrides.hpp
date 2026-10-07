@@ -29,10 +29,54 @@ struct BoneOverride
     std::array<float, 3> translation{}; // meters
 };
 
+// Two-bone IK chains of the main skeleton.
+enum class IkChain : uint32_t
+{
+    LeftHand = 0,
+    RightHand,
+    LeftFoot,
+    RightFoot,
+    Count
+};
+
+constexpr size_t IkChainCount = static_cast<size_t>(IkChain::Count);
+
+// When a chain is enabled its end bone (hand/foot) is pinned where the original animation put it,
+// plus `offset` (model space, meters: X right, Y forward, Z up). Bones edited above the chain
+// (hips, spine...) therefore no longer drag the hand/foot along.
+// `swivel` rotates the elbow/knee around the shoulder->hand (hip->foot) axis, in degrees.
+struct IkChainSettings
+{
+    bool enabled = false;
+    std::array<float, 3> offset{};
+    float swivel = 0.f;
+};
+
 struct OverrideSnapshot
 {
     std::vector<BoneOverride> bones;
+    std::array<IkChainSettings, IkChainCount> ik{};
+
+    bool IsEmpty() const
+    {
+        if (!bones.empty())
+        {
+            return false;
+        }
+        for (const auto& chain : ik)
+        {
+            if (chain.enabled)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 };
+
+// "LeftHand", "RightHand", "LeftFoot", "RightFoot" -> chain. Returns false for unknown names.
+bool ParseIkChain(const std::string& aName, IkChain& aOut);
+const char* GetIkChainName(IkChain aChain);
 
 namespace PoseOverrides
 {
@@ -48,6 +92,8 @@ void SetRotation(const std::string& aBone, float aX, float aY, float aZ);
 void SetTranslation(const std::string& aBone, float aX, float aY, float aZ);
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut);
 bool GetTranslation(const std::string& aBone, std::array<float, 3>& aOut);
+void SetIkChain(IkChain aChain, const IkChainSettings& aSettings);
+IkChainSettings GetIkChain(IkChain aChain);
 void ResetBone(const std::string& aBone);
 void ResetAll();
 size_t Count();

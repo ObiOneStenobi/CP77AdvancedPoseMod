@@ -19,6 +19,7 @@ constexpr int PoseFormatVersion = 1;
 std::atomic<bool> g_enabled{false};
 std::mutex g_mutex; // guards g_bones and g_snapshot replacement
 std::vector<APM::Pose::BoneOverride> g_bones;
+std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> g_ik{};
 std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
 std::shared_ptr<const APM::Pose::OverrideSnapshot> g_snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
 
@@ -31,6 +32,7 @@ uint64_t HashBone(const std::string& aBone)
 void PublishLocked()
 {
     auto snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
+    snapshot->ik = g_ik;
     for (const auto& bone : g_bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -93,8 +95,58 @@ std::string SanitizeName(const std::string& aName)
 }
 } // namespace
 
+namespace APM::Pose
+{
+namespace
+{
+constexpr const char* IkChainNames[IkChainCount] = {"LeftHand", "RightHand", "LeftFoot", "RightFoot"};
+}
+
+bool ParseIkChain(const std::string& aName, IkChain& aOut)
+{
+    for (size_t i = 0; i < IkChainCount; ++i)
+    {
+        if (aName == IkChainNames[i])
+        {
+            aOut = static_cast<IkChain>(i);
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* GetIkChainName(IkChain aChain)
+{
+    const auto index = static_cast<size_t>(aChain);
+    return index < IkChainCount ? IkChainNames[index] : "";
+}
+} // namespace APM::Pose
+
 namespace APM::Pose::PoseOverrides
 {
+void SetIkChain(IkChain aChain, const IkChainSettings& aSettings)
+{
+    const auto index = static_cast<size_t>(aChain);
+    if (index >= IkChainCount)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_mutex);
+    g_ik[index] = aSettings;
+    PublishLocked();
+    if (aSettings.enabled)
+    {
+        g_enabled = true;
+    }
+}
+
+IkChainSettings GetIkChain(IkChain aChain)
+{
+    const auto index = static_cast<size_t>(aChain);
+    std::scoped_lock lock(g_mutex);
+    return index < IkChainCount ? g_ik[index] : IkChainSettings{};
+}
+
 void SetEnabled(bool aEnabled)
 {
     if (g_enabled.exchange(aEnabled) != aEnabled)
@@ -163,12 +215,19 @@ void ResetAll()
 {
     std::scoped_lock lock(g_mutex);
     g_bones.clear();
+    g_ik = {};
     PublishLocked();
 }
 
 size_t Count()
 {
-    return GetSnapshot()->bones.size();
+    const auto snapshot = GetSnapshot();
+    size_t count = snapshot->bones.size();
+    for (const auto& chain : snapshot->ik)
+    {
+        count += chain.enabled ? 1 : 0;
+    }
+    return count;
 }
 
 std::filesystem::path GetPoseDirectory()
@@ -208,6 +267,17 @@ bool Save(const std::string& aName)
         bones.push_back(std::move(entry));
     }
 
+    auto& ik = root["ik"] = nlohmann::json::object();
+    const auto snapshot = GetSnapshot();
+    for (size_t i = 0; i < IkChainCount; ++i)
+    {
+        const auto& chain = snapshot->ik[i];
+        if (chain.enabled)
+        {
+            ik[GetIkChainName(static_cast<IkChain>(i))] = {{"offset", chain.offset}, {"swivel", chain.swivel}};
+        }
+    }
+
     std::error_code ec;
     std::filesystem::create_directories(GetPoseDirectory(), ec);
     const auto path = GetPoseDirectory() / (name + ".json");
@@ -218,7 +288,7 @@ bool Save(const std::string& aName)
         return false;
     }
     out << root.dump(2);
-    Log::Info("Pose saved: %s (%zu bones)", name.c_str(), bones.size());
+    Log::Info("Pose saved: %s (%zu bones, %zu IK chains)", name.c_str(), bones.size(), ik.size());
     return true;
 }
 
@@ -251,8 +321,25 @@ bool Load(const std::string& aName)
     }
 
     std::vector<BoneOverride> loaded;
+    std::array<IkChainSettings, IkChainCount> loadedIk{};
     try
     {
+        if (root.contains("ik"))
+        {
+            for (const auto& [chainName, entry] : root["ik"].items())
+            {
+                IkChain chain;
+                if (!ParseIkChain(chainName, chain))
+                {
+                    continue;
+                }
+                auto& settings = loadedIk[static_cast<size_t>(chain)];
+                settings.enabled = true;
+                settings.offset = entry.value("offset", std::array<float, 3>{});
+                settings.swivel = entry.value("swivel", 0.f);
+            }
+        }
+
         for (const auto& entry : root.at("bones"))
         {
             BoneOverride bone;
@@ -282,6 +369,7 @@ bool Load(const std::string& aName)
     {
         std::scoped_lock lock(g_mutex);
         g_bones = std::move(loaded);
+        g_ik = loadedIk;
         PublishLocked();
     }
     g_enabled = true;
