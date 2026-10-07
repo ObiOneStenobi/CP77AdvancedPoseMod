@@ -1,0 +1,402 @@
+#include "Game/AnimGraphHook.hpp"
+
+#include "Core/Config.hpp"
+#include "Core/Log.hpp"
+#include "Core/Runtime.hpp"
+#include "Core/SafeMemory.hpp"
+#include "Game/PhotoModeTracker.hpp"
+#include "Math/Quat.hpp"
+#include "Pose/TargetRegistry.hpp"
+
+#include <RED4ext/RED4ext.hpp>
+#include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
+
+#include <Windows.h>
+
+#include <array>
+#include <atomic>
+#include <cstring>
+#include <malloc.h>
+#include <string>
+
+namespace
+{
+// ---------------------------------------------------------------------------------------------------------------------
+// Engine layout (found by reverse engineering game 2.31, see docs/RESEARCH.md)
+// ---------------------------------------------------------------------------------------------------------------------
+// animAnimNode_Base vtable slot 0x128: void Sample(Node* this, Context* ctx, void* a3, SampleOutput* out)
+constexpr size_t SampleVtableSlot = 0x128 / sizeof(uintptr_t);
+
+// Expected prologue of animAnimNode_Output::Sample:
+//   push rbx / sub rsp, 20h / mov rcx, [rcx+58h] / mov rbx, r9
+constexpr std::array<uint8_t, 13> SamplePrologue = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48,
+                                                    0x8B, 0x49, 0x58, 0x49, 0x8B, 0xD9};
+
+// Pose buffer (pointed to by SampleOutput::pose)
+constexpr uintptr_t PoseBoneCount = 0x24; // uint32
+constexpr uintptr_t PoseBones = 0x30;     // QsTransform* (local space)
+constexpr uint32_t MaxBones = 2048;
+
+struct SampleOutput
+{
+    uintptr_t pose;       // pose buffer
+    uintptr_t trajectory; // QsTransform* (root motion)
+};
+
+using Sample_t = void (*)(void* aNode, void* aContext, void* a3, SampleOutput* aOut);
+
+void* g_addrSample = nullptr;
+Sample_t g_origSample = nullptr;
+
+thread_local int t_depth = 0;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Context -> target mapping, learned at runtime by the probe.
+// Encoded as (offsetA << 16) | offsetB, where offsetB == 0xFFFF means a direct pointer at ctx+offsetA.
+// ---------------------------------------------------------------------------------------------------------------------
+constexpr uint32_t PathUnknown = 0xFFFFFFFF;
+constexpr uint32_t ProbeScanRange = 0x200;
+
+std::atomic<uint32_t> g_contextPath{PathUnknown};
+std::atomic<uint32_t> g_probeBudget{0};
+std::atomic<bool> g_poseInfoLogged{false};
+std::atomic<bool> g_countMismatchLogged{false};
+
+// Proof-of-concept override (single bone)
+std::atomic<bool> g_testEnabled{false};
+std::atomic<uint64_t> g_testBoneHash{0};
+APM::Math::Quat g_testRotation{};
+
+uintptr_t ResolveTargetFromContext(uintptr_t aContext, uint32_t aPath)
+{
+    const uint32_t offsetA = aPath >> 16;
+    const uint32_t offsetB = aPath & 0xFFFF;
+
+    uint64_t value = 0;
+    if (!APM::SafeMemory::ReadU64(aContext + offsetA, value))
+    {
+        return 0;
+    }
+    if (offsetB == 0xFFFF)
+    {
+        return value;
+    }
+
+    uint64_t inner = 0;
+    if (!APM::SafeMemory::ReadU64(value + offsetB, inner))
+    {
+        return 0;
+    }
+    return inner;
+}
+
+bool IsProbePointer(uint64_t aValue, const std::array<uintptr_t, 32>& aPointers, size_t aCount)
+{
+    for (size_t i = 0; i < aCount; ++i)
+    {
+        if (aPointers[i] == aValue)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Looks for a pointer to a registered entity/component inside the context (depth 2).
+void ProbeContext(uintptr_t aContext)
+{
+    std::array<uintptr_t, 32> pointers{};
+    const size_t count = APM::Pose::TargetRegistry::GetProbePointers(pointers);
+    if (count == 0)
+    {
+        return;
+    }
+
+    for (uint32_t a = 0; a < ProbeScanRange; a += 8)
+    {
+        uint64_t first = 0;
+        if (!APM::SafeMemory::ReadU64(aContext + a, first))
+        {
+            continue;
+        }
+
+        if (IsProbePointer(first, pointers, count))
+        {
+            const uint32_t path = (a << 16) | 0xFFFF;
+            uint32_t expected = PathUnknown;
+            if (g_contextPath.compare_exchange_strong(expected, path))
+            {
+                APM::Log::Info("Probe: context %p -> [+0x%X] = %p (target pointer)", reinterpret_cast<void*>(aContext),
+                               a, reinterpret_cast<void*>(first));
+            }
+            return;
+        }
+
+        if (!APM::SafeMemory::LooksLikePointer(first) || APM::SafeMemory::IsInGameImage(first))
+        {
+            continue;
+        }
+
+        for (uint32_t b = 0; b < ProbeScanRange; b += 8)
+        {
+            uint64_t second = 0;
+            if (!APM::SafeMemory::ReadU64(first + b, second))
+            {
+                break;
+            }
+            if (IsProbePointer(second, pointers, count))
+            {
+                const uint32_t path = (a << 16) | b;
+                uint32_t expected = PathUnknown;
+                if (g_contextPath.compare_exchange_strong(expected, path))
+                {
+                    APM::Log::Info("Probe: context %p -> [+0x%X] = %p -> [+0x%X] = %p (target pointer)",
+                                   reinterpret_cast<void*>(aContext), a, reinterpret_cast<void*>(first), b,
+                                   reinterpret_cast<void*>(second));
+                }
+                return;
+            }
+        }
+    }
+}
+
+std::string HexDump(uintptr_t aAddress, size_t aSize)
+{
+    std::string text;
+    std::array<uint8_t, 0x100> buffer{};
+    aSize = (aSize < buffer.size()) ? aSize : buffer.size();
+    if (!APM::SafeMemory::ReadBytes(aAddress, buffer.data(), aSize))
+    {
+        return "<unreadable>";
+    }
+
+    char chunk[8]{};
+    for (size_t i = 0; i < aSize; ++i)
+    {
+        if (i && (i % 16) == 0)
+        {
+            text += " |";
+        }
+        std::snprintf(chunk, sizeof(chunk), " %02X", buffer[i]);
+        text += chunk;
+    }
+    return text;
+}
+
+void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, const APM::Pose::Target& aTarget)
+{
+    bool expected = false;
+    if (!g_poseInfoLogged.compare_exchange_strong(expected, true))
+    {
+        return;
+    }
+
+    uint64_t nodeVtbl = 0;
+    APM::SafeMemory::ReadU64(reinterpret_cast<uintptr_t>(aNode), nodeVtbl);
+    uint32_t boneCount = 0;
+    APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount);
+
+    APM::Log::Info("Probe: target=%s node=%p vtbl=+0x%llX ctx=%p pose=%p trajectory=%p poseBones=%u rigBones=%zu",
+                   aTarget.debugName.c_str(), aNode,
+                   static_cast<unsigned long long>(nodeVtbl - APM::SafeMemory::GetGameImageBase()),
+                   reinterpret_cast<void*>(aContext), reinterpret_cast<void*>(aOut->pose),
+                   reinterpret_cast<void*>(aOut->trajectory), boneCount, aTarget.boneNames.size());
+    APM::Log::Info("Probe: pose header:%s", HexDump(aOut->pose, 0x50).c_str());
+    APM::Log::Info("Probe: context head:%s", HexDump(aContext, 0x80).c_str());
+}
+
+void ApplyTestOverride(const SampleOutput* aOut, uintptr_t aTargetPointer, const APM::Pose::Target& aTarget)
+{
+    if (!g_testEnabled.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    uint32_t boneCount = 0;
+    uint64_t bonesAddress = 0;
+    if (!APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount) ||
+        !APM::SafeMemory::ReadU64(aOut->pose + PoseBones, bonesAddress) || boneCount == 0 || boneCount > MaxBones)
+    {
+        return;
+    }
+
+    if (boneCount != aTarget.boneNames.size())
+    {
+        bool expected = false;
+        if (g_countMismatchLogged.compare_exchange_strong(expected, true))
+        {
+            APM::Log::Warn("Pose bone count (%u) differs from rig bone count (%zu); override disabled", boneCount,
+                           aTarget.boneNames.size());
+        }
+        return;
+    }
+
+    const int32_t index = APM::Pose::TargetRegistry::FindBoneIndex(aTargetPointer, g_testBoneHash.load());
+    if (index < 0 || static_cast<uint32_t>(index) >= boneCount)
+    {
+        return;
+    }
+
+    auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+    auto& rotation = bones[index].Rotation;
+
+    APM::Math::Quat current{rotation.i, rotation.j, rotation.k, rotation.r};
+    const auto result = APM::Math::Normalize(APM::Math::Mul(current, g_testRotation));
+    rotation.i = result.i;
+    rotation.j = result.j;
+    rotation.k = result.k;
+    rotation.r = result.r;
+}
+
+void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut)
+{
+    if (!aOut || !aOut->pose || APM::Pose::TargetRegistry::Count() == 0)
+    {
+        return;
+    }
+
+    const auto context = reinterpret_cast<uintptr_t>(aContext);
+    const uint32_t path = g_contextPath.load(std::memory_order_acquire);
+
+    if (path == PathUnknown)
+    {
+        // Probe phase: spend a limited budget looking for the mapping.
+        uint32_t budget = g_probeBudget.load();
+        while (budget > 0 && !g_probeBudget.compare_exchange_weak(budget, budget - 1))
+        {
+        }
+        if (budget > 0)
+        {
+            ProbeContext(context);
+            if (budget == 1)
+            {
+                APM::Log::Warn("Probe: budget exhausted, context mapping not found");
+            }
+        }
+        return;
+    }
+
+    const uintptr_t targetPointer = ResolveTargetFromContext(context, path);
+    if (!APM::Pose::TargetRegistry::ContainsPointer(targetPointer))
+    {
+        return;
+    }
+
+    APM::Pose::Target target;
+    if (!APM::Pose::TargetRegistry::FindByPointer(targetPointer, target))
+    {
+        return;
+    }
+
+    LogPoseInfo(aNode, context, aOut, target);
+    ApplyTestOverride(aOut, targetPointer, target);
+}
+
+void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
+{
+    ++t_depth;
+    g_origSample(aNode, aContext, a3, aOut);
+    --t_depth;
+
+    // Only the outermost output node carries the final pose of a graph.
+    if (t_depth != 0 || !APM::PhotoModeTracker::IsActive())
+    {
+        return;
+    }
+
+    OnPoseSampled(aNode, aContext, aOut);
+}
+
+uintptr_t ResolveOutputNodeVtable()
+{
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass("animAnimNode_Output") : nullptr;
+    if (!cls)
+    {
+        APM::Log::Error("AnimGraph: animAnimNode_Output class not found");
+        return 0;
+    }
+
+    const size_t size = cls->GetSize();
+    const size_t alignment = cls->GetAlignment() < 16 ? 16 : cls->GetAlignment();
+    void* memory = _aligned_malloc(size, alignment);
+    if (!memory)
+    {
+        return 0;
+    }
+
+    std::memset(memory, 0, size);
+    cls->ConstructCls(memory);
+    const uintptr_t vtable = *reinterpret_cast<uintptr_t*>(memory);
+    cls->DestructCls(memory);
+    _aligned_free(memory);
+
+    return vtable;
+}
+} // namespace
+
+namespace APM::AnimGraphHook
+{
+bool Install()
+{
+    const uintptr_t vtable = ResolveOutputNodeVtable();
+    if (!vtable || !SafeMemory::IsInGameImage(vtable))
+    {
+        Log::Error("AnimGraph: invalid animAnimNode_Output vtable (%p)", reinterpret_cast<void*>(vtable));
+        return false;
+    }
+
+    const uintptr_t sample = reinterpret_cast<uintptr_t*>(vtable)[SampleVtableSlot];
+    const auto base = SafeMemory::GetGameImageBase();
+    Log::Info("AnimGraph: animAnimNode_Output vtable=+0x%llX Sample=+0x%llX",
+              static_cast<unsigned long long>(vtable - base), static_cast<unsigned long long>(sample - base));
+
+    if (!SafeMemory::IsInGameImage(sample) ||
+        std::memcmp(reinterpret_cast<const void*>(sample), SamplePrologue.data(), SamplePrologue.size()) != 0)
+    {
+        Log::Error("AnimGraph: Sample() prologue mismatch, the game was probably updated. Hook NOT installed.");
+        Log::Error("AnimGraph: found bytes:%s", HexDump(sample, 16).c_str());
+        return false;
+    }
+
+    g_addrSample = reinterpret_cast<void*>(sample);
+    if (!AttachHook(g_addrSample, &Detour_Sample, &g_origSample))
+    {
+        Log::Error("AnimGraph: failed to attach Sample() hook");
+        g_addrSample = nullptr;
+        return false;
+    }
+
+    Log::Info("AnimGraph: Sample() hook installed");
+    return true;
+}
+
+void Uninstall()
+{
+    if (g_addrSample)
+    {
+        DetachHook(g_addrSample);
+        g_addrSample = nullptr;
+    }
+}
+
+void OnPhotoModeActivated()
+{
+    const auto config = Config::Get();
+
+    g_testEnabled.store(false, std::memory_order_release);
+    g_testRotation = Math::FromEulerXYZDegrees(config.testRotX, config.testRotY, config.testRotZ);
+    g_testBoneHash = RED4ext::CName(config.testBone.c_str()).hash;
+    g_testEnabled.store(config.testEnabled, std::memory_order_release);
+
+    g_poseInfoLogged = false;
+    g_countMismatchLogged = false;
+    g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
+
+    // Keep a mapping learned in a previous session; it does not change while the game runs.
+    if (g_contextPath.load() == PathUnknown && !config.probeEnabled)
+    {
+        Log::Warn("Probe disabled and context mapping unknown: overrides cannot be applied");
+    }
+}
+} // namespace APM::AnimGraphHook

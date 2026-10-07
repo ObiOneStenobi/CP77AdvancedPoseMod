@@ -1,0 +1,123 @@
+#include "Pose/TargetRegistry.hpp"
+
+#include <Windows.h>
+
+#include <algorithm>
+
+namespace
+{
+SRWLOCK g_lock = SRWLOCK_INIT;
+std::vector<APM::Pose::Target> g_targets;
+
+// Flat copy of all known pointers for lock-cheap scanning.
+std::array<uintptr_t, 32> g_pointers{};
+size_t g_pointerCount = 0;
+
+struct SharedGuard
+{
+    SharedGuard() { AcquireSRWLockShared(&g_lock); }
+    ~SharedGuard() { ReleaseSRWLockShared(&g_lock); }
+};
+
+struct ExclusiveGuard
+{
+    ExclusiveGuard() { AcquireSRWLockExclusive(&g_lock); }
+    ~ExclusiveGuard() { ReleaseSRWLockExclusive(&g_lock); }
+};
+
+const APM::Pose::Target* FindUnlocked(uintptr_t aPointer)
+{
+    for (const auto& target : g_targets)
+    {
+        if (target.entity == aPointer || target.animatedComponent == aPointer)
+        {
+            return &target;
+        }
+    }
+    return nullptr;
+}
+} // namespace
+
+namespace APM::Pose::TargetRegistry
+{
+void Set(std::vector<Target> aTargets)
+{
+    ExclusiveGuard guard;
+    g_targets = std::move(aTargets);
+
+    g_pointerCount = 0;
+    for (const auto& target : g_targets)
+    {
+        if (g_pointerCount + 2 > g_pointers.size())
+        {
+            break;
+        }
+        g_pointers[g_pointerCount++] = target.entity;
+        g_pointers[g_pointerCount++] = target.animatedComponent;
+    }
+}
+
+void Clear()
+{
+    Set({});
+}
+
+size_t Count()
+{
+    SharedGuard guard;
+    return g_targets.size();
+}
+
+bool FindByPointer(uintptr_t aPointer, Target& aOut)
+{
+    SharedGuard guard;
+    if (const auto* target = FindUnlocked(aPointer))
+    {
+        aOut = *target;
+        return true;
+    }
+    return false;
+}
+
+bool ContainsPointer(uintptr_t aPointer)
+{
+    if (!aPointer)
+    {
+        return false;
+    }
+
+    SharedGuard guard;
+    for (size_t i = 0; i < g_pointerCount; ++i)
+    {
+        if (g_pointers[i] == aPointer)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t GetProbePointers(std::array<uintptr_t, 32>& aOut)
+{
+    SharedGuard guard;
+    aOut = g_pointers;
+    return g_pointerCount;
+}
+
+int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash)
+{
+    SharedGuard guard;
+    const auto* target = FindUnlocked(aPointer);
+    if (!target)
+    {
+        return -1;
+    }
+
+    const auto it = std::find(target->boneNames.begin(), target->boneNames.end(), aBoneNameHash);
+    if (it == target->boneNames.end())
+    {
+        return -1;
+    }
+    return static_cast<int32_t>(std::distance(target->boneNames.begin(), it));
+}
+} // namespace APM::Pose::TargetRegistry
