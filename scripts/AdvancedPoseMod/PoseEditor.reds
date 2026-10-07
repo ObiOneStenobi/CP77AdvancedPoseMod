@@ -378,7 +378,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(panel, "delete", "Delete", 446.0, 876.0, 178.0, 30.0);
         this.CreateButton(panel, "pageprev", "<", 446.0, 910.0, 86.0, 30.0);
         this.CreateButton(panel, "pagenext", ">", 538.0, 910.0, 86.0, 30.0);
-        this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 948.0, 608.0, 26.0, 15, APM_ColorDimText());
+        this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 948.0, 608.0, 26.0, 12, APM_ColorDimText());
 
         this.ReloadPoses();
     }
@@ -843,9 +843,6 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
-        let cameraTransform: Transform;
-        let hasCamera = camera.GetActiveCameraWorldTransform(cameraTransform);
-        let forward = camera.GetActiveCameraForward();
         let component = APM_GizmoGetComponent();
         if !IsDefined(component) {
             this.m_gizmoLayer.SetVisible(false);
@@ -868,20 +865,12 @@ public class APM_PoseEditor extends IScriptable {
             if world.W < 0.5 {
                 show = false;
             }
-            if show && hasCamera {
-                let toPoint = APM_Vector(world.X - cameraTransform.position.X, world.Y - cameraTransform.position.Y, world.Z - cameraTransform.position.Z, 0.0);
-                if toPoint.X * forward.X + toPoint.Y * forward.Y + toPoint.Z * forward.Z <= 0.05 {
-                    show = false; // behind the camera
-                }
-            }
             if show {
-                let projected = camera.ProjectPoint(APM_Vector(world.X, world.Y, world.Z, 1.0));
-                if AbsF(projected.X) > 1.05 || AbsF(projected.Y) > 1.05 {
+                let screen = this.ProjectToScreen(camera, world);
+                if screen.W < 0.5 {
                     show = false;
                 } else {
-                    let x = (projected.X + 1.0) * 0.5 * APM_ScreenWidth();
-                    let y = (1.0 - projected.Y) * 0.5 * APM_ScreenHeight();
-                    marker.root.SetMargin(x, y, 0.0, 0.0);
+                    marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
                 }
             }
             marker.root.SetVisible(show);
@@ -900,6 +889,44 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
+    }
+
+    // Perspective projection of a world point to the 3840x2160 ink canvas (X, Y); W = 1 when on screen.
+    // Done by hand from the camera axes and field of view (CameraSystem.ProjectPoint did not give screen
+    // coordinates). Assumes a vertical field of view.
+    private func ProjectToScreen(camera: ref<CameraSystem>, world: Vector4) -> Vector4 {
+        let cameraTransform: Transform;
+        if !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let right = camera.GetActiveCameraRight();
+        let up = camera.GetActiveCameraUp();
+        let forward = camera.GetActiveCameraForward();
+        let dx = world.X - cameraTransform.position.X;
+        let dy = world.Y - cameraTransform.position.Y;
+        let dz = world.Z - cameraTransform.position.Z;
+        let depth = dx * forward.X + dy * forward.Y + dz * forward.Z;
+        if depth < 0.05 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0); // behind the camera
+        }
+        let side = dx * right.X + dy * right.Y + dz * right.Z;
+        let height = dx * up.X + dy * up.Y + dz * up.Z;
+
+        let fov = camera.GetActiveCameraFOV();
+        if fov < 1.0 || fov > 170.0 {
+            fov = 60.0;
+        }
+        let aspect = camera.GetAspectRatio();
+        if aspect < 0.5 || aspect > 5.0 {
+            aspect = APM_ScreenWidth() / APM_ScreenHeight();
+        }
+        let tanHalf = TanF(Deg2Rad(fov) * 0.5);
+        let ndcX = side / (depth * tanHalf * aspect);
+        let ndcY = height / (depth * tanHalf);
+        if AbsF(ndcX) > 1.05 || AbsF(ndcY) > 1.05 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        return APM_Vector((ndcX + 1.0) * 0.5 * APM_ScreenWidth(), (1.0 - ndcY) * 0.5 * APM_ScreenHeight(), depth, 1.0);
     }
 
     // One-line positions readout (entity, animated component, hips) to check the gizmo placement.
@@ -922,7 +949,17 @@ public class APM_PoseEditor extends IScriptable {
         if IsDefined(player) {
             let cameraTransform: Transform;
             if GameInstance.GetCameraSystem(player.GetGame()).GetActiveCameraWorldTransform(cameraTransform) {
+                let camera = GameInstance.GetCameraSystem(player.GetGame());
                 text += " | cam " + FloatToStringPrec(cameraTransform.position.X, 1) + " " + FloatToStringPrec(cameraTransform.position.Y, 1) + " " + FloatToStringPrec(cameraTransform.position.Z, 1);
+                text += " | fov " + FloatToStringPrec(camera.GetActiveCameraFOV(), 1) + " ar " + FloatToStringPrec(camera.GetAspectRatio(), 2);
+                let component = APM_GizmoGetComponent();
+                if IsDefined(component) {
+                    let hipsWorld = APM_PartWorldPosition(component.GetLocalToWorld(), 0);
+                    let raw = camera.ProjectPoint(APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0));
+                    let mine = this.ProjectToScreen(camera, hipsWorld);
+                    text += " | pp " + FloatToStringPrec(raw.X, 2) + " " + FloatToStringPrec(raw.Y, 2) + " " + FloatToStringPrec(raw.Z, 2) + " " + FloatToStringPrec(raw.W, 2);
+                    text += " | scr " + FloatToStringPrec(mine.X, 0) + " " + FloatToStringPrec(mine.Y, 0);
+                }
             }
         }
         return text;
