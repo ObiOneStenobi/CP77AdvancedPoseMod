@@ -265,7 +265,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_status = this.CreateText(panel, "Drag a value with the mouse, or use - / +", 16.0, 940.0, 608.0, 28.0, 16, APM_ColorDimText());
     }
 
-    private func CreateText(parent: wref<inkCompoundWidget>, text: String, x: Float, y: Float, w: Float, h: Float, size: Int32, color: HDRColor) -> wref<inkText> {
+    // Returns a strong ref: returning a wref built from a local ref crashed the game when the caller ignored the result.
+    private func CreateText(parent: wref<inkCompoundWidget>, text: String, x: Float, y: Float, w: Float, h: Float, size: Int32, color: HDRColor) -> ref<inkText> {
         let s = APM_UiScale();
         let label = new inkText();
         label.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
