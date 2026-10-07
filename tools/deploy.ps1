@@ -37,4 +37,9 @@ if (-not (Test-Path $config)) {
     Copy-Item (Join-Path $root "data\config.ini") $config
 }
 
+# Developer debug window for Cyber Engine Tweaks
+$cetTarget = Join-Path $GamePath "bin\x64\plugins\cyber_engine_tweaks\mods\AdvancedPoseModDebug"
+New-Item -ItemType Directory -Force -Path $cetTarget | Out-Null
+Copy-Item (Join-Path $root "cet\AdvancedPoseModDebug\init.lua") $cetTarget -Force
+
 Write-Host "Deployed AdvancedPoseMod ($Configuration) to $target"

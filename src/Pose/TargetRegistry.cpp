@@ -158,3 +158,31 @@ bool HasBoneCount(uint32_t aCount)
     return false;
 }
 } // namespace APM::Pose::TargetRegistry
+
+namespace APM::Pose::TargetRegistry
+{
+bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor)
+{
+    SharedGuard guard;
+    const auto* target = FindUnlocked(aPointer);
+    if (!target)
+    {
+        return false;
+    }
+    aVisitor(*target);
+    return true;
+}
+
+std::vector<uint64_t> GetMainSkeletonBones()
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.photoModeSlot == 0 && target.debugName == "root")
+        {
+            return target.boneNames;
+        }
+    }
+    return {};
+}
+} // namespace APM::Pose::TargetRegistry

@@ -2,8 +2,9 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-> Status: **phase 0 – research probe / proof of concept**. The plugin hooks the animation graph output,
-> finds V's Photo Mode puppet and rotates a single bone taken from `config.ini`.
+> Status: **phase 1 – bone overrides**. Any bone of V's main skeleton can be rotated/moved on top of the
+> current Photo Mode pose; poses can be saved to and loaded from JSON files. A temporary CET debug window
+> is used to drive it until the in-Photo-Mode UI exists.
 
 ## Requirements
 
@@ -34,13 +35,32 @@ powershell -ExecutionPolicy Bypass -File tools\deploy.ps1
 This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 `<game>\red4ext\plugins\AdvancedPoseMod\`.
 
-## Test (phase 0)
+## Test (phase 1)
 
 1. Start the game, load a save, open Photo Mode.
-2. With the default config V's head should be rotated by 45° around its local Z axis.
-3. Close the game and collect:
-   - `<game>\red4ext\logs\advancedposemod-*.log` (newest)
-   - `<game>\red4ext\plugins\AdvancedPoseMod\probe\rig_*.txt`
+2. Open the CET overlay: the **AdvancedPoseMod (debug)** window lists V's bones.
+3. Select a bone and move the sliders; save/load poses at the bottom.
+
+Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.json`.
+
+## Pose file format
+
+```json
+{
+  "format": "AdvancedPoseMod.Pose",
+  "version": 1,
+  "name": "my_pose",
+  "mode": "additive",
+  "skeleton": "V",
+  "bones": [
+    { "name": "Head", "rotation": [0, 0, 30] },
+    { "name": "Hips", "translation": [0, 0, -0.05] }
+  ]
+}
+```
+
+- `rotation`: degrees around the bone's local axes, applied Z * Y * X, on top of the current pose.
+- `translation`: meters in the parent bone's space, added to the current pose.
 
 ## Layout
 
@@ -48,7 +68,10 @@ This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 src/Core      runtime, logging, config, guarded memory reads
 src/Game      engine hooks (Photo Mode, animation graph)
 src/Math      quaternion helpers
-src/Pose      pose targets and (later) override layer + IK
+src/Pose      pose targets, override layer, pose files (later: IK)
+src/Scripting native functions exposed to redscript / CET (APM_*)
+scripts/      redscript declarations (not deployed yet)
+cet/          developer debug window for Cyber Engine Tweaks
 data/         files shipped next to the DLL
 docs/         research notes
 tools/        developer scripts
@@ -58,3 +81,4 @@ tools/        developer scripts
 
 - RED4ext / RED4ext.SDK – WopsS and contributors
 - Photo Mode function hashes and structure offsets – psiberx (PhotoModeEx, MIT)
+- nlohmann/json – Niels Lohmann (MIT)

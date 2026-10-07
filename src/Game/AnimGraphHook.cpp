@@ -6,6 +6,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
+#include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -14,6 +15,7 @@
 #include <Windows.h>
 #include <intrin.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -114,10 +116,6 @@ std::string BoneCountsSeen()
     return text.empty() ? "-" : text;
 }
 
-// Proof-of-concept override (single bone)
-std::atomic<bool> g_testEnabled{false};
-std::atomic<uint64_t> g_testBoneHash{0};
-APM::Math::Quat g_testRotation{};
 
 uintptr_t ResolveTargetFromContext(uintptr_t aContext, uint32_t aPath)
 {
@@ -272,9 +270,11 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
     APM::Log::Info("Probe: context head:%s", HexDump(aContext, 0x80).c_str());
 }
 
-void ApplyTestOverride(const SampleOutput* aOut, uintptr_t aTargetPointer, const APM::Pose::Target& aTarget)
+// Applies the user's bone overrides (additive) to the final local-space pose of a target.
+void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
-    if (!g_testEnabled.load(std::memory_order_acquire))
+    const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
+    if (snapshot->bones.empty())
     {
         return;
     }
@@ -287,32 +287,46 @@ void ApplyTestOverride(const SampleOutput* aOut, uintptr_t aTargetPointer, const
         return;
     }
 
-    if (boneCount != aTarget.boneNames.size())
-    {
-        bool expected = false;
-        if (g_countMismatchLogged.compare_exchange_strong(expected, true))
+    APM::Pose::TargetRegistry::VisitTarget(aTargetPointer, [&](const APM::Pose::Target& aTarget) {
+        if (boneCount != aTarget.boneNames.size())
         {
-            APM::Log::Warn("Pose bone count (%u) differs from rig bone count (%zu); override disabled", boneCount,
-                           aTarget.boneNames.size());
+            bool expected = false;
+            if (g_countMismatchLogged.compare_exchange_strong(expected, true))
+            {
+                APM::Log::Warn("Pose bone count (%u) differs from rig bone count (%zu) on %s; skipped", boneCount,
+                               aTarget.boneNames.size(), aTarget.debugName.c_str());
+            }
+            return;
         }
-        return;
-    }
 
-    const int32_t index = APM::Pose::TargetRegistry::FindBoneIndex(aTargetPointer, g_testBoneHash.load());
-    if (index < 0 || static_cast<uint32_t>(index) >= boneCount)
-    {
-        return;
-    }
+        auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        for (const auto& bone : snapshot->bones)
+        {
+            const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), bone.boneHash);
+            if (it == aTarget.boneNames.end())
+            {
+                continue;
+            }
+            auto& transform = bones[std::distance(aTarget.boneNames.begin(), it)];
 
-    auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
-    auto& rotation = bones[index].Rotation;
-
-    APM::Math::Quat current{rotation.i, rotation.j, rotation.k, rotation.r};
-    const auto result = APM::Math::Normalize(APM::Math::Mul(current, g_testRotation));
-    rotation.i = result.i;
-    rotation.j = result.j;
-    rotation.k = result.k;
-    rotation.r = result.r;
+            if (bone.hasRotation)
+            {
+                const APM::Math::Quat current{transform.Rotation.i, transform.Rotation.j, transform.Rotation.k,
+                                              transform.Rotation.r};
+                const auto result = APM::Math::Normalize(APM::Math::Mul(current, bone.rotation));
+                transform.Rotation.i = result.i;
+                transform.Rotation.j = result.j;
+                transform.Rotation.k = result.k;
+                transform.Rotation.r = result.r;
+            }
+            if (bone.hasTranslation)
+            {
+                transform.Translation.X += bone.translation[0];
+                transform.Translation.Y += bone.translation[1];
+                transform.Translation.Z += bone.translation[2];
+            }
+        }
+    });
 }
 
 // Describes a qword: plain value, pointer into the game image, or heap object with a vtable in the image.
@@ -498,14 +512,16 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aR
     }
     g_pathHits.fetch_add(1, std::memory_order_relaxed);
 
-    APM::Pose::Target target;
-    if (!APM::Pose::TargetRegistry::FindByPointer(targetPointer, target))
+    if (!g_poseInfoLogged.load(std::memory_order_relaxed))
     {
-        return;
+        APM::Pose::Target target;
+        if (APM::Pose::TargetRegistry::FindByPointer(targetPointer, target))
+        {
+            LogPoseInfo(aNode, context, aOut, target);
+        }
     }
 
-    LogPoseInfo(aNode, context, aOut, target);
-    ApplyTestOverride(aOut, targetPointer, target);
+    ApplyOverrides(aOut, targetPointer);
 }
 
 void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
@@ -610,10 +626,6 @@ void OnPhotoModeActivated()
 {
     const auto config = Config::Get();
 
-    g_testEnabled.store(false, std::memory_order_release);
-    g_testRotation = Math::FromEulerXYZDegrees(config.testRotX, config.testRotY, config.testRotZ);
-    g_testBoneHash = RED4ext::CName(config.testBone.c_str()).hash;
-    g_testEnabled.store(config.testEnabled, std::memory_order_release);
 
     g_poseInfoLogged = false;
     g_countMismatchLogged = false;

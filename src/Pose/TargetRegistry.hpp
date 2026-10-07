@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -36,10 +37,16 @@ bool ContainsPointer(uintptr_t aPointer);
 // Pointers (entities, animated components, rigs) the research probe looks for.
 size_t GetProbePointers(std::array<uintptr_t, 64>& aOut);
 
+// Calls aVisitor with the target that owns the pointer, under a shared lock (no copy). Returns false if not found.
+bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor);
+
 // Resolve a bone index by name for the target that owns the pointer. Returns -1 if not found.
 int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash);
 
 // True if any registered target has a rig with exactly this many bones (probe heuristic).
 bool HasBoneCount(uint32_t aCount);
+
+// Bone names of V's main skeleton ("root" component), for UIs. Empty if not available.
+std::vector<uint64_t> GetMainSkeletonBones();
 } // namespace TargetRegistry
 } // namespace APM::Pose

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
   AdvancedPoseMod
-  VERSION 0.1.3
+  VERSION 0.2.0
   DESCRIPTION "Bone-by-bone posing with IK for Cyberpunk 2077 Photo Mode"
   LANGUAGES CXX
 )
@@ -29,6 +29,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(red4ext_sdk)
 
+# nlohmann/json (header only) for pose files.
+FetchContent_Declare(
+  nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # -----------------------------------------------------------------------------
 # Plugin
 # -----------------------------------------------------------------------------
@@ -40,7 +48,7 @@ file(GLOB_RECURSE APM_SOURCES CONFIGURE_DEPENDS
 add_library(AdvancedPoseMod SHARED ${APM_SOURCES})
 
 target_include_directories(AdvancedPoseMod PRIVATE "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK)
+target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK nlohmann_json::nlohmann_json)
 
 target_compile_definitions(AdvancedPoseMod PRIVATE
   WIN32_LEAN_AND_MEAN
