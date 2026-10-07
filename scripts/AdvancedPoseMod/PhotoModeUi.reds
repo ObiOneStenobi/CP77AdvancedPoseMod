@@ -9,11 +9,18 @@
 module AdvancedPoseMod.Ui
 
 // Pose page index (0 = camera, 1 = time & weather, 2 = pose).
-public func APM_PosePage() -> Uint32 = 2u
+public func APM_PosePage() -> Uint32 {
+    return 2u;
+}
 
 // Item kinds
-public func APM_KindSelector() -> Int32 = 0
-public func APM_KindSlider() -> Int32 = 1
+public func APM_KindSelector() -> Int32 {
+    return 0;
+}
+
+public func APM_KindSlider() -> Int32 {
+    return 1;
+}
 
 public struct APM_MenuItem {
     let attribute: Uint32;
@@ -81,20 +88,27 @@ protected cb func OnAddingMenuItemsFinished() -> Bool {
 
 @addMethod(gameuiPhotoModeMenuController)
 private final func APM_AddItems() {
-    for item in APM_MenuItems() {
-        let label = item.label;
-        this.AddMenuItem(label, item.attribute, APM_PosePage(), false);
+    let items = APM_MenuItems();
+    let i = 0;
+    while i < ArraySize(items) {
+        let label = items[i].label;
+        this.AddMenuItem(label, items[i].attribute, APM_PosePage(), false);
+        i += 1;
     }
 }
 
 @addMethod(gameuiPhotoModeMenuController)
 private final func APM_SetupItems() {
-    for item in APM_MenuItems() {
+    let items = APM_MenuItems();
+    let i = 0;
+    while i < ArraySize(items) {
+        let item = items[i];
         if item.kind == APM_KindSlider() {
             this.OnSetupScrollBar(item.attribute, APM_UiGetValue(item.attribute), item.minValue, item.maxValue, item.step, 0u);
         } else {
             this.APM_SetupSelector(item.attribute);
         }
+        i += 1;
     }
 }
 
@@ -126,17 +140,20 @@ protected cb func OnUpdate(timeDelta: Float) -> Bool {
 
 @addMethod(gameuiPhotoModeMenuController)
 private final func APM_RefreshItems() {
-    for item in APM_MenuItems() {
-        let listItem = this.GetMenuItem(item.attribute);
-        if !IsDefined(listItem) {
-            continue;
+    let items = APM_MenuItems();
+    let i = 0;
+    while i < ArraySize(items) {
+        let attribute = items[i].attribute;
+        let listItem = this.GetMenuItem(attribute);
+        if IsDefined(listItem) {
+            // The slot list shows which slots are used: rebuild its options.
+            if attribute == 7720u {
+                this.APM_SetupSelector(attribute);
+            }
+            listItem.ForceValue(APM_UiGetValue(attribute), false);
+            listItem.SetIsEnabled(APM_UiIsAttributeEnabled(attribute));
         }
-        // The slot list shows which slots are used: rebuild its options.
-        if item.attribute == 7720u {
-            this.APM_SetupSelector(item.attribute);
-        }
-        listItem.ForceValue(APM_UiGetValue(item.attribute), false);
-        listItem.SetIsEnabled(APM_UiIsAttributeEnabled(item.attribute));
+        i += 1;
     }
 }
 
