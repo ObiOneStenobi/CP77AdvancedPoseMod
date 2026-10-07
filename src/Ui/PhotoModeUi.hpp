@@ -46,4 +46,10 @@ void RequestRefresh();
 // Option lists for selector items.
 int32_t GetOptionCount(uint32_t aAttribute);
 std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex);
+// Group of an option (body parts: "Torso", "Left arm", ...). Empty when the attribute has no groups.
+std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex);
+
+// Pose slots (0-based) used by the menu and the pose editor panel.
+int32_t GetSlotCount();
+bool IsSlotSaved(int32_t aSlot);
 } // namespace APM::Ui::PhotoModeUi

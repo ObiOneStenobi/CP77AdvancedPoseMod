@@ -136,6 +136,7 @@ protected cb func OnUpdate(timeDelta: Float) -> Bool {
     if APM_UiConsumeRefresh() {
         this.APM_RefreshItems();
     }
+    this.APM_UpdatePoseEditor(timeDelta);
     return result;
 }
 

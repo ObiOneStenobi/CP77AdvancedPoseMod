@@ -307,6 +307,30 @@ void UiGetOptionLabel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, CString(APM::Ui::PhotoModeUi::GetOptionLabel(attribute, index).c_str()));
 }
 
+void UiGetOptionGroup(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint32_t attribute = 0;
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &attribute);
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    Return(aOut, CString(APM::Ui::PhotoModeUi::GetOptionGroup(attribute, index).c_str()));
+}
+
+void UiGetSlotCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::GetSlotCount());
+}
+
+void UiIsSlotSaved(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t slot = 0;
+    RED4ext::GetParameter(aFrame, &slot);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsSlotSaved(slot));
+}
+
 // --- Registration ------------------------------------------------------------------------------------------------
 
 struct Param
@@ -374,6 +398,9 @@ void Register()
     ::Register("APM_UiRequestRefresh", &UiRequestRefresh, nullptr, {});
     ::Register("APM_UiGetOptionCount", &UiGetOptionCount, "Int32", {{"Uint32", "attribute"}});
     ::Register("APM_UiGetOptionLabel", &UiGetOptionLabel, "String", {{"Uint32", "attribute"}, {"Int32", "index"}});
+    ::Register("APM_UiGetOptionGroup", &UiGetOptionGroup, "String", {{"Uint32", "attribute"}, {"Int32", "index"}});
+    ::Register("APM_UiGetSlotCount", &UiGetSlotCount, "Int32", {});
+    ::Register("APM_UiIsSlotSaved", &UiIsSlotSaved, "Bool", {{"Int32", "slot"}});
 
     Log::Info("Script API registered");
 }

@@ -44,3 +44,6 @@ public native func APM_UiConsumeRefresh() -> Bool
 public native func APM_UiRequestRefresh() -> Void
 public native func APM_UiGetOptionCount(attribute: Uint32) -> Int32
 public native func APM_UiGetOptionLabel(attribute: Uint32, index: Int32) -> String
+public native func APM_UiGetOptionGroup(attribute: Uint32, index: Int32) -> String
+public native func APM_UiGetSlotCount() -> Int32
+public native func APM_UiIsSlotSaved(slot: Int32) -> Bool

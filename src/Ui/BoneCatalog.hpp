@@ -17,6 +17,7 @@ enum class EntryMode
 
 struct CatalogEntry
 {
+    const char* group; // panel tab ("Torso", "Left arm", ...)
     const char* label;
     std::vector<const char*> bones; // first bone is the primary one (used to read values back)
     EntryMode mode = EntryMode::Single;

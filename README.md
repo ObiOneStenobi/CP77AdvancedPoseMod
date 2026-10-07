@@ -37,6 +37,21 @@ This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 
 ## Use
 
+### Pose editor panel
+
+Open Photo Mode and click **Pose editor** (top left; the `<  >` button moves the panel to the other side).
+
+- Tabs pick a body region, the buttons below pick the part.
+- Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
+- **IK**: choose a hand or foot, **Pin on** keeps it in place, the rows move it and turn the elbow/knee.
+- **Poses**: pick a slot (highlighted numbers hold a saved pose), then **Save** / **Load**. **Reset all** asks
+  for confirmation.
+- **Pose on/off** turns the custom pose on/off; it is turned off when leaving Photo Mode.
+
+### Photo Mode menu items
+
+The same controls are also available at the bottom of the **Pose** page:
+
 1. Open Photo Mode, go to the **Pose** page and scroll to the bottom.
 2. **Body part** selects what to edit; **Bend forward / back**, **Bend sideways** and **Twist** rotate it,
    **Move ...** sliders are available for the body (hips).

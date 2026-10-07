@@ -387,4 +387,23 @@ std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex)
         return {};
     }
 }
+
+std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex)
+{
+    if (aAttribute != Attr::BodyPart || aIndex < 0 || aIndex >= GetOptionCount(aAttribute))
+    {
+        return {};
+    }
+    return GetBoneCatalog()[aIndex].group;
+}
+
+int32_t GetSlotCount()
+{
+    return SlotCount;
+}
+
+bool IsSlotSaved(int32_t aSlot)
+{
+    return aSlot >= 0 && aSlot < SlotCount && SlotExists(aSlot + 1);
+}
 } // namespace APM::Ui::PhotoModeUi
