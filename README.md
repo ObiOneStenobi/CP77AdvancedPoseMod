@@ -39,14 +39,23 @@ This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 
 ### Pose editor panel
 
-Open Photo Mode and click **Pose editor** (top left; the `<  >` button moves the panel to the other side).
+Open Photo Mode and click **Pose editor** (top left).
 
+- Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
+  `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin on** keeps it in place, the rows move it and turn the elbow/knee.
-- **Poses**: pick a slot (highlighted numbers hold a saved pose), then **Save** / **Load**. **Reset all** asks
-  for confirmation.
-- **Pose on/off** turns the custom pose on/off; it is turned off when leaving Photo Mode.
+- **Poses**: unlimited library (`poses\*.json`), five per page. **Save new** creates "Pose 001", "Pose 002", ...;
+  select a pose to **Overwrite**, **Load** or **Delete** it (delete asks for a second click).
+
+### Gizmos
+
+Diamond markers sit on V's joints (finger markers appear while a hand tab is selected).
+
+- Click a marker to select that body part in the panel.
+- Drag a white marker to rotate the part (left/right: bend sideways, up/down: bend forward/back).
+- Drag an orange marker (hands and feet) to move it with IK in the camera plane; the limb is pinned automatically.
 
 ### Photo Mode menu items
 

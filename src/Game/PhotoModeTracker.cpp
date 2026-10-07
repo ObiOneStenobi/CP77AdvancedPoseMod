@@ -6,6 +6,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -316,6 +317,7 @@ void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
     APM::Pose::TargetRegistry::Clear();
+    APM::Pose::GizmoState::Clear();
     // The custom pose is kept in memory but must be re-enabled by the player next time.
     APM::Pose::PoseOverrides::SetEnabled(false);
     APM::Log::Info("PhotoMode: deactivated");

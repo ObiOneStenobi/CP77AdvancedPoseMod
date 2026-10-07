@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 
@@ -429,5 +431,33 @@ std::vector<std::string> ListSaved()
     }
     std::sort(names.begin(), names.end());
     return names;
+}
+
+bool Delete(const std::string& aName)
+{
+    const auto name = SanitizeName(aName);
+    if (name.empty())
+    {
+        return false;
+    }
+    std::error_code ec;
+    const bool removed = std::filesystem::remove(GetPoseDirectory() / (name + ".json"), ec);
+    Log::Info("Pose '%s' %s", name.c_str(), removed ? "deleted" : "not found");
+    return removed;
+}
+
+std::string SaveNew()
+{
+    std::error_code ec;
+    for (int number = 1; number < 10000; ++number)
+    {
+        char name[32]{};
+        std::snprintf(name, sizeof(name), "Pose %03d", number);
+        if (!std::filesystem::exists(GetPoseDirectory() / (std::string(name) + ".json"), ec))
+        {
+            return Save(name) ? std::string(name) : std::string();
+        }
+    }
+    return {};
 }
 } // namespace APM::Pose::PoseOverrides

@@ -47,3 +47,20 @@ public native func APM_UiGetOptionLabel(attribute: Uint32, index: Int32) -> Stri
 public native func APM_UiGetOptionGroup(attribute: Uint32, index: Int32) -> String
 public native func APM_UiGetSlotCount() -> Int32
 public native func APM_UiIsSlotSaved(slot: Int32) -> Bool
+
+// Pose library
+public native func APM_DeletePose(name: String) -> Bool
+// Saves under the first free name ("Pose 001", ...) and returns it; empty on failure
+public native func APM_SaveNewPose() -> String
+
+// Panel preferences (panel.ini)
+public native func APM_PrefGet(key: String, fallback: Float) -> Float
+public native func APM_PrefSet(key: String, value: Float) -> Bool
+
+// Gizmos
+// World position of the main bone of a body part; w = 1 when valid
+public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
+// IK chain (0 left hand, 1 right hand, 2 left foot, 3 right foot) moved by dragging this part, or -1
+public native func APM_GizmoGetPartIkChain(part: Int32) -> Int32
+// Moves an IK target by a world-space vector (meters) and pins it
+public native func APM_GizmoMoveIk(chain: Int32, worldDelta: Vector4) -> Bool

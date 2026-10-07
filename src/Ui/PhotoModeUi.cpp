@@ -1,12 +1,15 @@
 #include "Ui/PhotoModeUi.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
 
 #include <RED4ext/CName.hpp>
+
+#include <Windows.h>
 
 #include <algorithm>
 #include <atomic>
@@ -405,5 +408,26 @@ int32_t GetSlotCount()
 bool IsSlotSaved(int32_t aSlot)
 {
     return aSlot >= 0 && aSlot < SlotCount && SlotExists(aSlot + 1);
+}
+
+float GetPreference(const std::string& aKey, float aDefault)
+{
+    const auto file = (GetRuntime().pluginDir / L"panel.ini").wstring();
+    const std::wstring key(aKey.begin(), aKey.end());
+    wchar_t buffer[64]{};
+    GetPrivateProfileStringW(L"Panel", key.c_str(), L"", buffer, static_cast<DWORD>(std::size(buffer)), file.c_str());
+    if (buffer[0] == L'\0')
+    {
+        return aDefault;
+    }
+    return static_cast<float>(_wtof(buffer));
+}
+
+void SetPreference(const std::string& aKey, float aValue)
+{
+    const auto file = (GetRuntime().pluginDir / L"panel.ini").wstring();
+    const std::wstring key(aKey.begin(), aKey.end());
+    const std::wstring value = std::to_wstring(aValue);
+    WritePrivateProfileStringW(L"Panel", key.c_str(), value.c_str(), file.c_str());
 }
 } // namespace APM::Ui::PhotoModeUi

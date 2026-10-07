@@ -49,6 +49,10 @@ std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex);
 // Group of an option (body parts: "Torso", "Left arm", ...). Empty when the attribute has no groups.
 std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex);
 
+// Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
+float GetPreference(const std::string& aKey, float aDefault);
+void SetPreference(const std::string& aKey, float aValue);
+
 // Pose slots (0-based) used by the menu and the pose editor panel.
 int32_t GetSlotCount();
 bool IsSlotSaved(int32_t aSlot);

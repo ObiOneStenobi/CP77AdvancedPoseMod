@@ -7,6 +7,7 @@
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
 #include "Pose/PoseOverrides.hpp"
+#include "Pose/GizmoState.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -274,15 +275,8 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
 // Applies the user's bone overrides (additive) to the final local-space pose of a target.
 void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
-    if (!APM::Pose::PoseOverrides::IsEnabled())
-    {
-        return;
-    }
     const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
-    if (snapshot->IsEmpty())
-    {
-        return;
-    }
+    const bool applyPose = APM::Pose::PoseOverrides::IsEnabled() && !snapshot->IsEmpty();
 
     uint32_t boneCount = 0;
     uint64_t bonesAddress = 0;
@@ -304,8 +298,13 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
             return;
         }
 
-        APM::Pose::PoseProcessor::Process(aTarget, reinterpret_cast<RED4ext::QsTransform*>(bonesAddress), boneCount,
-                                          *snapshot);
+        auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        if (applyPose)
+        {
+            APM::Pose::PoseProcessor::Process(aTarget, bones, boneCount, *snapshot);
+        }
+        // The gizmos follow the final pose, edited or not.
+        APM::Pose::GizmoState::Publish(aTarget, bones, boneCount);
     });
 }
 

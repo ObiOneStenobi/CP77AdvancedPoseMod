@@ -2,13 +2,16 @@
 
 #include "Core/Log.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
+#include "Ui/BoneCatalog.hpp"
 #include "Ui/PhotoModeUi.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -241,6 +244,108 @@ void GetPoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, CString(valid ? g_poseNames[index].c_str() : ""));
 }
 
+void DeletePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString name;
+    RED4ext::GetParameter(aFrame, &name);
+    aFrame->code++;
+    Return(aOut, APM::Pose::PoseOverrides::Delete(name.c_str()));
+}
+
+void SaveNewPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::PoseOverrides::SaveNew().c_str()));
+}
+
+void PrefGet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString key;
+    float fallback = 0.f;
+    RED4ext::GetParameter(aFrame, &key);
+    RED4ext::GetParameter(aFrame, &fallback);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::GetPreference(key.c_str(), fallback));
+}
+
+void PrefSet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString key;
+    float value = 0.f;
+    RED4ext::GetParameter(aFrame, &key);
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetPreference(key.c_str(), value);
+    Return(aOut, true);
+}
+
+// --- Gizmos ------------------------------------------------------------------------------------------------------
+
+// World position of the main bone of a body part (index in the body part list); w = 1 when valid.
+void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    APM::Math::Vec3 position{};
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
+        APM::Pose::GizmoState::GetBoneWorldPosition(RED4ext::CName(catalog[part].bones.front()).hash, position))
+    {
+        result = {position.x, position.y, position.z, 1.f};
+    }
+    Return(aOut, result);
+}
+
+// IK chain driven by a body part (0..3), or -1.
+void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    int32_t chain = -1;
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) && catalog[part].bones.size() == 1)
+    {
+        const std::string bone = catalog[part].bones.front();
+        constexpr const char* ends[] = {"LeftHand", "RightHand", "LeftFoot", "RightFoot"};
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            if (bone == ends[i])
+            {
+                chain = i;
+            }
+        }
+    }
+    Return(aOut, chain);
+}
+
+// Moves the IK target of a chain by a world-space vector (meters) and pins the chain.
+void GizmoMoveIk(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t chain = 0;
+    RED4ext::Vector4 delta{};
+    RED4ext::GetParameter(aFrame, &chain);
+    RED4ext::GetParameter(aFrame, &delta);
+    aFrame->code++;
+
+    if (chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount))
+    {
+        const auto model = APM::Pose::GizmoState::WorldToModelDirection({delta.X, delta.Y, delta.Z});
+        auto settings = APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain));
+        settings.enabled = true;
+        settings.offset[0] = std::clamp(settings.offset[0] + model.x, -0.8f, 0.8f);
+        settings.offset[1] = std::clamp(settings.offset[1] + model.y, -0.8f, 0.8f);
+        settings.offset[2] = std::clamp(settings.offset[2] + model.z, -0.8f, 0.8f);
+        APM::Pose::PoseOverrides::SetIkChain(static_cast<APM::Pose::IkChain>(chain), settings);
+        APM::Ui::PhotoModeUi::RequestRefresh();
+    }
+    Return(aOut, true);
+}
+
 // --- Photo Mode menu (see scripts/AdvancedPoseMod/PhotoModeUi.reds) ----------------------------------------------
 
 void UiIsOwnAttribute(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -389,6 +494,15 @@ void Register()
     ::Register("APM_LoadPose", &LoadPose, "Bool", {{"String", "name"}});
     ::Register("APM_GetPoseCount", &GetPoseCount, "Int32", {});
     ::Register("APM_GetPoseName", &GetPoseName, "String", {{"Int32", "index"}});
+    ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
+    ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
+
+    ::Register("APM_PrefGet", &PrefGet, "Float", {{"String", "key"}, {"Float", "fallback"}});
+    ::Register("APM_PrefSet", &PrefSet, "Bool", {{"String", "key"}, {"Float", "value"}});
+
+    ::Register("APM_GizmoGetPartPosition", &GizmoGetPartPosition, "Vector4", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
+    ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "worldDelta"}});
 
     ::Register("APM_UiIsOwnAttribute", &UiIsOwnAttribute, "Bool", {{"Uint32", "attribute"}});
     ::Register("APM_UiSetValue", &UiSetValue, nullptr, {{"Uint32", "attribute"}, {"Float", "value"}});
