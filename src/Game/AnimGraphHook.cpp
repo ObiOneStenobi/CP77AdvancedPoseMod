@@ -273,7 +273,7 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
 }
 
 // Applies the user's bone overrides (additive) to the final local-space pose of a target.
-void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
+void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
     const bool applyPose = APM::Pose::PoseOverrides::IsEnabled() && !snapshot->IsEmpty();
@@ -304,7 +304,7 @@ void ApplyOverrides(const SampleOutput* aOut, uintptr_t aTargetPointer)
             APM::Pose::PoseProcessor::Process(aTarget, bones, boneCount, *snapshot);
         }
         // The gizmos follow the final pose, edited or not.
-        APM::Pose::GizmoState::Publish(aTarget, bones, boneCount);
+        APM::Pose::GizmoState::Publish(aTarget, bones, boneCount, reinterpret_cast<uintptr_t>(aNode));
     });
 }
 
@@ -500,7 +500,7 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aR
         }
     }
 
-    ApplyOverrides(aOut, targetPointer);
+    ApplyOverrides(aNode, aOut, targetPointer);
 }
 
 void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)

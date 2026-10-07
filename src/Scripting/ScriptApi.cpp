@@ -336,6 +336,19 @@ void GizmoGetComponent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     }
 }
 
+// Rotates a body part around a model-space axis (degrees) - used by the gizmos for view-relative rotation.
+void GizmoRotatePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::Vector4 axis{};
+    float degrees = 0.f;
+    RED4ext::GetParameter(aFrame, &part);
+    RED4ext::GetParameter(aFrame, &axis);
+    RED4ext::GetParameter(aFrame, &degrees);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::RotatePart(part, {axis.X, axis.Y, axis.Z}, degrees));
+}
+
 // IK chain driven by a body part (0..3), or -1.
 void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -541,6 +554,8 @@ void Register()
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
+    ::Register("APM_GizmoRotatePart", &GizmoRotatePart, "Bool",
+               {{"Int32", "part"}, {"Vector4", "modelAxis"}, {"Float", "degrees"}});
     ::Register("APM_GizmoGetComponent", &GizmoGetComponent, "handle:entIPlacedComponent", {});
 
     ::Register("APM_UiIsOwnAttribute", &UiIsOwnAttribute, "Bool", {{"Uint32", "attribute"}});

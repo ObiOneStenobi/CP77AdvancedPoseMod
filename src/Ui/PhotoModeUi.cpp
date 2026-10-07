@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
@@ -115,6 +116,46 @@ void ApplyAngles(const std::array<float, 3>& aAngles)
         Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles, isFinger),
                                              angles);
     }
+}
+
+// Euler decomposition q = Rx(a) * Ry(b) * Rz(c) for a right-handed orthonormal basis (x, y, z); degrees.
+std::array<float, 3> DecomposeXYZ(const Math::Quat& q, const Math::Vec3& x, const Math::Vec3& y, const Math::Vec3& z)
+{
+    const Math::Vec3 rx = Math::Rotate(q, x);
+    const Math::Vec3 ry = Math::Rotate(q, y);
+    const Math::Vec3 rz = Math::Rotate(q, z);
+    // m[i][j] = axis_i . (q * axis_j)
+    const float m00 = Math::Dot(x, rx);
+    const float m01 = Math::Dot(x, ry);
+    const float m02 = Math::Dot(x, rz);
+    const float m12 = Math::Dot(y, rz);
+    const float m22 = Math::Dot(z, rz);
+    constexpr float RadToDeg = 57.29577951308232f;
+    const float b = std::asin(std::clamp(m02, -1.f, 1.f));
+    const float a = std::atan2(-m12, m22);
+    const float c = std::atan2(-m01, m00);
+    return {a * RadToDeg, b * RadToDeg, c * RadToDeg};
+}
+
+// UI angles (bend1, bend2, twist) that produce the local rotation q, inverse of AnglesToRotation.
+bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, std::array<float, 3>& aOut)
+{
+    Math::Vec3 bend1;
+    Math::Vec3 bend2;
+    Math::Vec3 twist;
+    if (!Pose::TargetRegistry::GetBoneAxes(RED4ext::CName(aBone).hash, bend1, bend2, twist))
+    {
+        return false;
+    }
+    if (!aSwapBends)
+    {
+        aOut = DecomposeXYZ(q, bend1, bend2, twist);
+        return true;
+    }
+    // Fingers use (bend2, bend1, twist), which is left-handed: decompose with the twist axis negated.
+    const auto angles = DecomposeXYZ(q, bend2, bend1, twist * -1.f);
+    aOut = {angles[0], angles[1], -angles[2]};
+    return true;
 }
 
 void ResetCurrentPart()
@@ -429,5 +470,45 @@ void SetPreference(const std::string& aKey, float aValue)
     const std::wstring key(aKey.begin(), aKey.end());
     const std::wstring value = std::to_wstring(aValue);
     WritePrivateProfileStringW(L"Panel", key.c_str(), value.c_str(), file.c_str());
+}
+
+bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()) || Math::Length(aModelAxis) < 1e-4f)
+    {
+        return false;
+    }
+    g_bodyPart = aPart;
+    const auto& entry = CurrentEntry();
+    const char* bone = entry.bones.front();
+    const bool isFinger = entry.mode == EntryMode::Curl;
+
+    // Current bone rotation in model space (with the current edit) and the current edit itself.
+    Math::Quat boneModel{};
+    if (!Pose::GizmoState::GetBoneModelRotation(RED4ext::CName(bone).hash, boneModel))
+    {
+        return false;
+    }
+    const auto angles = CurrentAngles();
+    const Math::Quat offset = AnglesToRotation(bone, angles, isFinger);
+
+    // Rotate around a model-space axis: new offset = offset * (B^-1 * R * B).
+    const Math::Quat r = Math::FromAxisAngle(Math::Normalize(aModelAxis), Math::DegToRad(aDegrees));
+    const Math::Quat local = Math::Mul(Math::Mul(Math::Conjugate(boneModel), r), boneModel);
+    const Math::Quat updated = Math::Normalize(Math::Mul(offset, local));
+
+    std::array<float, 3> result{};
+    if (!RotationToAngles(bone, updated, isFinger, result))
+    {
+        return false;
+    }
+    for (auto& angle : result)
+    {
+        angle = std::clamp(angle, -180.f, 180.f);
+    }
+    ApplyAngles(result);
+    RequestRefresh();
+    return true;
 }
 } // namespace APM::Ui::PhotoModeUi

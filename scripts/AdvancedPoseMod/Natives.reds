@@ -66,5 +66,7 @@ public native func APM_GizmoGetEntity() -> ref<Entity>
 public native func APM_GizmoGetComponent() -> ref<IPlacedComponent>
 // IK chain (0 left hand, 1 right hand, 2 left foot, 3 right foot) moved by dragging this part, or -1
 public native func APM_GizmoGetPartIkChain(part: Int32) -> Int32
+// Rotates a body part around a model-space axis (degrees); the panel angles follow
+public native func APM_GizmoRotatePart(part: Int32, modelAxis: Vector4, degrees: Float) -> Bool
 // Moves an IK target by a model-space vector (meters) and pins it
 public native func APM_GizmoMoveIk(chain: Int32, modelDelta: Vector4) -> Bool

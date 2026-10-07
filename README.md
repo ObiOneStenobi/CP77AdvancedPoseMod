@@ -54,8 +54,10 @@ Open Photo Mode and click **Pose editor** (top left).
 Diamond markers sit on V's joints (finger markers appear while a hand tab is selected).
 
 - Click a marker to select that body part in the panel.
-- Drag a white marker to rotate the part (left/right: bend sideways, up/down: bend forward/back).
-- Drag an orange marker (hands and feet) to move it with IK in the camera plane; the limb is pinned automatically.
+- Drag a white marker to rotate the part as seen from the camera (left/right turns it around the screen's vertical
+  axis, up/down tilts it around the screen's horizontal axis); the panel angles follow.
+- Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
+  automatically).
 
 ### Photo Mode menu items
 

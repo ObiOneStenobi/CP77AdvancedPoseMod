@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Math/Vec3.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -48,6 +50,9 @@ int32_t GetOptionCount(uint32_t aAttribute);
 std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex);
 // Group of an option (body parts: "Torso", "Left arm", ...). Empty when the attribute has no groups.
 std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex);
+
+// Gizmo: rotates a body part around a model-space axis (degrees), keeping the UI angles in sync.
+bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees);
 
 // Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
 float GetPreference(const std::string& aKey, float aDefault);

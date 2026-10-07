@@ -153,6 +153,8 @@ public class APM_Marker extends IScriptable {
     public let root: wref<inkCanvas>;
     public let dot: wref<inkRectangle>;
     public let isHovered: Bool;
+    public let screenX: Float; // last position on the ink canvas
+    public let screenY: Float;
 }
 
 // World position of a body part (w = 1 when valid): the bone's model-space position through the animated
@@ -209,6 +211,12 @@ public class APM_PoseEditor extends IScriptable {
 
     private let m_markers: array<ref<APM_Marker>>;
     private let m_dragMarker: ref<APM_Marker>;
+    // IK drag: the hand / foot follows a virtual cursor on a plane facing the camera.
+    private let m_dragCursorX: Float;
+    private let m_dragCursorY: Float;
+    private let m_dragDepth: Float;
+    private let m_dragStartWorld: Vector4;
+    private let m_dragStartOffset: Vector4; // IK offset in cm when the drag started
 
     private let m_dragRow: ref<APM_ValueRow>;
     private let m_dragValue: Float;
@@ -871,6 +879,8 @@ public class APM_PoseEditor extends IScriptable {
                     show = false;
                 } else {
                     marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
+                    marker.screenX = screen.X;
+                    marker.screenY = screen.Y;
                 }
             }
             marker.root.SetVisible(show);
@@ -965,48 +975,99 @@ public class APM_PoseEditor extends IScriptable {
         return text;
     }
 
-    // Meters of movement per unit of mouse movement, growing with the distance from the camera.
-    private func DragMetersPerUnit(part: Int32) -> Float {
+    // Canvas units of virtual cursor movement per unit of mouse movement (ink canvas is 3840 wide).
+    private func CursorUnitsPerMouseUnit() -> Float {
+        return 2.0;
+    }
+
+    // Point at the given depth in front of the camera, under a point of the ink canvas. W = 1 when valid.
+    private func UnprojectFromScreen(camera: ref<CameraSystem>, screenX: Float, screenY: Float, depth: Float) -> Vector4 {
+        let cameraTransform: Transform;
+        if !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let right = camera.GetActiveCameraRight();
+        let up = camera.GetActiveCameraUp();
+        let forward = camera.GetActiveCameraForward();
+        let fov = camera.GetActiveCameraFOV();
+        if fov < 1.0 || fov > 170.0 {
+            fov = 60.0;
+        }
+        let aspect = camera.GetAspectRatio();
+        if aspect < 0.5 || aspect > 5.0 {
+            aspect = APM_ScreenWidth() / APM_ScreenHeight();
+        }
+        let tanHalf = TanF(Deg2Rad(fov) * 0.5);
+        let ndcX = screenX / APM_ScreenWidth() * 2.0 - 1.0;
+        let ndcY = 1.0 - screenY / APM_ScreenHeight() * 2.0;
+        let sx = ndcX * tanHalf * aspect * depth;
+        let sy = ndcY * tanHalf * depth;
+        return APM_Vector(
+            cameraTransform.position.X + forward.X * depth + right.X * sx + up.X * sy,
+            cameraTransform.position.Y + forward.Y * depth + right.Y * sx + up.Y * sy,
+            cameraTransform.position.Z + forward.Z * depth + right.Z * sx + up.Z * sy,
+            1.0);
+    }
+
+    private func BeginMarkerDrag(marker: ref<APM_Marker>) {
+        this.m_dragMarker = marker;
+        if marker.chain < 0 {
+            return;
+        }
         let player = this.m_controller.GetPlayerControlledObject();
-        if !IsDefined(player) {
-            return 0.002;
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(player) || !IsDefined(component) {
+            this.m_dragMarker = null;
+            return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
-        let cameraTransform: Transform;
-        let component = APM_GizmoGetComponent();
-        if !IsDefined(component) || !camera.GetActiveCameraWorldTransform(cameraTransform) {
-            return 0.002;
+        let world = APM_PartWorldPosition(component.GetLocalToWorld(), marker.part);
+        let screen = this.ProjectToScreen(camera, world);
+        if world.W < 0.5 || screen.W < 0.5 {
+            this.m_dragMarker = null;
+            return;
         }
-        let world = APM_PartWorldPosition(component.GetLocalToWorld(), part);
-        if world.W < 0.5 {
-            return 0.002;
-        }
-        let distance = Vector4.Distance(APM_Vector(world.X, world.Y, world.Z, 0.0), APM_Vector(cameraTransform.position.X, cameraTransform.position.Y, cameraTransform.position.Z, 0.0));
-        return 0.0012 * MaxF(distance, 0.3);
+        // Select and pin the limb, remember where the drag started.
+        APM_UiSetValue(7710u, Cast<Float>(marker.chain));
+        APM_UiSetValue(7711u, 1.0);
+        this.m_dragCursorX = screen.X;
+        this.m_dragCursorY = screen.Y;
+        this.m_dragDepth = screen.Z;
+        this.m_dragStartWorld = world;
+        this.m_dragStartOffset = APM_Vector(APM_UiGetValue(7712u), APM_UiGetValue(7713u), APM_UiGetValue(7714u), 0.0);
     }
 
     private func DragMarker(marker: ref<APM_Marker>, horizontal: Bool, amount: Float) {
+        let player = this.m_controller.GetPlayerControlledObject();
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(player) || !IsDefined(component) {
+            return;
+        }
+        let camera = GameInstance.GetCameraSystem(player.GetGame());
+        let toWorld = component.GetLocalToWorld();
+
         if marker.chain >= 0 {
-            // Move the hand / foot in the camera plane.
-            let player = this.m_controller.GetPlayerControlledObject();
-            if !IsDefined(player) {
+            // The hand / foot follows the cursor on a plane facing the camera, at its starting depth.
+            if horizontal {
+                this.m_dragCursorX += amount * this.CursorUnitsPerMouseUnit();
+            } else {
+                this.m_dragCursorY -= amount * this.CursorUnitsPerMouseUnit(); // mouse up = canvas up
+            }
+            let target = this.UnprojectFromScreen(camera, this.m_dragCursorX, this.m_dragCursorY, this.m_dragDepth);
+            if target.W < 0.5 {
                 return;
             }
-            let camera = GameInstance.GetCameraSystem(player.GetGame());
-            let axis = horizontal ? camera.GetActiveCameraRight() : camera.GetActiveCameraUp();
-            let component = APM_GizmoGetComponent();
-            if !IsDefined(component) {
-                return;
-            }
-            let meters = amount * this.DragMetersPerUnit(marker.part);
-            let worldDelta = APM_Vector(axis.X * meters, axis.Y * meters, axis.Z * meters, 0.0);
-            let modelDelta = APM_WorldToModelDirection(component.GetLocalToWorld(), worldDelta);
-            APM_GizmoMoveIk(marker.chain, modelDelta);
+            let worldDelta = APM_Vector(target.X - this.m_dragStartWorld.X, target.Y - this.m_dragStartWorld.Y, target.Z - this.m_dragStartWorld.Z, 0.0);
+            let modelDelta = APM_WorldToModelDirection(toWorld, worldDelta);
+            APM_UiSetValue(7712u, ClampF(this.m_dragStartOffset.X + modelDelta.X * 100.0, -80.0, 80.0));
+            APM_UiSetValue(7713u, ClampF(this.m_dragStartOffset.Y + modelDelta.Y * 100.0, -80.0, 80.0));
+            APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
         } else {
-            // Rotate the part: left/right bends sideways, up/down bends forward/back.
-            let attribute = horizontal ? 7703u : 7702u;
-            let value = ClampF(APM_UiGetValue(attribute) + amount * 0.3, -180.0, 180.0);
-            APM_UiSetValue(attribute, value);
+            // Rotate as seen from the camera: left/right turns around the camera's vertical axis, up/down tilts
+            // around its horizontal axis.
+            let axis = horizontal ? camera.GetActiveCameraUp() : camera.GetActiveCameraRight();
+            let degrees = horizontal ? amount * 0.25 : -amount * 0.25;
+            APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, axis), degrees);
         }
     }
 
@@ -1229,10 +1290,7 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
-        if marker.chain >= 0 {
-            APM_UiSetValue(7710u, Cast<Float>(marker.chain));
-        }
-        this.m_dragMarker = marker;
+        this.BeginMarkerDrag(marker);
         this.SetHover(true);
         APM_UiRequestRefresh();
         this.Refresh();
