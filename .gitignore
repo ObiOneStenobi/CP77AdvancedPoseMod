@@ -4,3 +4,4 @@ out/
 *.user
 CMakeUserPresets.json
 dist/
+Claude outputs/

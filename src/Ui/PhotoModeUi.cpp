@@ -147,13 +147,18 @@ bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, s
     {
         return false;
     }
-    if (!aSwapBends)
+    if (aSwapBends)
+    {
+        std::swap(bend1, bend2);
+    }
+    // The decomposition needs a right-handed basis: when (bend1, bend2, twist) is left-handed (fingers, left limbs)
+    // use the negated twist axis and negate the twist angle back.
+    if (Math::Dot(Math::Cross(bend1, bend2), twist) >= 0.f)
     {
         aOut = DecomposeXYZ(q, bend1, bend2, twist);
         return true;
     }
-    // Fingers use (bend2, bend1, twist), which is left-handed: decompose with the twist axis negated.
-    const auto angles = DecomposeXYZ(q, bend2, bend1, twist * -1.f);
+    const auto angles = DecomposeXYZ(q, bend1, bend2, twist * -1.f);
     aOut = {angles[0], angles[1], -angles[2]};
     return true;
 }

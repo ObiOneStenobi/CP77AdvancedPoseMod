@@ -21,6 +21,7 @@ constexpr uint64_t LogIntervalMs = 5000;
 struct Skeleton
 {
     std::vector<uint64_t> boneNames;
+    std::vector<int16_t> parents;
     std::vector<Vec3> positions; // model space
     std::vector<Quat> rotations; // model space
     uint64_t lastUpdate = 0;
@@ -129,6 +130,7 @@ void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t
     if (skeleton.boneNames != aTarget.boneNames)
     {
         skeleton.boneNames = aTarget.boneNames;
+        skeleton.parents = aTarget.parents;
     }
     skeleton.positions = positions;
     skeleton.rotations = rotations;
@@ -191,5 +193,40 @@ uintptr_t GetComponent()
 {
     std::scoped_lock lock(g_mutex);
     return g_component;
+}
+
+bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const Skeleton& skeleton = g_main;
+    const auto index = IndexOf(skeleton, aBoneHash);
+    if (index < 0)
+    {
+        return false;
+    }
+    // First child that is not on top of the bone.
+    for (size_t child = static_cast<size_t>(index) + 1; child < skeleton.parents.size() && child < skeleton.positions.size();
+         ++child)
+    {
+        if (skeleton.parents[child] == index &&
+            Math::Length(skeleton.positions[child] - skeleton.positions[index]) > 0.01f)
+        {
+            aOut = skeleton.positions[child];
+            return true;
+        }
+    }
+    // Leaf bone: continue the parent -> bone direction.
+    const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
+    if (parent < 0)
+    {
+        return false;
+    }
+    const Vec3 direction = skeleton.positions[index] - skeleton.positions[parent];
+    if (Math::Length(direction) < 1e-4f)
+    {
+        return false;
+    }
+    aOut = skeleton.positions[index] + Math::Normalize(direction) * 0.08f;
+    return true;
 }
 } // namespace APM::Pose::GizmoState

@@ -244,6 +244,7 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
 
         Vec3 bend1;
         Vec3 bend2;
+        bool leftSideways = false;
         if (az >= ax && az >= ay)
         {
             bend1 = right;   // vertical bone (spine, legs): bend forward/back
@@ -253,6 +254,7 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
         {
             bend1 = up;      // sideways bone (arms, fingers): swing forward/back
             bend2 = forward; // raise/lower
+            leftSideways = Dot(twist, right) < 0.f;
         }
         else
         {
@@ -263,6 +265,13 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
         // Make both bend axes perpendicular to the twist axis (Gram-Schmidt).
         bend1 = Normalize(bend1 - twist * Dot(bend1, twist));
         bend2 = Normalize(Cross(twist, bend1));
+        if (leftSideways)
+        {
+            // Left limbs point the other way: flip the swing axis so that a positive "forward / back" moves both
+            // arms (and elbows, hands, fingers) the same way. The basis becomes left-handed; RotationToAngles
+            // in the UI handles that.
+            bend1 = bend1 * -1.f;
+        }
 
         aBend1 = Rotate(toLocal, bend1);
         aBend2 = Rotate(toLocal, bend2);

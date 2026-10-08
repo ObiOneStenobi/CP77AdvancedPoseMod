@@ -1221,9 +1221,11 @@ public class APM_PoseEditor extends IScriptable {
             APM_UiSetValue(7712u, ClampF(this.m_dragStartOffset.X + modelDelta.X * 100.0, -80.0, 80.0));
             APM_UiSetValue(7713u, ClampF(this.m_dragStartOffset.Y + modelDelta.Y * 100.0, -80.0, 80.0));
             APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
+        } else if !this.IsTrackballPart(marker.part) {
+            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy);
         } else {
-            // Rotate as seen from the camera: left/right turns around the camera's vertical axis, up/down tilts
-            // around its horizontal axis (the side facing the camera follows the cursor).
+            // Head and eyes: rotate as seen from the camera - left/right turns around the camera's vertical axis,
+            // up/down tilts around its horizontal axis (the side facing the camera follows the cursor).
             if AbsF(dx) > 0.0 {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()), dx * this.DegreesPerCanvasUnit());
             }
@@ -1231,6 +1233,58 @@ public class APM_PoseEditor extends IScriptable {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraRight()), dy * this.DegreesPerCanvasUnit());
             }
         }
+    }
+
+    // Parts that turn like a ball under the cursor instead of pointing at it.
+    private func IsTrackballPart(part: Int32) -> Bool {
+        let label = APM_UiGetOptionLabel(7701u, part);
+        return Equals(label, "Head") || Equals(label, "Left eye") || Equals(label, "Right eye");
+    }
+
+    // Meters per ink canvas unit at a given distance in front of the camera.
+    private func MetersPerCanvasUnit(camera: ref<CameraSystem>, depth: Float) -> Float {
+        let fov = camera.GetActiveCameraFOV();
+        if fov < 1.0 || fov > 170.0 {
+            fov = 60.0;
+        }
+        return 2.0 * depth * TanF(Deg2Rad(fov) * 0.5) / APM_ScreenHeight();
+    }
+
+    // Rotates a part around its joint so that the point it points at (its child joint) follows the cursor.
+    private func RotateTipTowardsCursor(camera: ref<CameraSystem>, toWorld: Matrix, part: Int32, dx: Float, dy: Float) {
+        let joint = APM_PartWorldPosition(toWorld, part);
+        let tipModel = APM_GizmoGetPartTip(part);
+        if joint.W < 0.5 || tipModel.W < 0.5 {
+            return;
+        }
+        let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
+        let tipScreen = this.ProjectToScreen(camera, APM_Vector(tip.X, tip.Y, tip.Z, 1.0));
+        let depth = tipScreen.W > 0.5 ? tipScreen.Z : 2.0;
+        let meters = this.MetersPerCanvasUnit(camera, depth);
+        let right = camera.GetActiveCameraRight();
+        let up = camera.GetActiveCameraUp();
+        // Cursor movement in the world, on the plane facing the camera (canvas y grows downwards).
+        let mx = (right.X * dx - up.X * dy) * meters;
+        let my = (right.Y * dx - up.Y * dy) * meters;
+        let mz = (right.Z * dx - up.Z * dy) * meters;
+        let bx = tip.X - joint.X;
+        let by = tip.Y - joint.Y;
+        let bz = tip.Z - joint.Z;
+        let lengthSq = bx * bx + by * by + bz * bz;
+        if lengthSq < 0.0001 {
+            return;
+        }
+        // Axis = bone x movement; angle = movement across the bone / bone length.
+        let ax = by * mz - bz * my;
+        let ay = bz * mx - bx * mz;
+        let az = bx * my - by * mx;
+        let axisLength = SqrtF(ax * ax + ay * ay + az * az);
+        if axisLength < 0.000001 {
+            return;
+        }
+        let degrees = Rad2Deg(axisLength / lengthSq);
+        let axis = APM_Vector(ax / axisLength, ay / axisLength, az / axisLength, 0.0);
+        APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, axis), degrees);
     }
 
     // --- Actions -------------------------------------------------------------------------------------------------

@@ -63,6 +63,8 @@ public native func APM_PrefSet(key: String, value: Float) -> Bool
 // Gizmos
 // Model-space position (relative to V: X right, Y forward, Z up) of the main bone of a body part; w = 1 when valid
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
+// Model-space point the main bone of a body part points at (its child); w = 1 when valid
+public native func APM_GizmoGetPartTip(part: Int32) -> Vector4
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
 // Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)

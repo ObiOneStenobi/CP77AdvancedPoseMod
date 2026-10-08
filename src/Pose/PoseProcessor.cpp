@@ -185,9 +185,13 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 
         const auto result = APM::Pose::SolveTwoBoneIk(input);
 
-        // The hand/foot keeps its current world orientation instead of following the new forearm/shin.
-        const Quat cLocalNew =
-            APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), aCurrentPose.rotations[c]));
+        // The pinned hand/foot keeps the orientation the animation gave it, plus the player's own rotation of that
+        // hand/foot - it no longer turns with the torso or the hips above it.
+        const Quat cLocalOriginal =
+            APM::Math::Mul(APM::Math::Conjugate(aOriginalPose.rotations[b]), aOriginalPose.rotations[c]);
+        const Quat cEdit = APM::Math::Mul(APM::Math::Conjugate(cLocalOriginal), GetRotation(aBones[c]));
+        const Quat cWorld = APM::Math::Mul(aOriginalPose.rotations[c], cEdit);
+        const Quat cLocalNew = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), cWorld));
 
         SetRotation(aBones[a], result.aLocal);
         SetRotation(aBones[b], result.bLocal);

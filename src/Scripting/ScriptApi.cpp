@@ -311,6 +311,25 @@ void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     Return(aOut, result);
 }
 
+// Model-space point the main bone of a body part points at (w = 1 when valid); the gizmos rotate parts so that this
+// point follows the cursor.
+void GizmoGetPartTip(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    APM::Math::Vec3 position{};
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
+        APM::Pose::GizmoState::GetBoneTipModelPosition(RED4ext::CName(catalog[part].bones.front()).hash, position))
+    {
+        result = {position.x, position.y, position.z, 1.f};
+    }
+    Return(aOut, result);
+}
+
 // V's Photo Mode puppet, so scripts can read its world transform. Null when unknown.
 void GizmoGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -562,6 +581,7 @@ void Register()
     ::Register("APM_PrefSet", &PrefSet, "Bool", {{"String", "key"}, {"Float", "value"}});
 
     ::Register("APM_GizmoGetPartPosition", &GizmoGetPartPosition, "Vector4", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartTip", &GizmoGetPartTip, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
