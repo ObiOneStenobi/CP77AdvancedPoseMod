@@ -217,6 +217,11 @@ public class APM_PoseEditor extends IScriptable {
     private let m_dragDepth: Float;
     private let m_dragStartWorld: Vector4;
     private let m_dragStartOffset: Vector4; // IK offset in cm when the drag started
+    // Real cursor tracking: screen position of the pointer and its scale to the ink canvas.
+    private let m_cursorScaleX: Float;
+    private let m_cursorScaleY: Float;
+    private let m_lastPointer: Vector2;
+    private let m_useRealCursor: Bool;
 
     private let m_dragRow: ref<APM_ValueRow>;
     private let m_dragValue: Float;
@@ -975,9 +980,14 @@ public class APM_PoseEditor extends IScriptable {
         return text;
     }
 
-    // Canvas units of virtual cursor movement per unit of mouse movement (ink canvas is 3840 wide).
-    private func CursorUnitsPerMouseUnit() -> Float {
-        return 2.0;
+    // Canvas units per raw mouse unit, used only when pointer events carry no screen position.
+    private func FallbackCanvasPerMouseUnit() -> Float {
+        return 0.6;
+    }
+
+    // Degrees of rotation per canvas unit dragged (the ink canvas is 3840 units wide).
+    private func DegreesPerCanvasUnit() -> Float {
+        return 0.12;
     }
 
     // Point at the given depth in front of the camera, under a point of the ink canvas. W = 1 when valid.
@@ -1037,7 +1047,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_dragStartOffset = APM_Vector(APM_UiGetValue(7712u), APM_UiGetValue(7713u), APM_UiGetValue(7714u), 0.0);
     }
 
-    private func DragMarker(marker: ref<APM_Marker>, horizontal: Bool, amount: Float) {
+    // dx / dy: cursor movement on the ink canvas (y grows downwards).
+    private func DragMarker(marker: ref<APM_Marker>, dx: Float, dy: Float) {
         let player = this.m_controller.GetPlayerControlledObject();
         let component = APM_GizmoGetComponent();
         if !IsDefined(player) || !IsDefined(component) {
@@ -1048,11 +1059,8 @@ public class APM_PoseEditor extends IScriptable {
 
         if marker.chain >= 0 {
             // The hand / foot follows the cursor on a plane facing the camera, at its starting depth.
-            if horizontal {
-                this.m_dragCursorX += amount * this.CursorUnitsPerMouseUnit();
-            } else {
-                this.m_dragCursorY -= amount * this.CursorUnitsPerMouseUnit(); // mouse up = canvas up
-            }
+            this.m_dragCursorX += dx;
+            this.m_dragCursorY += dy;
             let target = this.UnprojectFromScreen(camera, this.m_dragCursorX, this.m_dragCursorY, this.m_dragDepth);
             if target.W < 0.5 {
                 return;
@@ -1064,10 +1072,13 @@ public class APM_PoseEditor extends IScriptable {
             APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
         } else {
             // Rotate as seen from the camera: left/right turns around the camera's vertical axis, up/down tilts
-            // around its horizontal axis.
-            let axis = horizontal ? camera.GetActiveCameraUp() : camera.GetActiveCameraRight();
-            let degrees = horizontal ? amount * 0.25 : -amount * 0.25;
-            APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, axis), degrees);
+            // around its horizontal axis (the side facing the camera follows the cursor).
+            if AbsF(dx) > 0.0 {
+                APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()), dx * this.DegreesPerCanvasUnit());
+            }
+            if AbsF(dy) > 0.0 {
+                APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraRight()), dy * this.DegreesPerCanvasUnit());
+            }
         }
     }
 
@@ -1290,6 +1301,15 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
+        // Calibrate pointer -> canvas scale with the marker under the cursor.
+        let pointer = e.GetScreenSpacePosition();
+        this.m_lastPointer = pointer;
+        this.m_useRealCursor = false;
+        if pointer.X > 10.0 && pointer.Y > 10.0 && marker.screenX > 10.0 && marker.screenY > 10.0 {
+            this.m_cursorScaleX = marker.screenX / pointer.X;
+            this.m_cursorScaleY = marker.screenY / pointer.Y;
+            this.m_useRealCursor = this.m_cursorScaleX > 0.3 && this.m_cursorScaleX < 6.0 && this.m_cursorScaleY > 0.3 && this.m_cursorScaleY < 6.0;
+        }
         this.BeginMarkerDrag(marker);
         this.SetHover(true);
         APM_UiRequestRefresh();
@@ -1303,7 +1323,21 @@ public class APM_PoseEditor extends IScriptable {
         }
 
         if IsDefined(this.m_dragMarker) {
-            this.DragMarker(this.m_dragMarker, horizontal, e.GetAxisData());
+            // Follow the real cursor when the event carries its position, else the raw mouse movement.
+            let pointer = e.GetScreenSpacePosition();
+            let movedX = pointer.X - this.m_lastPointer.X;
+            let movedY = pointer.Y - this.m_lastPointer.Y;
+            if this.m_useRealCursor && (AbsF(movedX) > 0.01 || AbsF(movedY) > 0.01) {
+                this.m_lastPointer = pointer;
+                this.DragMarker(this.m_dragMarker, movedX * this.m_cursorScaleX, movedY * this.m_cursorScaleY);
+            } else if !this.m_useRealCursor {
+                let amount = e.GetAxisData() * this.FallbackCanvasPerMouseUnit();
+                if horizontal {
+                    this.DragMarker(this.m_dragMarker, amount, 0.0);
+                } else {
+                    this.DragMarker(this.m_dragMarker, 0.0, -amount); // mouse up = canvas up
+                }
+            }
             return false;
         }
 

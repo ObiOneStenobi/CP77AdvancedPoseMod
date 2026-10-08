@@ -15,26 +15,24 @@ namespace
 using APM::Math::Quat;
 using APM::Math::Vec3;
 
-constexpr size_t MaxSources = 8;
-constexpr uint64_t StatsWindowMs = 1000;
 constexpr uint64_t LogIntervalMs = 5000;
 
-struct Source
+// Final pose of one of V's skeletons.
+struct Skeleton
 {
-    uintptr_t key = 0;
+    std::vector<uint64_t> boneNames;
     std::vector<Vec3> positions; // model space
     std::vector<Quat> rotations; // model space
     uint64_t lastUpdate = 0;
-    uint32_t samplesInWindow = 0;
-    uint32_t samplesLastWindow = 0;
 };
 
 std::mutex g_mutex;
 uintptr_t g_entity = 0;
-uintptr_t g_component = 0;
-std::vector<uint64_t> g_boneNames;
-std::vector<Source> g_sources;
-uint64_t g_windowStart = 0;
+uintptr_t g_component = 0; // main skeleton's animated component
+// The body mesh is skinned by the "deformations" skeleton, which the game can adjust after the main one
+// (e.g. a hand holding a weapon), so markers follow it first and fall back to the main skeleton ("root").
+Skeleton g_deformations;
+Skeleton g_main;
 uint64_t g_lastLog = 0;
 
 Quat GetRotation(const RED4ext::QsTransform& aTransform)
@@ -42,72 +40,64 @@ Quat GetRotation(const RED4ext::QsTransform& aTransform)
     return {aTransform.Rotation.i, aTransform.Rotation.j, aTransform.Rotation.k, aTransform.Rotation.r};
 }
 
-int32_t IndexOfLocked(uint64_t aBoneHash)
+int32_t IndexOf(const Skeleton& aSkeleton, uint64_t aBoneHash)
 {
-    const auto it = std::find(g_boneNames.begin(), g_boneNames.end(), aBoneHash);
-    return it == g_boneNames.end() ? -1 : static_cast<int32_t>(std::distance(g_boneNames.begin(), it));
+    const auto it = std::find(aSkeleton.boneNames.begin(), aSkeleton.boneNames.end(), aBoneHash);
+    if (it == aSkeleton.boneNames.end())
+    {
+        return -1;
+    }
+    const auto index = static_cast<int32_t>(std::distance(aSkeleton.boneNames.begin(), it));
+    return static_cast<size_t>(index) < aSkeleton.positions.size() ? index : -1;
 }
 
-// The source the gizmos follow: the one with the most samples in the last full window. A tie keeps the current
-// choice, so the markers never alternate between two outputs sampled equally often.
-uintptr_t g_activeKey = 0;
-
-const Source* ActiveSourceLocked()
+// Skeleton and bone index to read a bone from. Positions prefer the rendered (deformations) skeleton; rotations
+// prefer the main one, whose local frames the edits are expressed in.
+const Skeleton* FindLocked(uint64_t aBoneHash, int32_t& aIndex, bool aPreferMain)
 {
-    const Source* current = nullptr;
-    const Source* best = nullptr;
-    for (const auto& source : g_sources)
+    const uint64_t now = GetTickCount64();
+    const Skeleton* first = aPreferMain ? &g_main : &g_deformations;
+    const Skeleton* second = aPreferMain ? &g_deformations : &g_main;
+    for (const Skeleton* skeleton : {first, second})
     {
-        if (source.key == g_activeKey)
+        if (now - skeleton->lastUpdate > 1000)
         {
-            current = &source;
+            continue; // stale
         }
-        if (!best || source.samplesLastWindow > best->samplesLastWindow)
+        aIndex = IndexOf(*skeleton, aBoneHash);
+        if (aIndex >= 0)
         {
-            best = &source;
+            return skeleton;
         }
     }
-    if (current && best && best->samplesLastWindow <= current->samplesLastWindow)
-    {
-        return current;
-    }
-    if (best)
-    {
-        g_activeKey = best->key;
-    }
-    return best;
+    return nullptr;
 }
 
-void LogSourcesLocked()
+void LogLocked()
 {
-    const auto leftHand = IndexOfLocked(RED4ext::CName("LeftHand").hash);
-    const auto hips = IndexOfLocked(RED4ext::CName("Hips").hash);
-    const auto* active = ActiveSourceLocked();
-    APM::Log::Info("Gizmo: %zu pose source(s) for V's main skeleton", g_sources.size());
-    for (const auto& source : g_sources)
+    const auto hand = RED4ext::CName("LeftHand").hash;
+    for (const auto& [name, skeleton] : {std::pair{"deformations", &g_deformations}, std::pair{"root", &g_main}})
     {
-        Vec3 hand{};
-        Vec3 hip{};
-        if (leftHand >= 0 && static_cast<size_t>(leftHand) < source.positions.size())
+        const auto index = IndexOf(*skeleton, hand);
+        if (index >= 0)
         {
-            hand = source.positions[leftHand];
+            const auto& p = skeleton->positions[index];
+            APM::Log::Info("Gizmo: %s leftHand=(%.3f %.3f %.3f)", name, p.x, p.y, p.z);
         }
-        if (hips >= 0 && static_cast<size_t>(hips) < source.positions.size())
-        {
-            hip = source.positions[hips];
-        }
-        APM::Log::Info("Gizmo:   source %p%s samples/s=%u hips=(%.2f %.2f %.2f) leftHand=(%.2f %.2f %.2f)",
-                       reinterpret_cast<void*>(source.key), &source == active ? " [active]" : "",
-                       source.samplesLastWindow, hip.x, hip.y, hip.z, hand.x, hand.y, hand.z);
     }
 }
 } // namespace
 
 namespace APM::Pose::GizmoState
 {
-void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t aSource)
+void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t)
 {
-    if (aTarget.photoModeSlot != 0 || aTarget.debugName != "root" || aCount != aTarget.boneNames.size())
+    if (aTarget.photoModeSlot != 0 || aCount != aTarget.boneNames.size())
+    {
+        return;
+    }
+    const bool isMain = aTarget.debugName == "root";
+    if (!isMain && aTarget.debugName != "deformations")
     {
         return;
     }
@@ -135,53 +125,24 @@ void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t
 
     const uint64_t now = GetTickCount64();
     std::scoped_lock lock(g_mutex);
-    g_entity = aTarget.entity;
-    g_component = aTarget.animatedComponent;
-    if (g_boneNames != aTarget.boneNames)
+    auto& skeleton = isMain ? g_main : g_deformations;
+    if (skeleton.boneNames != aTarget.boneNames)
     {
-        g_boneNames = aTarget.boneNames;
-        g_sources.clear();
+        skeleton.boneNames = aTarget.boneNames;
+    }
+    skeleton.positions = positions;
+    skeleton.rotations = rotations;
+    skeleton.lastUpdate = now;
+    if (isMain)
+    {
+        g_entity = aTarget.entity;
+        g_component = aTarget.animatedComponent;
     }
 
-    auto it = std::find_if(g_sources.begin(), g_sources.end(), [&](const Source& s) { return s.key == aSource; });
-    if (it == g_sources.end())
+    if (now - g_lastLog >= LogIntervalMs)
     {
-        if (g_sources.size() >= MaxSources)
-        {
-            // Forget the stalest source.
-            it = std::min_element(g_sources.begin(), g_sources.end(),
-                                  [](const Source& a, const Source& b) { return a.lastUpdate < b.lastUpdate; });
-            *it = Source{};
-        }
-        else
-        {
-            g_sources.emplace_back();
-            it = std::prev(g_sources.end());
-        }
-        it->key = aSource;
-    }
-    it->positions = positions;
-    it->rotations = rotations;
-    it->lastUpdate = now;
-    ++it->samplesInWindow;
-
-    if (now - g_windowStart >= StatsWindowMs)
-    {
-        g_windowStart = now;
-        // Sources not seen for a while are dropped.
-        g_sources.erase(std::remove_if(g_sources.begin(), g_sources.end(),
-                                       [&](const Source& s) { return now - s.lastUpdate > 3 * StatsWindowMs; }),
-                        g_sources.end());
-        for (auto& source : g_sources)
-        {
-            source.samplesLastWindow = source.samplesInWindow;
-            source.samplesInWindow = 0;
-        }
-        if (now - g_lastLog >= LogIntervalMs)
-        {
-            g_lastLog = now;
-            LogSourcesLocked();
-        }
+        g_lastLog = now;
+        LogLocked();
     }
 }
 
@@ -190,34 +151,33 @@ void Clear()
     std::scoped_lock lock(g_mutex);
     g_entity = 0;
     g_component = 0;
-    g_boneNames.clear();
-    g_sources.clear();
-    g_activeKey = 0;
+    g_deformations = {};
+    g_main = {};
 }
 
 bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
 {
     std::scoped_lock lock(g_mutex);
-    const auto* source = ActiveSourceLocked();
-    const auto index = IndexOfLocked(aBoneHash);
-    if (!source || index < 0 || static_cast<size_t>(index) >= source->positions.size())
+    int32_t index = -1;
+    const auto* skeleton = FindLocked(aBoneHash, index, false);
+    if (!skeleton)
     {
         return false;
     }
-    aOut = source->positions[index];
+    aOut = skeleton->positions[index];
     return true;
 }
 
 bool GetBoneModelRotation(uint64_t aBoneHash, Math::Quat& aOut)
 {
     std::scoped_lock lock(g_mutex);
-    const auto* source = ActiveSourceLocked();
-    const auto index = IndexOfLocked(aBoneHash);
-    if (!source || index < 0 || static_cast<size_t>(index) >= source->rotations.size())
+    int32_t index = -1;
+    const auto* skeleton = FindLocked(aBoneHash, index, true);
+    if (!skeleton)
     {
         return false;
     }
-    aOut = source->rotations[index];
+    aOut = skeleton->rotations[index];
     return true;
 }
 

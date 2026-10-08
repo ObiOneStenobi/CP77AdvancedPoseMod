@@ -174,7 +174,80 @@ bool AnyIkEnabled(const APM::Pose::OverrideSnapshot& aPose)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Main skeleton: FK + IK
+// IK on one skeleton. Every skeleton that has the three bones of a chain solves it on its own pose: skeletons of the
+// same character do not always start from the same pose (the game adjusts the rendered one, e.g. a hand holding a
+// weapon), so copying the main skeleton's result would put the limb somewhere else.
+// Returns a bit mask of the chains solved; their local changes are appended to aDeltas.
+// ---------------------------------------------------------------------------------------------------------------------
+uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                       const APM::Pose::OverrideSnapshot& aPose, const ModelPose& aOriginalPose, ModelPose& aCurrentPose,
+                       std::vector<IkDelta>& aDeltas)
+{
+    uint32_t solved = 0;
+    for (size_t chainIndex = 0; chainIndex < IkChainCount; ++chainIndex)
+    {
+        const auto& settings = aPose.ik[chainIndex];
+        if (!settings.enabled)
+        {
+            continue;
+        }
+
+        const auto& chain = ChainDefinitions[chainIndex];
+        const int32_t a = IndexOf(aTarget, Hash(chain.upper));
+        const int32_t b = IndexOf(aTarget, Hash(chain.middle));
+        const int32_t c = IndexOf(aTarget, Hash(chain.end));
+        if (a < 0 || b < 0 || c < 0 || static_cast<uint32_t>(a) >= aCount || static_cast<uint32_t>(b) >= aCount ||
+            static_cast<uint32_t>(c) >= aCount)
+        {
+            continue;
+        }
+
+        const Vec3 offset{settings.offset[0], settings.offset[1], settings.offset[2]};
+
+        APM::Pose::TwoBoneIkInput input;
+        input.a = aCurrentPose.positions[a];
+        input.b = aCurrentPose.positions[b];
+        input.c = aCurrentPose.positions[c];
+        input.aGlobal = aCurrentPose.rotations[a];
+        input.bGlobal = aCurrentPose.rotations[b];
+        input.aLocal = GetRotation(aBones[a]);
+        input.bLocal = GetRotation(aBones[b]);
+        input.target = aOriginalPose.positions[c] + offset;
+        input.swivelRadians = APM::Math::DegToRad(settings.swivel);
+
+        const auto result = APM::Pose::SolveTwoBoneIk(input);
+
+        // The hand/foot keeps its current world orientation instead of following the new forearm/shin.
+        const Quat cLocalOld = GetRotation(aBones[c]);
+        const Quat cLocalNew =
+            APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), aCurrentPose.rotations[c]));
+
+        const Quat aLocalOld = input.aLocal;
+        const Quat bLocalOld = input.bLocal;
+        SetRotation(aBones[a], result.aLocal);
+        SetRotation(aBones[b], result.bLocal);
+        SetRotation(aBones[c], cLocalNew);
+
+        aDeltas.push_back({aTarget.boneNames[a], APM::Math::Mul(APM::Math::Conjugate(aLocalOld), result.aLocal)});
+        aDeltas.push_back({aTarget.boneNames[b], APM::Math::Mul(APM::Math::Conjugate(bLocalOld), result.bLocal)});
+        aDeltas.push_back({aTarget.boneNames[c], APM::Math::Mul(APM::Math::Conjugate(cLocalOld), cLocalNew)});
+
+        // Keep the cached model pose valid for chains processed later (they never share bones).
+        aCurrentPose.rotations[a] = result.aGlobal;
+        aCurrentPose.rotations[b] = result.bGlobal;
+        solved |= 1u << chainIndex;
+    }
+    return solved;
+}
+
+bool BelongsToChain(uint64_t aBone, size_t aChain)
+{
+    const auto& chain = ChainDefinitions[aChain];
+    return aBone == Hash(chain.upper) || aBone == Hash(chain.middle) || aBone == Hash(chain.end);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Main skeleton: FK + IK, publishes its IK deltas for skeletons without full chains
 // ---------------------------------------------------------------------------------------------------------------------
 void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                          const APM::Pose::OverrideSnapshot& aPose)
@@ -196,58 +269,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
     if (useIk)
     {
         ComputeModelPose(aTarget, aBones, aCount, currentPose);
-
-        for (size_t chainIndex = 0; chainIndex < IkChainCount; ++chainIndex)
-        {
-            const auto& settings = aPose.ik[chainIndex];
-            if (!settings.enabled)
-            {
-                continue;
-            }
-
-            const auto& chain = ChainDefinitions[chainIndex];
-            const int32_t a = IndexOf(aTarget, Hash(chain.upper));
-            const int32_t b = IndexOf(aTarget, Hash(chain.middle));
-            const int32_t c = IndexOf(aTarget, Hash(chain.end));
-            if (a < 0 || b < 0 || c < 0 || static_cast<uint32_t>(c) >= aCount || static_cast<uint32_t>(b) >= aCount)
-            {
-                continue;
-            }
-
-            const Vec3 offset{settings.offset[0], settings.offset[1], settings.offset[2]};
-
-            APM::Pose::TwoBoneIkInput input;
-            input.a = currentPose.positions[a];
-            input.b = currentPose.positions[b];
-            input.c = currentPose.positions[c];
-            input.aGlobal = currentPose.rotations[a];
-            input.bGlobal = currentPose.rotations[b];
-            input.aLocal = GetRotation(aBones[a]);
-            input.bLocal = GetRotation(aBones[b]);
-            input.target = originalPose.positions[c] + offset;
-            input.swivelRadians = APM::Math::DegToRad(settings.swivel);
-
-            const auto result = APM::Pose::SolveTwoBoneIk(input);
-
-            // The hand/foot keeps its current world orientation instead of following the new forearm/shin.
-            const Quat cLocalOld = GetRotation(aBones[c]);
-            const Quat cLocalNew =
-                APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), currentPose.rotations[c]));
-
-            const Quat aLocalOld = input.aLocal;
-            const Quat bLocalOld = input.bLocal;
-            SetRotation(aBones[a], result.aLocal);
-            SetRotation(aBones[b], result.bLocal);
-            SetRotation(aBones[c], cLocalNew);
-
-            deltas.push_back({aTarget.boneNames[a], APM::Math::Mul(APM::Math::Conjugate(aLocalOld), result.aLocal)});
-            deltas.push_back({aTarget.boneNames[b], APM::Math::Mul(APM::Math::Conjugate(bLocalOld), result.bLocal)});
-            deltas.push_back({aTarget.boneNames[c], APM::Math::Mul(APM::Math::Conjugate(cLocalOld), cLocalNew)});
-
-            // Keep the cached model pose valid for chains processed later (they never share bones).
-            currentPose.rotations[a] = result.aGlobal;
-            currentPose.rotations[b] = result.bGlobal;
-        }
+        SolveIkChains(aTarget, aBones, aCount, aPose, originalPose, currentPose, deltas);
     }
 
     PublishIkDeltas(aTarget.entity, deltas);
@@ -409,16 +431,38 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
         }
     }
 
+    const bool useIk = AnyIkEnabled(aPose);
+    thread_local ModelPose originalPose;
+    thread_local ModelPose currentPose;
+    if (useIk)
+    {
+        ComputeModelPose(aTarget, aBones, aCount, originalPose);
+    }
+
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose);
 
-    if (AnyIkEnabled(aPose))
+    if (useIk)
     {
+        // Chains this skeleton has are solved on its own pose; the main skeleton's deltas fill in the rest.
+        thread_local std::vector<IkDelta> ownDeltas;
+        ownDeltas.clear();
+        ComputeModelPose(aTarget, aBones, aCount, currentPose);
+        const uint32_t solved = SolveIkChains(aTarget, aBones, aCount, aPose, originalPose, currentPose, ownDeltas);
+
         thread_local std::vector<IkDelta> deltas;
         ReadIkDeltas(aTarget.entity, deltas);
         for (const auto& delta : deltas)
         {
+            bool ownChain = false;
+            for (size_t chain = 0; chain < IkChainCount; ++chain)
+            {
+                if ((solved & (1u << chain)) && BelongsToChain(delta.bone, chain))
+                {
+                    ownChain = true;
+                }
+            }
             const int32_t index = IndexOf(aTarget, delta.bone);
-            if (index >= 0 && static_cast<uint32_t>(index) < aCount)
+            if (!ownChain && index >= 0 && static_cast<uint32_t>(index) < aCount)
             {
                 SetRotation(aBones[index], APM::Math::Mul(GetRotation(aBones[index]), delta.delta));
             }

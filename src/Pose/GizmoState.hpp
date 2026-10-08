@@ -11,12 +11,11 @@
 // Final pose of V's main skeleton, kept for the on-screen gizmos (joint markers, drag handles).
 // Written from animation worker threads after the custom pose is applied, read from scripts on the game thread.
 //
-// V's main skeleton can be sampled by more than one animation graph output per frame. Each output ("source") is
-// kept separately and the gizmos follow the most frequently sampled one, so markers do not jump between poses.
+// Positions come from the rendered "deformations" skeleton when it has the bone, else from the main one.
 namespace APM::Pose::GizmoState
 {
-// Called for every sampled skeleton; only V's main skeleton (Photo Mode slot 0, "root") is kept.
-// aSource identifies the graph output node that produced the pose.
+// Called for every sampled skeleton; V's "root" and "deformations" skeletons (Photo Mode slot 0) are kept.
+// aSource (graph output node) is currently unused.
 void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t aSource);
 void Clear();
 
