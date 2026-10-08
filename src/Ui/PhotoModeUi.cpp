@@ -619,4 +619,179 @@ bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
     RequestRefresh();
     return true;
 }
+
+namespace
+{
+// Mirror of a model-space rotation across the body's left / right plane (X = 0).
+Math::Quat MirrorRotation(const Math::Quat& q)
+{
+    return {q.i, -q.j, -q.k, q.r};
+}
+
+// Writes a bone's edit so that its local rotation becomes aWanted (keeping the face rig link and UI angles right).
+bool SetBoneLocal(const char* aBone, const Math::Quat& aWanted, bool aFingerAxes)
+{
+    Math::Quat animated{};
+    Math::Vec3 unused{};
+    if (!Pose::GizmoState::GetAnimatedLocal(RED4ext::CName(aBone).hash, animated, unused))
+    {
+        return false;
+    }
+    const Math::Quat edit = Math::Normalize(Math::Mul(Math::Conjugate(animated), aWanted));
+    std::array<float, 3> angles{};
+    if (!RotationToAngles(aBone, edit, aFingerAxes, angles))
+    {
+        return false;
+    }
+    for (auto& angle : angles)
+    {
+        angle = std::clamp(angle, -180.f, 180.f);
+    }
+    Pose::PoseOverrides::SetRotationQuat(aBone, AnglesToRotation(aBone, angles, aFingerAxes), angles);
+    return true;
+}
+} // namespace
+
+int32_t MirrorParts(bool aFromLeft, const std::string& aGroup)
+{
+    Pose::TargetRegistry::ReferencePose reference;
+    if (!Pose::TargetRegistry::GetReferencePose(reference))
+    {
+        return 0;
+    }
+    const auto refIndex = [&](const char* aBone) -> int32_t
+    {
+        const auto it = std::find(reference.boneNames.begin(), reference.boneNames.end(), RED4ext::CName(aBone).hash);
+        return it == reference.boneNames.end() ? -1 : static_cast<int32_t>(std::distance(reference.boneNames.begin(), it));
+    };
+
+    const std::string from = aFromLeft ? "Left " : "Right ";
+    const std::string to = aFromLeft ? "Right " : "Left ";
+    const auto& catalog = GetBoneCatalog();
+    int32_t copied = 0;
+    std::array<bool, Pose::IkChainCount> touchedChains{};
+    constexpr const char* chainBones[Pose::IkChainCount][3] = {{"LeftArm", "LeftForeArm", "LeftHand"},
+                                                               {"RightArm", "RightForeArm", "RightHand"},
+                                                               {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+                                                               {"RightUpLeg", "RightLeg", "RightFoot"}};
+
+    Pose::PoseOverrides::Checkpoint();
+    for (const auto& source : catalog)
+    {
+        const std::string label = source.label;
+        if (label.rfind(from, 0) != 0 || (!aGroup.empty() && aGroup != source.group))
+        {
+            continue;
+        }
+        if (aGroup.empty() && std::string(source.group) == "Head")
+        {
+            continue; // mirrored eyes would look apart: the gaze is set with its own gizmo
+        }
+        const std::string targetLabel = to + label.substr(from.size());
+        const auto target = std::find_if(catalog.begin(), catalog.end(),
+                                         [&](const CatalogEntry& e) { return targetLabel == e.label; });
+        if (target == catalog.end() || target->bones.size() != source.bones.size())
+        {
+            continue;
+        }
+        const bool fingerAxes = UsesFingerAxes(*target);
+        bool any = false;
+        for (size_t b = 0; b < source.bones.size(); ++b)
+        {
+            const int32_t is = refIndex(source.bones[b]);
+            const int32_t it = refIndex(target->bones[b]);
+            Math::Quat current{};
+            Math::Vec3 translation{};
+            if (is < 0 || it < 0 ||
+                !Pose::GizmoState::GetFinalLocal(RED4ext::CName(source.bones[b]).hash, current, translation))
+            {
+                continue;
+            }
+            // Change from the reference pose, seen in model space at the reference pose, mirrored, then expressed
+            // for the other side's bone (the reference pose is symmetric).
+            const Math::Quat change = Math::Mul(Math::Conjugate(reference.localRotations[is]), current);
+            const Math::Quat changeModel = Math::Mul(Math::Mul(reference.modelRotations[is], change),
+                                                     Math::Conjugate(reference.modelRotations[is]));
+            const Math::Quat mirrored = MirrorRotation(changeModel);
+            const Math::Quat targetChange = Math::Mul(Math::Mul(Math::Conjugate(reference.modelRotations[it]), mirrored),
+                                                      reference.modelRotations[it]);
+            const Math::Quat wanted = Math::Normalize(Math::Mul(reference.localRotations[it], targetChange));
+            any = SetBoneLocal(target->bones[b], wanted, fingerAxes) || any;
+
+            for (size_t c = 0; c < Pose::IkChainCount; ++c)
+            {
+                for (const char* bone : chainBones[c])
+                {
+                    touchedChains[c] = touchedChains[c] || std::string(bone) == target->bones[b];
+                }
+            }
+        }
+        // Held props: mirror the position offset too (it is in the hand's space).
+        if (source.allowsTranslation && target->allowsTranslation)
+        {
+            std::array<float, 3> offset{};
+            Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
+            const int32_t is = refIndex(source.bones.front());
+            const int32_t it = refIndex(target->bones.front());
+            if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+            {
+                const Math::Vec3 model =
+                    Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
+                const Math::Vec3 local =
+                    Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]), Math::Vec3{-model.x, model.y, model.z});
+                Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
+            }
+        }
+        copied += any ? 1 : 0;
+    }
+    // The copied side is now posed by rotations (IK results included): its pin would fight them.
+    for (size_t c = 0; c < Pose::IkChainCount; ++c)
+    {
+        if (touchedChains[c])
+        {
+            auto settings = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(c));
+            if (settings.enabled)
+            {
+                settings.enabled = false;
+                Pose::PoseOverrides::SetIkChain(static_cast<Pose::IkChain>(c), settings);
+            }
+        }
+    }
+    RequestRefresh();
+    return copied;
+}
+
+bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()))
+    {
+        return false;
+    }
+    const char* bone = catalog[aPart].bones.front();
+    const uint64_t hash = RED4ext::CName(bone).hash;
+    Math::Vec3 position{};
+    Math::Quat model{};
+    Math::Quat parent{};
+    Math::Vec3 forwardLocal{};
+    if (!Pose::GizmoState::GetBoneModelPosition(hash, position) || !Pose::GizmoState::GetBoneModelRotation(hash, model) ||
+        !Pose::GizmoState::GetParentModelRotation(hash, parent) ||
+        !Pose::TargetRegistry::GetBoneReferenceForward(hash, forwardLocal))
+    {
+        return false;
+    }
+    const Math::Vec3 wanted = Math::Normalize(aModelTarget - position);
+    const Math::Vec3 current = Math::Normalize(Math::Rotate(model, forwardLocal));
+    Math::Quat turned = model;
+    const Math::Vec3 axis = Math::Cross(current, wanted);
+    if (Math::Length(axis) > 1e-6f)
+    {
+        turned = Math::Mul(Math::FromAxisAngle(axis, Math::AngleBetween(current, wanted)), model);
+    }
+    // Absolute: computed from the animation and the parent, so repeated calls do not add up.
+    g_bodyPart = aPart;
+    const bool done = SetBoneLocal(bone, Math::Normalize(Math::Mul(Math::Conjugate(parent), turned)), false);
+    RequestRefresh();
+    return done;
+}
 } // namespace APM::Ui::PhotoModeUi

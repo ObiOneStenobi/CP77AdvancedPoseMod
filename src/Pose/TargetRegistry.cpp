@@ -158,6 +158,31 @@ bool HasBoneCount(uint32_t aCount)
     return false;
 }
 
+bool GetReferencePose(ReferencePose& aOut)
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.photoModeSlot != 0 || target.debugName != "root")
+        {
+            continue;
+        }
+        const size_t count = target.boneNames.size();
+        if (target.parents.size() < count || target.refRotationsLS.size() < count ||
+            target.refTranslationsLS.size() < count || target.refRotationsMS.size() < count)
+        {
+            return false;
+        }
+        aOut.boneNames = target.boneNames;
+        aOut.parents.assign(target.parents.begin(), target.parents.begin() + count);
+        aOut.localRotations.assign(target.refRotationsLS.begin(), target.refRotationsLS.begin() + count);
+        aOut.localTranslations.assign(target.refTranslationsLS.begin(), target.refTranslationsLS.begin() + count);
+        aOut.modelRotations.assign(target.refRotationsMS.begin(), target.refRotationsMS.begin() + count);
+        return true;
+    }
+    return false;
+}
+
 bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
 {
     SharedGuard guard;

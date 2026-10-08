@@ -73,12 +73,16 @@ closer.
   Switching between world and body leaves the hand / foot where it is.
 - While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the
   shoulder -> hand line.
-- The orange marker floating in front of the face is where the eyes look: drag it to move their gaze (it
-moves on a sphere around the eyes).
+- The orange marker in front of the face is the point both eyes look at: drag it and the eyes converge on it.
 - Shift / Ctrl can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
+- **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
+- **Copy L > R / Copy R > L**: copies the selected left / right tab onto the other side, mirrored (from the Torso or
+  Head tab: the whole body). The copied limb takes the pose as rotations, so its IK pin is turned off.
+- **T pose / A pose**: replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
+  keep their edits); **Reset all** goes back.
 - Moving a whole finger keeps the extra bend of its segments.
 
 The CET overlay still has the **AdvancedPoseMod (debug)** window with raw bone access.

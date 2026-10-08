@@ -18,6 +18,7 @@ std::mutex g_mutex;
 std::string g_text;
 std::atomic<State> g_state{State::Inactive};
 HWND g_window = nullptr;
+std::atomic<int32_t> g_hotkey{0};
 WNDPROC g_originalProc = nullptr;
 
 // Characters a pose name (file name) may contain.
@@ -91,6 +92,19 @@ LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM 
     {
         return DefWindowProcW(aWindow, aMessage, aWParam, aLParam);
     }
+    // Undo / redo shortcuts (the keys still reach the game: Photo Mode does not use them).
+    if (aMessage == WM_KEYDOWN && !IsTyping() && (aLParam & (1 << 30)) == 0 && (GetKeyState(VK_CONTROL) & 0x8000))
+    {
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (aWParam == 'Z')
+        {
+            g_hotkey = shift ? 2 : 1;
+        }
+        else if (aWParam == 'Y')
+        {
+            g_hotkey = 2;
+        }
+    }
     if (IsTyping() || !g_keysDown.empty())
     {
         switch (aMessage)
@@ -144,6 +158,13 @@ bool InstallLocked()
     {
         return true;
     }
+    static uint64_t lastAttempt = 0;
+    const uint64_t now = GetTickCount64();
+    if (lastAttempt != 0 && now - lastAttempt < 2000)
+    {
+        return false;
+    }
+    lastAttempt = now;
     std::pair<HWND, LONG> best{nullptr, 0};
     EnumWindows(&FindGameWindow, reinterpret_cast<LPARAM>(&best));
     if (!best.first)
@@ -185,6 +206,15 @@ bool Begin(const std::string& aText)
     }
     g_state = State::Typing;
     return true;
+}
+
+int32_t ConsumeHotkey()
+{
+    {
+        std::scoped_lock lock(g_mutex);
+        InstallLocked();
+    }
+    return g_hotkey.exchange(0);
 }
 
 void End()

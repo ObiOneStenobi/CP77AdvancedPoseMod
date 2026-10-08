@@ -129,6 +129,15 @@ std::filesystem::path GetPoseDirectory();
 bool Save(const std::string& aName);
 // Name of the full pose currently replacing the Photo Mode pose, empty if none.
 std::string GetBasePoseName();
+// Replaces the Photo Mode pose with a neutral one ("T" = reference pose, "A" = arms lowered), clearing the edits.
+bool SetNeutralPose(bool aArmsDown);
+
+// Undo / redo. Checkpoint() records the state before a change (called when an edit starts).
+void Checkpoint();
+bool Undo();
+bool Redo();
+bool CanUndo();
+bool CanRedo();
 bool Load(const std::string& aName);
 bool Delete(const std::string& aName);
 // Saves under the first free name "Pose 001", "Pose 002", ... and returns it (empty on failure).

@@ -203,6 +203,13 @@ public func APM_WorldToModelDirection(toWorld: Matrix, world: Vector4) -> Vector
     return APM_Vector(x, y, z, 0.0);
 }
 
+// World point -> model space of the animated component.
+public func APM_WorldToModelPoint(toWorld: Matrix, world: Vector4) -> Vector4 {
+    let origin = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
+    let model = APM_WorldToModelDirection(toWorld, APM_Vector(world.X - origin.X, world.Y - origin.Y, world.Z - origin.Z, 0.0));
+    return APM_Vector(model.X, model.Y, model.Z, 1.0);
+}
+
 // --- Panel -------------------------------------------------------------------------------------------------------
 
 public class APM_PoseEditor extends IScriptable {
@@ -319,6 +326,16 @@ public class APM_PoseEditor extends IScriptable {
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
         this.UpdateRename();
+        if APM_IsPhotoModeActive() && !this.m_renaming {
+            let hotkey = APM_PollHotkey();
+            if hotkey == 1 {
+                this.SetStatus(APM_Undo() ? "Undone (Ctrl+Z)" : "Nothing to undo");
+                this.Refresh();
+            } else if hotkey == 2 {
+                this.SetStatus(APM_Redo() ? "Redone (Ctrl+Y)" : "Nothing to redo");
+                this.Refresh();
+            }
+        }
         if !this.m_isOpen {
             return;
         }
@@ -400,12 +417,17 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateRow(panel, 7704u, "Twist", 308.0, -180.0, 180.0, 1.0, 0.2, "");
 
         // Translation (body only)
-        this.m_moveTitle = this.CreateText(panel, "Move (cm)", 16.0, 346.0, 600.0, 26.0, 19, APM_ColorAccent());
+        this.m_moveTitle = this.CreateText(panel, "Move (cm)", 16.0, 346.0, 300.0, 26.0, 19, APM_ColorAccent());
+        // Copy one side onto the other (the selected left / right tab, or the whole body from the other tabs)
+        this.CreateButton(panel, "mirror:l", "Copy L > R", 320.0, 344.0, 150.0, 26.0);
+        this.CreateButton(panel, "mirror:r", "Copy R > L", 474.0, 344.0, 150.0, 26.0);
         this.CreateRow(panel, 7705u, "Left / right", 374.0, -100.0, 100.0, 0.5, 0.05, " cm");
         this.CreateRow(panel, 7706u, "Forward / back", 410.0, -100.0, 100.0, 0.5, 0.05, " cm");
         this.CreateRow(panel, 7707u, "Up / down", 446.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateButton(panel, "resetpart", "Reset part", 16.0, 486.0, 296.0, 32.0);
-        this.CreateButton(panel, "resetall", "Reset all", 328.0, 486.0, 296.0, 32.0);
+        this.CreateButton(panel, "resetpart", "Reset part", 16.0, 486.0, 148.0, 32.0);
+        this.CreateButton(panel, "resetall", "Reset all", 168.0, 486.0, 148.0, 32.0);
+        this.CreateButton(panel, "undo", "Undo", 320.0, 486.0, 150.0, 32.0);
+        this.CreateButton(panel, "redo", "Redo", 474.0, 486.0, 150.0, 32.0);
 
         // IK
         this.CreateText(panel, "IK: pin a hand or foot", 16.0, 526.0, 600.0, 26.0, 19, APM_ColorAccent());
@@ -422,7 +444,9 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateRow(panel, 7715u, "Elbow / knee", 702.0, -180.0, 180.0, 1.0, 0.2, "");
 
         // Pose library
-        this.m_posesTitle = this.CreateText(panel, "Poses", 16.0, 744.0, 600.0, 26.0, 19, APM_ColorAccent());
+        this.m_posesTitle = this.CreateText(panel, "Poses", 16.0, 744.0, 400.0, 26.0, 19, APM_ColorAccent());
+        this.CreateButton(panel, "neutral:t", "T pose", 446.0, 742.0, 86.0, 26.0);
+        this.CreateButton(panel, "neutral:a", "A pose", 538.0, 742.0, 86.0, 26.0);
         i = 0;
         while i < APM_PosesPerPage() {
             let poseButton = this.CreateButton(panel, "pose:" + IntToString(i), "", 16.0, 774.0 + Cast<Float>(i) * 34.0, 420.0, 30.0);
@@ -1008,6 +1032,8 @@ public class APM_PoseEditor extends IScriptable {
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
+        this.SetButton("undo", false, APM_CanUndo());
+        this.SetButton("redo", false, APM_CanRedo());
         this.SetButton("rename", this.m_renaming, hasSelection);
         this.SetButton("delete", false, hasSelection);
         let deleteButton = this.FindButton("delete");
@@ -1034,25 +1060,45 @@ public class APM_PoseEditor extends IScriptable {
 
     // How far in front of the eyes their "look" marker floats (meters).
     private func LookDistance() -> Float {
-        return 0.4;
+        return 0.6;
     }
 
-    // World point both eyes look at, LookDistance() in front of them; w = 1 when valid.
+    // World point both eyes look at: where their lines of sight meet (or LookDistance() ahead when they do not
+    // meet); w = 1 when valid.
     private func EyeLookPoint(toWorld: Matrix) -> Vector4 {
         let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
         let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
-        let leftForward = APM_GizmoGetPartForward(this.m_leftEyePart);
-        let rightForward = APM_GizmoGetPartForward(this.m_rightEyePart);
-        if left.W < 0.5 || right.W < 0.5 || leftForward.W < 0.5 || rightForward.W < 0.5 {
+        let leftModel = APM_GizmoGetPartForward(this.m_leftEyePart);
+        let rightModel = APM_GizmoGetPartForward(this.m_rightEyePart);
+        if left.W < 0.5 || right.W < 0.5 || leftModel.W < 0.5 || rightModel.W < 0.5 {
             return APM_Vector(0.0, 0.0, 0.0, 0.0);
         }
-        let gaze = Vector4.TransformDir(toWorld, APM_Vector(leftForward.X + rightForward.X, leftForward.Y + rightForward.Y, leftForward.Z + rightForward.Z, 0.0));
-        let length = SqrtF(gaze.X * gaze.X + gaze.Y * gaze.Y + gaze.Z * gaze.Z);
-        if length < 0.0001 {
+        let gl = Vector4.TransformDir(toWorld, APM_Vector(leftModel.X, leftModel.Y, leftModel.Z, 0.0));
+        let gr = Vector4.TransformDir(toWorld, APM_Vector(rightModel.X, rightModel.Y, rightModel.Z, 0.0));
+        let ll = SqrtF(gl.X * gl.X + gl.Y * gl.Y + gl.Z * gl.Z);
+        let lr = SqrtF(gr.X * gr.X + gr.Y * gr.Y + gr.Z * gr.Z);
+        if ll < 0.0001 || lr < 0.0001 {
             return APM_Vector(0.0, 0.0, 0.0, 0.0);
         }
-        let scale = this.LookDistance() / length;
-        return APM_Vector((left.X + right.X) * 0.5 + gaze.X * scale, (left.Y + right.Y) * 0.5 + gaze.Y * scale, (left.Z + right.Z) * 0.5 + gaze.Z * scale, 1.0);
+        gl = APM_Vector(gl.X / ll, gl.Y / ll, gl.Z / ll, 0.0);
+        gr = APM_Vector(gr.X / lr, gr.Y / lr, gr.Z / lr, 0.0);
+        // Closest points of the two lines of sight.
+        let wx = left.X - right.X;
+        let wy = left.Y - right.Y;
+        let wz = left.Z - right.Z;
+        let b = gl.X * gr.X + gl.Y * gr.Y + gl.Z * gr.Z;
+        let d = gl.X * wx + gl.Y * wy + gl.Z * wz;
+        let e = gr.X * wx + gr.Y * wy + gr.Z * wz;
+        let denom = 1.0 - b * b;
+        if denom > 0.00001 {
+            let sl = (b * e - d) / denom;
+            let sr = (e - b * d) / denom;
+            if sl > 0.15 && sr > 0.15 && sl < 4.0 && sr < 4.0 {
+                return APM_Vector((left.X + gl.X * sl + right.X + gr.X * sr) * 0.5, (left.Y + gl.Y * sl + right.Y + gr.Y * sr) * 0.5, (left.Z + gl.Z * sl + right.Z + gr.Z * sr) * 0.5, 1.0);
+            }
+        }
+        let distance = this.LookDistance();
+        return APM_Vector((left.X + right.X) * 0.5 + (gl.X + gr.X) * 0.5 * distance, (left.Y + right.Y) * 0.5 + (gl.Y + gr.Y) * 0.5 * distance, (left.Z + right.Z) * 0.5 + (gl.Z + gr.Z) * 0.5 * distance, 1.0);
     }
 
     private func UpdateMarkers() {
@@ -1587,112 +1633,20 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Moves the point both eyes look at with the cursor and turns each eye by the same change of direction.
+    // Moves the point both eyes look at with the cursor (on a plane facing the camera) and aims each eye at it,
+    // so they converge on it.
     private func MoveEyeLook(camera: ref<CameraSystem>, toWorld: Matrix, dx: Float, dy: Float) {
         this.m_dragCursorX += dx;
         this.m_dragCursorY += dy;
-        let target = this.CursorOnLookSphere(camera, toWorld);
+        let target = this.UnprojectFromScreen(camera, this.m_dragCursorX, this.m_dragCursorY, this.m_dragDepth);
         if target.W < 0.5 {
             return;
         }
-        // Both eyes turn by the same rotation, the one that takes the marker from its old to its new place as seen
-        // from between the eyes: their average gaze then points exactly at the marker (no jump on release).
-        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
-        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
-        if left.W > 0.5 && right.W > 0.5 {
-            let middle = APM_Vector((left.X + right.X) * 0.5, (left.Y + right.Y) * 0.5, (left.Z + right.Z) * 0.5, 1.0);
-            this.TurnEyeTowards(toWorld, this.m_leftEyePart, middle, this.m_lookTarget, target);
-            this.TurnEyeTowards(toWorld, this.m_rightEyePart, middle, this.m_lookTarget, target);
-        }
+        let model = APM_WorldToModelPoint(toWorld, target);
+        APM_GizmoAimPart(this.m_leftEyePart, model);
+        APM_GizmoAimPart(this.m_rightEyePart, model);
         this.m_lookTarget = target;
         APM_UiSetValue(7701u, Cast<Float>(this.m_dragMarker.part));
-    }
-
-    // Point under the cursor on the sphere the look marker moves on (LookDistance() around the eyes), on the side
-    // the eyes are looking at; w = 1 when valid.
-    private func CursorOnLookSphere(camera: ref<CameraSystem>, toWorld: Matrix) -> Vector4 {
-        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
-        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
-        let cameraTransform: Transform;
-        let ahead = this.UnprojectFromScreen(camera, this.m_dragCursorX, this.m_dragCursorY, 1.0);
-        if left.W < 0.5 || right.W < 0.5 || ahead.W < 0.5 || !camera.GetActiveCameraWorldTransform(cameraTransform) {
-            return APM_Vector(0.0, 0.0, 0.0, 0.0);
-        }
-        let cx = (left.X + right.X) * 0.5;
-        let cy = (left.Y + right.Y) * 0.5;
-        let cz = (left.Z + right.Z) * 0.5;
-        let radius = this.LookDistance();
-        let px = cameraTransform.position.X;
-        let py = cameraTransform.position.Y;
-        let pz = cameraTransform.position.Z;
-        let dx = ahead.X - px;
-        let dy = ahead.Y - py;
-        let dz = ahead.Z - pz;
-        let length = SqrtF(dx * dx + dy * dy + dz * dz);
-        if length < 0.0001 {
-            return APM_Vector(0.0, 0.0, 0.0, 0.0);
-        }
-        dx /= length;
-        dy /= length;
-        dz /= length;
-        // Ray P + t*d against the sphere: t^2 + 2bt + c = 0.
-        let ox = px - cx;
-        let oy = py - cy;
-        let oz = pz - cz;
-        let b = ox * dx + oy * dy + oz * dz;
-        let c = ox * ox + oy * oy + oz * oz - radius * radius;
-        let disc = b * b - c;
-        // Current gaze direction, to pick the intersection on the side the eyes look at.
-        let gx = this.m_lookTarget.X - cx;
-        let gy = this.m_lookTarget.Y - cy;
-        let gz = this.m_lookTarget.Z - cz;
-        let qx: Float;
-        let qy: Float;
-        let qz: Float;
-        if disc >= 0.0 {
-            let root = SqrtF(disc);
-            let t1 = -b - root;
-            let t2 = -b + root;
-            let ax = ox + dx * t1;
-            let ay = oy + dy * t1;
-            let az = oz + dz * t1;
-            let bx = ox + dx * t2;
-            let by = oy + dy * t2;
-            let bz = oz + dz * t2;
-            let useFirst = ax * gx + ay * gy + az * gz >= bx * gx + by * gy + bz * gz;
-            qx = useFirst ? ax : bx;
-            qy = useFirst ? ay : by;
-            qz = useFirst ? az : bz;
-        } else {
-            // The cursor is outside the sphere: closest point of the ray, pushed onto the sphere.
-            qx = ox - dx * b;
-            qy = oy - dy * b;
-            qz = oz - dz * b;
-        }
-        let qLength = SqrtF(qx * qx + qy * qy + qz * qz);
-        if qLength < 0.0001 {
-            return APM_Vector(0.0, 0.0, 0.0, 0.0);
-        }
-        let scale = radius / qLength;
-        return APM_Vector(cx + qx * scale, cy + qy * scale, cz + qz * scale, 1.0);
-    }
-
-    // Turns an eye by the rotation that takes (from - center) to (to - center).
-    private func TurnEyeTowards(toWorld: Matrix, part: Int32, eye: Vector4, from: Vector4, to: Vector4) {
-        let fx = from.X - eye.X;
-        let fy = from.Y - eye.Y;
-        let fz = from.Z - eye.Z;
-        let tx = to.X - eye.X;
-        let ty = to.Y - eye.Y;
-        let tz = to.Z - eye.Z;
-        let ax = fy * tz - fz * ty;
-        let ay = fz * tx - fx * tz;
-        let az = fx * ty - fy * tx;
-        let sine = SqrtF(ax * ax + ay * ay + az * az);
-        if sine < 0.0000001 {
-            return;
-        }
-        let degrees = Rad2Deg(AtanF(sine, fx * tx + fy * ty + fz * tz));
-        APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, APM_Vector(ax / sine, ay / sine, az / sine, 0.0)), degrees);
     }
 
     // Parts that turn like a ball under the cursor instead of pointing at it.
@@ -1804,6 +1758,7 @@ public class APM_PoseEditor extends IScriptable {
                 APM_UiSetValue(7701u, Cast<Float>(this.m_partIndices[partSlot]));
             }
         } else if Equals(prefix, "dec") || Equals(prefix, "inc") || Equals(prefix, "zero") {
+            APM_HistoryCheckpoint();
             let row = this.FindRow(Cast<Uint32>(StringToInt(arg)));
             if IsDefined(row) {
                 if Equals(prefix, "zero") {
@@ -1815,10 +1770,28 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(prefix, "ik") {
             APM_UiSetValue(7710u, Cast<Float>(StringToInt(arg)));
         } else if Equals(id, "pin") {
+            APM_HistoryCheckpoint();
             // Off -> world (stays where it is) -> body (moves with the shoulder / hips) -> off
             let nextPin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5) + 1;
             APM_UiSetValue(7711u, Cast<Float>(nextPin > 2 ? 0 : nextPin));
+        } else if Equals(id, "undo") {
+            this.SetStatus(APM_Undo() ? "Undone" : "Nothing to undo");
+        } else if Equals(id, "redo") {
+            this.SetStatus(APM_Redo() ? "Redone" : "Nothing to redo");
+        } else if Equals(prefix, "mirror") {
+            let fromLeft = Equals(arg, "l");
+            let part = Cast<Int32>(APM_UiGetValue(7701u));
+            let group = APM_UiGetOptionGroup(7701u, part);
+            // A left / right tab copies that tab; any other tab copies the whole body.
+            let sided = StrBeginsWith(group, fromLeft ? "Left " : "Right ") || StrBeginsWith(group, fromLeft ? "Right " : "Left ");
+            let scope = sided ? (fromLeft ? "Left " : "Right ") + StrAfterFirst(group, " ") : "";
+            let copied = APM_MirrorParts(fromLeft, scope);
+            this.SetStatus(copied > 0 ? "Copied " + (sided ? scope : (fromLeft ? "left side" : "right side")) + " to the other side" : "Nothing to copy");
+        } else if Equals(prefix, "neutral") {
+            let armsDown = Equals(arg, "a");
+            this.SetStatus(APM_SetNeutralPose(armsDown) ? (armsDown ? "A pose: edits start from it, Reset all goes back" : "T pose: edits start from it, Reset all goes back") : "Neutral pose not available");
         } else if Equals(id, "resetpart") {
+            APM_HistoryCheckpoint();
             APM_UiSetValue(7721u, 1.0);
         } else if Equals(id, "resetall") {
             if this.m_confirmResetAll {
@@ -1934,6 +1907,7 @@ public class APM_PoseEditor extends IScriptable {
         if Equals(StrBeforeFirst(button.id, ":"), "drag") {
             let row = this.FindRow(Cast<Uint32>(StringToInt(StrAfterFirst(button.id, ":"))));
             if IsDefined(row) {
+                APM_HistoryCheckpoint();
                 this.m_dragRow = row;
                 this.m_dragValue = APM_UiGetValue(row.attribute);
                 this.SetHover(true);
@@ -1992,6 +1966,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_cursorScaleY = marker.screenY / pointer.Y;
             this.m_useRealCursor = this.m_cursorScaleX > 0.3 && this.m_cursorScaleX < 6.0 && this.m_cursorScaleY > 0.3 && this.m_cursorScaleY < 6.0;
         }
+        APM_HistoryCheckpoint();
         this.BeginMarkerDrag(marker, e.IsShiftDown(), e.IsControlDown());
         this.SetHover(true);
         APM_UiRequestRefresh();

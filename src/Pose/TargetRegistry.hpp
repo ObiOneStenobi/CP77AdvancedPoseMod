@@ -74,6 +74,17 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
 // Used for the eyes' gaze. Returns false if the main skeleton is not available or the bone is unknown.
 bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut);
 
+// Reference ("bind") pose of V's main skeleton - a T pose.
+struct ReferencePose
+{
+    std::vector<uint64_t> boneNames;
+    std::vector<int16_t> parents;
+    std::vector<Math::Quat> localRotations;
+    std::vector<Math::Vec3> localTranslations;
+    std::vector<Math::Quat> modelRotations;
+};
+bool GetReferencePose(ReferencePose& aOut);
+
 // Bone names of V's main skeleton ("root" component), for UIs. Empty if not available.
 std::vector<uint64_t> GetMainSkeletonBones();
 } // namespace TargetRegistry

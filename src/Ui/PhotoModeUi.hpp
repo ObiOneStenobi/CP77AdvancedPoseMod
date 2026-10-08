@@ -57,6 +57,12 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees);
 bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta);
 bool CanMovePart(int32_t aPart);
 
+// Copies one side of the body onto the other, mirrored. aGroup: a tab such as "Left arm" (copied to "Right arm"),
+// or empty for every left / right part. Returns the number of parts copied.
+int32_t MirrorParts(bool aFromLeft, const std::string& aGroup);
+// Turns a part (an eye) so that its forward direction points at a model-space point.
+bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
+
 // Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
 float GetPreference(const std::string& aKey, float aDefault);
 void SetPreference(const std::string& aKey, float aValue);

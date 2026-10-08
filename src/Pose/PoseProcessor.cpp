@@ -1,6 +1,7 @@
 #include "Pose/PoseProcessor.hpp"
 
 #include "Math/Vec3.hpp"
+#include "Pose/GizmoState.hpp"
 #include "Pose/TwoBoneIk.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -283,6 +284,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
     {
         ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
     }
+    APM::Pose::GizmoState::PublishAnimatedPose(aTarget, aBones, aCount);
 
     const bool useIk = AnyIkEnabled(aPose);
     if (useIk)

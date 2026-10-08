@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/CName.hpp>
 #include <nlohmann/json.hpp>
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <tuple>
 #include <unordered_set>
 
 namespace
@@ -25,6 +27,17 @@ std::mutex g_mutex; // guards g_bones and g_snapshot replacement
 std::vector<APM::Pose::BoneOverride> g_bones;
 std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> g_ik{};
 std::shared_ptr<const APM::Pose::BasePose> g_base;
+
+// Undo / redo history (guarded by g_mutex).
+struct EditState
+{
+    std::vector<APM::Pose::BoneOverride> bones;
+    std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
+    std::shared_ptr<const APM::Pose::BasePose> base;
+};
+constexpr size_t MaxHistory = 100;
+std::vector<EditState> g_undo;
+std::vector<EditState> g_redo;
 std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
 std::shared_ptr<const APM::Pose::OverrideSnapshot> g_snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
 
@@ -48,6 +61,73 @@ void PublishLocked()
     }
     std::scoped_lock lock(g_snapshotMutex);
     g_snapshot = std::move(snapshot);
+}
+
+bool SameBones(const std::vector<APM::Pose::BoneOverride>& a, const std::vector<APM::Pose::BoneOverride>& b)
+{
+    if (a.size() != b.size())
+    {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        const auto& x = a[i];
+        const auto& y = b[i];
+        if (x.boneHash != y.boneHash || x.hasRotation != y.hasRotation || x.hasTranslation != y.hasTranslation ||
+            x.rotation.i != y.rotation.i || x.rotation.j != y.rotation.j || x.rotation.k != y.rotation.k ||
+            x.rotation.r != y.rotation.r || x.translation != y.translation || x.uiAngles != y.uiAngles)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount>& a,
+            const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount>& b)
+{
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        if (a[i].enabled != b[i].enabled || a[i].followBody != b[i].followBody || a[i].offset != b[i].offset ||
+            a[i].swivel != b[i].swivel)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Must be called with g_mutex held.
+EditState CurrentStateLocked()
+{
+    return {g_bones, g_ik, g_base};
+}
+
+bool SameAsCurrentLocked(const EditState& aState)
+{
+    return aState.base == g_base && SameIk(aState.ik, g_ik) && SameBones(aState.bones, g_bones);
+}
+
+void RestoreLocked(EditState&& aState)
+{
+    g_bones = std::move(aState.bones);
+    g_ik = aState.ik;
+    g_base = std::move(aState.base);
+}
+
+// Records the current state before a change, unless nothing changed since the last record.
+void CheckpointLocked()
+{
+    if (!g_undo.empty() && SameAsCurrentLocked(g_undo.back()))
+    {
+        return;
+    }
+    g_undo.push_back(CurrentStateLocked());
+    if (g_undo.size() > MaxHistory)
+    {
+        g_undo.erase(g_undo.begin());
+    }
+    g_redo.clear();
 }
 
 // Must be called with g_mutex held.
@@ -243,6 +323,7 @@ void ResetBone(const std::string& aBone)
 void ResetAll()
 {
     std::scoped_lock lock(g_mutex);
+    CheckpointLocked();
     g_bones.clear();
     g_ik = {};
     g_base.reset();
@@ -470,6 +551,7 @@ bool Load(const std::string& aName)
 
     {
         std::scoped_lock lock(g_mutex);
+        CheckpointLocked();
         g_bones = std::move(loaded);
         g_ik = loadedIk;
         g_base = std::move(loadedBase);
@@ -477,6 +559,167 @@ bool Load(const std::string& aName)
     }
     g_enabled = true;
     Log::Info("Pose loaded: %s (%zu bones)", name.c_str(), Count());
+    return true;
+}
+
+void Checkpoint()
+{
+    std::scoped_lock lock(g_mutex);
+    CheckpointLocked();
+}
+
+bool Undo()
+{
+    std::scoped_lock lock(g_mutex);
+    // Skip records equal to the current state (an edit that started but changed nothing).
+    while (!g_undo.empty() && SameAsCurrentLocked(g_undo.back()))
+    {
+        g_undo.pop_back();
+    }
+    if (g_undo.empty())
+    {
+        return false;
+    }
+    g_redo.push_back(CurrentStateLocked());
+    RestoreLocked(std::move(g_undo.back()));
+    g_undo.pop_back();
+    PublishLocked();
+    g_enabled = true;
+    return true;
+}
+
+bool Redo()
+{
+    std::scoped_lock lock(g_mutex);
+    if (g_redo.empty())
+    {
+        return false;
+    }
+    g_undo.push_back(CurrentStateLocked());
+    RestoreLocked(std::move(g_redo.back()));
+    g_redo.pop_back();
+    PublishLocked();
+    g_enabled = true;
+    return true;
+}
+
+bool CanUndo()
+{
+    std::scoped_lock lock(g_mutex);
+    for (auto it = g_undo.rbegin(); it != g_undo.rend(); ++it)
+    {
+        if (!SameAsCurrentLocked(*it))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CanRedo()
+{
+    std::scoped_lock lock(g_mutex);
+    return !g_redo.empty();
+}
+
+bool SetNeutralPose(bool aArmsDown)
+{
+    TargetRegistry::ReferencePose reference;
+    if (!TargetRegistry::GetReferencePose(reference))
+    {
+        return false;
+    }
+    const size_t count = reference.boneNames.size();
+    const uint64_t head = HashBone("Head");
+    const uint64_t hips = HashBone("Hips");
+
+    std::vector<Math::Quat> local = reference.localRotations;
+    if (aArmsDown)
+    {
+        // A pose: upper arms turned down by 45 degrees (the reference pose holds them level).
+        std::vector<Math::Quat> model(count);
+        std::vector<Math::Vec3> position(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            const int16_t parent = reference.parents[i];
+            if (parent >= 0 && static_cast<size_t>(parent) < i)
+            {
+                model[i] = Math::Mul(model[parent], local[i]);
+                position[i] = position[parent] + Math::Rotate(model[parent], reference.localTranslations[i]);
+            }
+            else
+            {
+                model[i] = local[i];
+                position[i] = reference.localTranslations[i];
+            }
+        }
+        for (const auto& [arm, foreArm, side] :
+             {std::tuple{"LeftArm", "LeftForeArm", -1.f}, std::tuple{"RightArm", "RightForeArm", 1.f}})
+        {
+            const auto a = std::find(reference.boneNames.begin(), reference.boneNames.end(), HashBone(arm));
+            const auto b = std::find(reference.boneNames.begin(), reference.boneNames.end(), HashBone(foreArm));
+            if (a == reference.boneNames.end() || b == reference.boneNames.end())
+            {
+                continue;
+            }
+            const auto ia = static_cast<size_t>(std::distance(reference.boneNames.begin(), a));
+            const auto ib = static_cast<size_t>(std::distance(reference.boneNames.begin(), b));
+            const int16_t parent = reference.parents[ia];
+            if (parent < 0)
+            {
+                continue;
+            }
+            const Math::Vec3 current = Math::Normalize(position[ib] - position[ia]);
+            const Math::Vec3 wanted = Math::Normalize(Math::Vec3{side, 0.f, -1.f});
+            const Math::Vec3 axis = Math::Cross(current, wanted);
+            if (Math::Length(axis) < 1e-5f)
+            {
+                continue;
+            }
+            const Math::Quat turn = Math::FromAxisAngle(axis, Math::AngleBetween(current, wanted));
+            const Math::Quat armModel = Math::Mul(turn, model[ia]);
+            local[ia] = Math::Normalize(Math::Mul(Math::Conjugate(model[parent]), armModel));
+        }
+    }
+
+    auto base = std::make_shared<BasePose>();
+    base->name = aArmsDown ? "A pose" : "T pose";
+    std::vector<bool> inFace(count, false);
+    for (size_t i = 0; i < count; ++i)
+    {
+        const int16_t parent = reference.parents[i];
+        if (parent < 0 || static_cast<size_t>(parent) >= i)
+        {
+            continue; // root
+        }
+        inFace[i] = inFace[parent] || reference.boneNames[parent] == head;
+        if (inFace[i])
+        {
+            continue;
+        }
+        BasePoseBone bone;
+        bone.boneHash = reference.boneNames[i];
+        bone.rotation = local[i];
+        if (bone.boneHash == hips)
+        {
+            const auto& t = reference.localTranslations[i];
+            bone.translation = {t.x, t.y, t.z};
+            bone.hasTranslation = true;
+        }
+        base->bones.push_back(bone);
+    }
+
+    {
+        std::scoped_lock lock(g_mutex);
+        CheckpointLocked();
+        // Keep only the face edits (eyes): everything else starts from the neutral pose.
+        std::erase_if(g_bones, [](const BoneOverride& aBone) { return aBone.boneName.find("Eye") == std::string::npos; });
+        g_ik = {};
+        g_base = std::move(base);
+        PublishLocked();
+    }
+    g_enabled = true;
+    Log::Info("Neutral pose: %s", aArmsDown ? "A" : "T");
     return true;
 }
 

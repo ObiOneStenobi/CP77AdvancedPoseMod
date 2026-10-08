@@ -44,6 +44,12 @@ struct CapturedBone
 };
 bool CaptureLocalPose(std::vector<CapturedBone>& aOut);
 
+// Main skeleton's local pose before the edits (animation, or the loaded full pose), published by the pose processor.
+void PublishAnimatedPose(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount);
+// Local rotation / translation of a bone: as shown now (edits and IK included), and before the edits.
+bool GetFinalLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTranslation);
+bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTranslation);
+
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();
 

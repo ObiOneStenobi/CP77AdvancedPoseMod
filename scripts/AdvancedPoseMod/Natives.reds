@@ -56,6 +56,20 @@ public native func APM_SaveNewPose() -> String
 public native func APM_RenamePose(oldName: String, newName: String) -> String
 // Saved full pose currently replacing the Photo Mode pose ("" if none)
 public native func APM_GetBasePoseName() -> String
+// Undo / redo: record the state when an edit starts
+public native func APM_HistoryCheckpoint()
+public native func APM_Undo() -> Bool
+public native func APM_Redo() -> Bool
+public native func APM_CanUndo() -> Bool
+public native func APM_CanRedo() -> Bool
+// Ctrl+Z / Ctrl+Y since the last call: 1 undo, 2 redo, 0 none
+public native func APM_PollHotkey() -> Int32
+// Copies one side onto the other, mirrored; group "Left arm" etc. or "" for the whole body. Returns parts copied.
+public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
+// Replaces the Photo Mode pose with a T pose (or an A pose), clearing the edits
+public native func APM_SetNeutralPose(armsDown: Bool) -> Bool
+// Turns a part (an eye) to look at a model-space point
+public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
 public native func APM_TextEntryBegin(text: String) -> Bool
 public native func APM_TextEntryEnd()
