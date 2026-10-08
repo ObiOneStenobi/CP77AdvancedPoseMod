@@ -448,6 +448,25 @@ void GizmoRotatePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Ui::PhotoModeUi::RotatePart(part, {axis.X, axis.Y, axis.Z}, degrees));
 }
 
+// Moves a part that allows it (hips, held props) by a model-space vector (meters).
+void GizmoMovePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::Vector4 delta{};
+    RED4ext::GetParameter(aFrame, &part);
+    RED4ext::GetParameter(aFrame, &delta);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::MovePart(part, {delta.X, delta.Y, delta.Z}));
+}
+
+void GizmoCanMovePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::CanMovePart(part));
+}
+
 // IK chain driven by a body part (0..3), or -1.
 void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -821,6 +840,8 @@ void Register()
     ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
+    ::Register("APM_GizmoMovePart", &GizmoMovePart, "Bool", {{"Int32", "part"}, {"Vector4", "modelDelta"}});
+    ::Register("APM_GizmoCanMovePart", &GizmoCanMovePart, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
     ::Register("APM_GizmoRotatePart", &GizmoRotatePart, "Bool",

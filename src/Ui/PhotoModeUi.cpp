@@ -589,4 +589,34 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
     RequestRefresh();
     return true;
 }
+
+bool CanMovePart(int32_t aPart)
+{
+    const auto& catalog = GetBoneCatalog();
+    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) && catalog[aPart].allowsTranslation;
+}
+
+bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
+{
+    if (!CanMovePart(aPart))
+    {
+        return false;
+    }
+    g_bodyPart = aPart;
+    const char* bone = CurrentEntry().bones.front();
+    // The offset is in the parent bone's space.
+    Math::Quat parent{};
+    if (!Pose::GizmoState::GetParentModelRotation(RED4ext::CName(bone).hash, parent))
+    {
+        return false;
+    }
+    const Math::Vec3 local = Math::Rotate(Math::Conjugate(parent), aModelDelta);
+    auto translation = CurrentTranslation();
+    translation[0] = std::clamp(translation[0] + local.x, -1.f, 1.f);
+    translation[1] = std::clamp(translation[1] + local.y, -1.f, 1.f);
+    translation[2] = std::clamp(translation[2] + local.z, -1.f, 1.f);
+    Pose::PoseOverrides::SetTranslation(bone, translation[0], translation[1], translation[2]);
+    RequestRefresh();
+    return true;
+}
 } // namespace APM::Ui::PhotoModeUi

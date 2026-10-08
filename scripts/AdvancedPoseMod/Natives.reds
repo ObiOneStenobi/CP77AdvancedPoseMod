@@ -91,6 +91,9 @@ public native func APM_GizmoGetPartForward(part: Int32) -> Vector4
 public native func APM_GizmoGetPartParent(part: Int32) -> Vector4
 // Model-space movement of an IK pin -> change of its offset (differs when the limb is pinned to the body)
 public native func APM_GizmoIkModelToOffset(chain: Int32, modelDelta: Vector4) -> Vector4
+// Moves a part that allows it (hips, held props) by a model-space vector (meters)
+public native func APM_GizmoMovePart(part: Int32, modelDelta: Vector4) -> Bool
+public native func APM_GizmoCanMovePart(part: Int32) -> Bool
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
 // Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)

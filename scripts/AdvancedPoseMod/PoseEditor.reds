@@ -150,6 +150,8 @@ public class APM_Marker extends IScriptable {
     public let part: Int32;
     public let chain: Int32; // IK chain moved by dragging, or -1
     public let swivelChain: Int32; // IK chain whose elbow / knee this part turns while that chain is pinned, or -1
+    public let canMove: Bool;      // Shift+drag moves it (hips, held props)
+    public let isProp: Bool;       // point a held prop hangs from
     public let kind: Int32; // APM_MarkerKind*
     public let group: String;
     public let root: wref<inkCanvas>;
@@ -173,6 +175,11 @@ public func APM_DragIkMove() -> Int32 { return 3; }    // the pinned hand / foot
 public func APM_DragSwivel() -> Int32 { return 4; }    // the elbow / knee of a pinned limb follows the cursor
 public func APM_DragTwist() -> Int32 { return 5; }     // rotation around the bone itself
 public func APM_DragEyeLook() -> Int32 { return 6; }   // the eyes look at the cursor
+public func APM_DragMove() -> Int32 { return 7; }      // the part (hips, held prop) follows the cursor
+
+public func APM_ColorProp() -> HDRColor {
+    return APM_Color(0.45, 1.0, 0.55, 1.0);
+}
 
 // World position of a body part (w = 1 when valid): the bone's model-space position through the animated
 // component's local-to-world matrix (the puppet's entity transform is not where Photo Mode draws it).
@@ -227,9 +234,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_status: wref<inkText>;
 
     private let m_markers: array<ref<APM_Marker>>;
-    // Diagnostics: where the game itself places some attachment slots of V's rendered body.
-    private let m_truthMarkers: array<wref<inkRectangle>>;
-    private let m_truthSlots: array<CName>;
     private let m_lineLayer: wref<inkCanvas>;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
@@ -259,7 +263,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_renaming: Bool;     // typing a pose name
     private let m_renameFrom: String; // pose being renamed
     private let m_refreshTimer: Float;
-    private let m_logTimer: Float;
 
     public func Initialize(controller: ref<gameuiPhotoModeMenuController>) {
         this.m_controller = controller;
@@ -286,7 +289,6 @@ public class APM_PoseEditor extends IScriptable {
         gizmoLayer.Reparent(layer);
         this.m_gizmoLayer = gizmoLayer;
         this.BuildMarkers();
-        this.BuildTruthMarkers();
         this.BuildHint();
 
         this.m_openButton = this.CreateButton(layer, "open", "Pose editor", 0.0, 0.0, 160.0, 32.0);
@@ -317,23 +319,13 @@ public class APM_PoseEditor extends IScriptable {
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
         this.UpdateRename();
-        if this.m_gizmosOn && APM_IsPhotoModeActive() {
-            this.m_logTimer -= timeDelta;
-            if this.m_logTimer <= 0.0 {
-                this.m_logTimer = 1.0;
-                this.LogGizmoDiagnostics();
-            }
-        }
         if !this.m_isOpen {
             return;
         }
         this.m_refreshTimer -= timeDelta;
         if this.m_refreshTimer <= 0.0 && !IsDefined(this.m_dragRow) {
             this.m_refreshTimer = 0.25;
-            this.Refresh(); // picks up changes made through the Photo Mode menu and the gizmos
-            if this.m_gizmosOn && !IsDefined(this.m_dragMarker) {
-                this.SetStatus(this.SlotGapText()); // diagnostics while the gizmos are being tuned
-            }
+            this.Refresh(); // picks up changes made by the gizmos
         }
     }
 
@@ -450,61 +442,6 @@ public class APM_PoseEditor extends IScriptable {
         this.ReloadPoses();
     }
 
-    private func BuildTruthMarkers() {
-        let s = APM_UiScale();
-        ArrayPush(this.m_truthSlots, n"Head");
-        ArrayPush(this.m_truthSlots, n"Chest");
-        ArrayPush(this.m_truthSlots, n"Hips");
-        ArrayPush(this.m_truthSlots, n"RightHand");
-        ArrayPush(this.m_truthSlots, n"LegLeft");
-        ArrayPush(this.m_truthSlots, n"LegRight");
-        let i = 0;
-        while i < ArraySize(this.m_truthSlots) {
-            let square = new inkRectangle();
-            square.SetAnchor(inkEAnchor.TopLeft);
-            square.SetAnchorPoint(0.5, 0.5);
-            square.SetSize(7.0 * s, 7.0 * s);
-            square.SetTintColor(APM_ColorWarning());
-            square.SetInteractive(false);
-            square.SetVisible(false);
-            square.Reparent(this.m_gizmoLayer);
-            ArrayPush(this.m_truthMarkers, square);
-            i += 1;
-        }
-    }
-
-    // World position of an attachment slot of V's rendered body (w = 1 when valid).
-    private func SlotWorldPosition(slot: CName) -> Vector4 {
-        let puppet = APM_GizmoGetEntity() as ScriptedPuppet;
-        if !IsDefined(puppet) {
-            return APM_Vector(0.0, 0.0, 0.0, 0.0);
-        }
-        let slots = puppet.GetSlotComponent();
-        let transform: WorldTransform;
-        if !IsDefined(slots) || !slots.GetSlotTransform(slot, transform) {
-            return APM_Vector(0.0, 0.0, 0.0, 0.0);
-        }
-        let position = WorldPosition.ToVector4(WorldTransform.GetWorldPosition(transform));
-        return APM_Vector(position.X, position.Y, position.Z, 1.0);
-    }
-
-    private func UpdateTruthMarkers(camera: ref<CameraSystem>) {
-        let i = 0;
-        while i < ArraySize(this.m_truthMarkers) {
-            let world = this.SlotWorldPosition(this.m_truthSlots[i]);
-            let show = world.W > 0.5;
-            if show {
-                let screen = this.ProjectToScreen(camera, world);
-                show = screen.W > 0.5;
-                if show {
-                    this.m_truthMarkers[i].SetMargin(screen.X, screen.Y, 0.0, 0.0);
-                }
-            }
-            this.m_truthMarkers[i].SetVisible(show);
-            i += 1;
-        }
-    }
-
     private func BuildMarkers() {
         // Bone lines below the markers
         let lineLayer = new inkCanvas();
@@ -547,6 +484,8 @@ public class APM_PoseEditor extends IScriptable {
                 marker.part = i;
                 marker.chain = APM_GizmoGetPartIkChain(i);
                 marker.swivelChain = APM_GizmoGetPartSwivelChain(i);
+                marker.canMove = APM_GizmoCanMovePart(i);
+                marker.isProp = StrEndsWith(label, "hand prop");
                 marker.group = APM_UiGetOptionGroup(7701u, i);
                 marker.kind = APM_MarkerKindBone();
                 if Equals(label, "Eyes (both)") {
@@ -1129,7 +1068,6 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
-        this.UpdateTruthMarkers(camera);
         let component = APM_GizmoGetComponent();
         if !IsDefined(component) {
             this.m_gizmoLayer.SetVisible(false);
@@ -1173,7 +1111,7 @@ public class APM_PoseEditor extends IScriptable {
                 marker.screenX = screen.X;
                 marker.screenY = screen.Y;
                 let isSelected = marker.part == selected;
-                let isDetail = marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger();
+                let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
                 let size = isDetail ? 7.0 : 10.0;
                 if isSelected || marker.isHovered {
                     size += 4.0;
@@ -1186,6 +1124,8 @@ public class APM_PoseEditor extends IScriptable {
                     color = APM_ColorAccent();
                 } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
                     color = APM_ColorIk();
+                } else if marker.isProp {
+                    color = APM_ColorProp();
                 }
                 marker.dot.SetTintColor(color);
                 marker.root.SetOpacity(isSelected || marker.isHovered ? 1.0 : 0.75);
@@ -1193,7 +1133,7 @@ public class APM_PoseEditor extends IScriptable {
                 if mode == APM_DragTwist() {
                     marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
                     marker.dot.SetRotation(boneAngle + 90.0);
-                } else if mode == APM_DragIkMove() || mode == APM_DragEyeLook() {
+                } else if mode == APM_DragIkMove() || mode == APM_DragEyeLook() || mode == APM_DragMove() {
                     marker.dot.SetSize(size * 0.85 * s, size * 0.85 * s);
                     marker.dot.SetRotation(0.0);
                 } else {
@@ -1234,7 +1174,13 @@ public class APM_PoseEditor extends IScriptable {
         let mode = IsDefined(this.m_dragMarker) ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
         let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
         if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && marker.kind != APM_MarkerKindEyeLook() {
-            text += marker.chain >= 0 ? "   (Shift: rotate, Ctrl: twist)" : "   (Ctrl: twist)";
+            if marker.chain >= 0 {
+                text += "   (Shift: rotate, Ctrl: twist)";
+            } else if marker.canMove {
+                text += "   (Shift: move, Ctrl: twist)";
+            } else {
+                text += "   (Ctrl: twist)";
+            }
         }
         this.m_hint.SetText(text);
         this.m_hint.SetMargin(marker.screenX + 16.0 * s, marker.screenY - 30.0 * s, 0.0, 0.0);
@@ -1244,6 +1190,9 @@ public class APM_PoseEditor extends IScriptable {
     private func ModeName(mode: Int32) -> String {
         if mode == APM_DragIkMove() {
             return "move (IK)";
+        }
+        if mode == APM_DragMove() {
+            return "move";
         }
         if mode == APM_DragSwivel() {
             return "turn elbow / knee (IK)";
@@ -1343,110 +1292,6 @@ public class APM_PoseEditor extends IScriptable {
         return APM_Vector((ndcX + 1.0) * 0.5 * APM_ScreenWidth(), (1.0 - ndcY) * 0.5 * APM_ScreenHeight(), depth, 1.0);
     }
 
-    // One-line positions readout (entity, animated component, hips) to check the gizmo placement.
-    private func GizmoDiagnostics() -> String {
-        let text = "Gizmos " + (this.m_gizmosOn ? "on" : "off");
-        let entity = APM_GizmoGetEntity();
-        if IsDefined(entity) {
-            let p = entity.GetWorldPosition();
-            text += " | ent " + FloatToStringPrec(p.X, 1) + " " + FloatToStringPrec(p.Y, 1) + " " + FloatToStringPrec(p.Z, 1);
-        }
-        let component = APM_GizmoGetComponent();
-        if IsDefined(component) {
-            let toWorld = component.GetLocalToWorld();
-            let c = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
-            text += " | cmp " + FloatToStringPrec(c.X, 1) + " " + FloatToStringPrec(c.Y, 1) + " " + FloatToStringPrec(c.Z, 1);
-            let hips = APM_GizmoGetPartPosition(0);
-            text += " | hips " + FloatToStringPrec(hips.X, 2) + " " + FloatToStringPrec(hips.Y, 2) + " " + FloatToStringPrec(hips.Z, 2);
-        }
-        let player = this.m_controller.GetPlayerControlledObject();
-        if IsDefined(player) {
-            let cameraTransform: Transform;
-            if GameInstance.GetCameraSystem(player.GetGame()).GetActiveCameraWorldTransform(cameraTransform) {
-                let camera = GameInstance.GetCameraSystem(player.GetGame());
-                text += " | cam " + FloatToStringPrec(cameraTransform.position.X, 1) + " " + FloatToStringPrec(cameraTransform.position.Y, 1) + " " + FloatToStringPrec(cameraTransform.position.Z, 1);
-                text += " | fov " + FloatToStringPrec(camera.GetActiveCameraFOV(), 1) + " ar " + FloatToStringPrec(camera.GetAspectRatio(), 2);
-                let component = APM_GizmoGetComponent();
-                if IsDefined(component) {
-                    let hipsWorld = APM_PartWorldPosition(component.GetLocalToWorld(), 0);
-                    let raw = camera.ProjectPoint(APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0));
-                    let mine = this.ProjectToScreen(camera, hipsWorld);
-                    text += " | pp " + FloatToStringPrec(raw.X, 2) + " " + FloatToStringPrec(raw.Y, 2) + " " + FloatToStringPrec(raw.Z, 2) + " " + FloatToStringPrec(raw.W, 2);
-                    text += " | scr " + FloatToStringPrec(mine.X, 0) + " " + FloatToStringPrec(mine.Y, 0);
-                }
-            }
-        }
-        return text + " | " + this.SlotGapText();
-    }
-
-    // Distance (cm) between where the game puts some slots of the rendered body and our markers.
-    private func SlotGapText() -> String {
-        let comp = APM_GizmoGetComponent();
-        if !IsDefined(comp) {
-            return "no component";
-        }
-        let toWorld = comp.GetLocalToWorld();
-        let text = "gap";
-        text += " hand " + this.SlotGap(toWorld, n"RightHand", "Right hand");
-        text += " head " + this.SlotGap(toWorld, n"Head", "Head");
-        text += " hips " + this.SlotGap(toWorld, n"Hips", "Body (hips)");
-        return text;
-    }
-
-    private func FormatVector(v: Vector4) -> String {
-        return "(" + FloatToStringPrec(v.X, 3) + " " + FloatToStringPrec(v.Y, 3) + " " + FloatToStringPrec(v.Z, 3) + ")";
-    }
-
-    // One log line per slot: game slot position, our marker position, and the gap.
-    private func LogGizmoDiagnostics() {
-        let comp = APM_GizmoGetComponent();
-        if !IsDefined(comp) {
-            return;
-        }
-        let toWorld = comp.GetLocalToWorld();
-        let ikX = APM_UiGetValue(7712u);
-        let ikY = APM_UiGetValue(7713u);
-        let ikZ = APM_UiGetValue(7714u);
-        let line = "GizmoCheck part=" + APM_UiGetOptionLabel(7701u, Cast<Int32>(APM_UiGetValue(7701u)))
-            + " bend=" + FloatToStringPrec(APM_UiGetValue(7702u), 1) + "/" + FloatToStringPrec(APM_UiGetValue(7703u), 1) + "/" + FloatToStringPrec(APM_UiGetValue(7704u), 1)
-            + " ikLimb=" + IntToString(Cast<Int32>(APM_UiGetValue(7710u))) + " pin=" + FloatToStringPrec(APM_UiGetValue(7711u), 0)
-            + " ik=" + FloatToStringPrec(ikX, 1) + "/" + FloatToStringPrec(ikY, 1) + "/" + FloatToStringPrec(ikZ, 1);
-        APM_LogInfo(line);
-        this.LogSlot(toWorld, n"RightHand", "Right hand");
-        this.LogSlot(toWorld, n"Head", "Head");
-        this.LogSlot(toWorld, n"Hips", "Body (hips)");
-        this.LogSlot(toWorld, n"Chest", "Chest");
-        this.LogSlot(toWorld, n"LegLeft", "Left foot");
-        this.LogSlot(toWorld, n"LegRight", "Right foot");
-    }
-
-    private func LogSlot(toWorld: Matrix, slot: CName, part: String) {
-        let slotWorld = this.SlotWorldPosition(slot);
-        let index = this.PartIndex(part);
-        let ours = index >= 0 ? APM_PartWorldPosition(toWorld, index) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        let text = "  " + NameToString(slot) + " slot=" + (slotWorld.W > 0.5 ? this.FormatVector(slotWorld) : "-")
-            + " ours(" + part + ")=" + (ours.W > 0.5 ? this.FormatVector(ours) : "-");
-        if slotWorld.W > 0.5 && ours.W > 0.5 {
-            let gap = Vector4.Distance(APM_Vector(slotWorld.X, slotWorld.Y, slotWorld.Z, 0.0), APM_Vector(ours.X, ours.Y, ours.Z, 0.0));
-            text += " gap=" + FloatToStringPrec(gap * 100.0, 1) + "cm";
-        }
-        APM_LogInfo(text);
-    }
-
-    private func SlotGap(toWorld: Matrix, slot: CName, part: String) -> String {
-        let slotWorld = this.SlotWorldPosition(slot);
-        let index = this.PartIndex(part);
-        if slotWorld.W < 0.5 || index < 0 {
-            return "-";
-        }
-        let ours = APM_PartWorldPosition(toWorld, index);
-        if ours.W < 0.5 {
-            return "-";
-        }
-        let gap = Vector4.Distance(APM_Vector(slotWorld.X, slotWorld.Y, slotWorld.Z, 0.0), APM_Vector(ours.X, ours.Y, ours.Z, 0.0));
-        return FloatToStringPrec(gap * 100.0, 1);
-    }
-
     private func PartIndex(label: String) -> Int32 {
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
@@ -1506,6 +1351,9 @@ public class APM_PoseEditor extends IScriptable {
         if control {
             return APM_DragTwist();
         }
+        if shift && marker.canMove {
+            return APM_DragMove();
+        }
         if marker.chain >= 0 {
             return shift ? APM_DragRotate() : APM_DragIkMove();
         }
@@ -1528,6 +1376,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         if marker.swivelChain >= 0 && APM_GizmoIsIkActive(marker.swivelChain) {
             return label + ": drag to turn the elbow / knee (IK), Ctrl+drag to twist";
+        }
+        if marker.canMove {
+            return label + ": drag to rotate, Shift+drag to move, Ctrl+drag to twist";
         }
         return label + ": drag to rotate, Ctrl+drag to twist";
     }
@@ -1608,6 +1459,11 @@ public class APM_PoseEditor extends IScriptable {
             APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
         } else if this.m_dragMode == APM_DragSwivel() {
             this.TurnElbowTowardsCursor(camera, toWorld, marker.swivelChain, dx, dy);
+        } else if this.m_dragMode == APM_DragMove() {
+            let joint = APM_PartWorldPosition(toWorld, marker.part);
+            let jointScreen = joint.W > 0.5 ? this.ProjectToScreen(camera, joint) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+            let move = this.CursorToWorld(camera, jointScreen.W > 0.5 ? jointScreen.Z : 2.0, dx, dy);
+            APM_GizmoMovePart(marker.part, APM_WorldToModelDirection(toWorld, move));
         } else if this.m_dragMode == APM_DragTwist() {
             this.TwistPart(camera, toWorld, marker.part, dx, dy);
         } else if this.m_dragMode == APM_DragEyeLook() {
@@ -1937,7 +1793,6 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "gizmos") {
             this.m_gizmosOn = !this.m_gizmosOn;
             APM_PrefSet("Gizmos", this.m_gizmosOn ? 1.0 : 0.0);
-            this.SetStatus(this.GizmoDiagnostics());
         } else if Equals(prefix, "group") {
             let groupIndex = StringToInt(arg);
             if groupIndex >= 0 && groupIndex < ArraySize(this.m_groupNames) {

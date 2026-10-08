@@ -24,6 +24,8 @@ void Clear();
 // Model-space position / rotation of a bone of the main skeleton (relative to the animated component).
 bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut);
 bool GetBoneModelRotation(uint64_t aBoneHash, Math::Quat& aOut);
+// Model-space rotation of the bone's parent (identity for the root bone).
+bool GetParentModelRotation(uint64_t aBoneHash, Math::Quat& aOut);
 // Model-space point the bone points at (its first child, or a short extension for leaf bones).
 bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut);
 

@@ -183,6 +183,21 @@ bool GetBoneModelRotation(uint64_t aBoneHash, Math::Quat& aOut)
     return true;
 }
 
+bool GetParentModelRotation(uint64_t aBoneHash, Math::Quat& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const Skeleton& skeleton = g_main;
+    const auto index = IndexOf(skeleton, aBoneHash);
+    if (index < 0 || GetTickCount64() - skeleton.lastUpdate > 1000)
+    {
+        return false;
+    }
+    const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
+    aOut = parent >= 0 && static_cast<size_t>(parent) < skeleton.rotations.size() ? skeleton.rotations[parent]
+                                                                                   : Quat{0.f, 0.f, 0.f, 1.f};
+    return true;
+}
+
 uintptr_t GetEntity()
 {
     std::scoped_lock lock(g_mutex);

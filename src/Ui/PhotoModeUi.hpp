@@ -53,6 +53,9 @@ std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex);
 
 // Gizmo: rotates a body part around a model-space axis (degrees), keeping the UI angles in sync.
 bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees);
+// Moves a part that allows it (hips, held props) by a model-space vector (meters).
+bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta);
+bool CanMovePart(int32_t aPart);
 
 // Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
 float GetPreference(const std::string& aKey, float aDefault);
