@@ -53,6 +53,9 @@ public native func APM_DeletePose(name: String) -> Bool
 // Saves under the first free name ("Pose 001", ...) and returns it; empty on failure
 public native func APM_SaveNewPose() -> String
 
+// Writes a line to the plugin log (red4ext/logs/advancedposemod-*.log)
+public native func APM_LogInfo(text: String) -> Bool
+
 // Panel preferences (panel.ini)
 public native func APM_PrefGet(key: String, fallback: Float) -> Float
 public native func APM_PrefSet(key: String, value: Float) -> Bool

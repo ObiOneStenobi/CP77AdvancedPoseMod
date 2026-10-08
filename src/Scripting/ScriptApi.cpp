@@ -280,6 +280,16 @@ void PrefSet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, true);
 }
 
+// Writes a line from the scripts to the plugin log (diagnostics).
+void LogInfo(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString text;
+    RED4ext::GetParameter(aFrame, &text);
+    aFrame->code++;
+    APM::Log::Info("Script: %s", text.c_str());
+    Return(aOut, true);
+}
+
 // --- Gizmos ------------------------------------------------------------------------------------------------------
 
 // Model-space position (relative to V's entity: X right, Y forward, Z up) of the main bone of a body part
@@ -547,6 +557,7 @@ void Register()
     ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
     ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
 
+    ::Register("APM_LogInfo", &LogInfo, "Bool", {{"String", "text"}});
     ::Register("APM_PrefGet", &PrefGet, "Float", {{"String", "key"}, {"Float", "fallback"}});
     ::Register("APM_PrefSet", &PrefSet, "Bool", {{"String", "key"}, {"Float", "value"}});
 

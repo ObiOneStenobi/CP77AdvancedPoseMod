@@ -210,6 +210,9 @@ public class APM_PoseEditor extends IScriptable {
     private let m_status: wref<inkText>;
 
     private let m_markers: array<ref<APM_Marker>>;
+    // Diagnostics: where the game itself places some attachment slots of V's rendered body.
+    private let m_truthMarkers: array<wref<inkRectangle>>;
+    private let m_truthSlots: array<CName>;
     private let m_dragMarker: ref<APM_Marker>;
     // IK drag: the hand / foot follows a virtual cursor on a plane facing the camera.
     private let m_dragCursorX: Float;
@@ -228,6 +231,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_confirmResetAll: Bool;
     private let m_confirmDelete: Bool;
     private let m_refreshTimer: Float;
+    private let m_logTimer: Float;
 
     public func Initialize(controller: ref<gameuiPhotoModeMenuController>) {
         this.m_controller = controller;
@@ -254,6 +258,7 @@ public class APM_PoseEditor extends IScriptable {
         gizmoLayer.Reparent(layer);
         this.m_gizmoLayer = gizmoLayer;
         this.BuildMarkers();
+        this.BuildTruthMarkers();
 
         this.m_openButton = this.CreateButton(layer, "open", "Pose editor", 0.0, 0.0, 160.0, 32.0);
         this.BuildPanel();
@@ -276,6 +281,13 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
+        if this.m_gizmosOn && APM_IsPhotoModeActive() {
+            this.m_logTimer -= timeDelta;
+            if this.m_logTimer <= 0.0 {
+                this.m_logTimer = 1.0;
+                this.LogGizmoDiagnostics();
+            }
+        }
         if !this.m_isOpen {
             return;
         }
@@ -283,6 +295,9 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_refreshTimer <= 0.0 && !IsDefined(this.m_dragRow) {
             this.m_refreshTimer = 0.25;
             this.Refresh(); // picks up changes made through the Photo Mode menu and the gizmos
+            if this.m_gizmosOn && !IsDefined(this.m_dragMarker) {
+                this.SetStatus(this.SlotGapText()); // diagnostics while the gizmos are being tuned
+            }
         }
     }
 
@@ -394,6 +409,61 @@ public class APM_PoseEditor extends IScriptable {
         this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 948.0, 608.0, 26.0, 12, APM_ColorDimText());
 
         this.ReloadPoses();
+    }
+
+    private func BuildTruthMarkers() {
+        let s = APM_UiScale();
+        ArrayPush(this.m_truthSlots, n"Head");
+        ArrayPush(this.m_truthSlots, n"Chest");
+        ArrayPush(this.m_truthSlots, n"Hips");
+        ArrayPush(this.m_truthSlots, n"RightHand");
+        ArrayPush(this.m_truthSlots, n"LegLeft");
+        ArrayPush(this.m_truthSlots, n"LegRight");
+        let i = 0;
+        while i < ArraySize(this.m_truthSlots) {
+            let square = new inkRectangle();
+            square.SetAnchor(inkEAnchor.TopLeft);
+            square.SetAnchorPoint(0.5, 0.5);
+            square.SetSize(7.0 * s, 7.0 * s);
+            square.SetTintColor(APM_ColorWarning());
+            square.SetInteractive(false);
+            square.SetVisible(false);
+            square.Reparent(this.m_gizmoLayer);
+            ArrayPush(this.m_truthMarkers, square);
+            i += 1;
+        }
+    }
+
+    // World position of an attachment slot of V's rendered body (w = 1 when valid).
+    private func SlotWorldPosition(slot: CName) -> Vector4 {
+        let puppet = APM_GizmoGetEntity() as ScriptedPuppet;
+        if !IsDefined(puppet) {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let slots = puppet.GetSlotComponent();
+        let transform: WorldTransform;
+        if !IsDefined(slots) || !slots.GetSlotTransform(slot, transform) {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let position = WorldPosition.ToVector4(WorldTransform.GetWorldPosition(transform));
+        return APM_Vector(position.X, position.Y, position.Z, 1.0);
+    }
+
+    private func UpdateTruthMarkers(camera: ref<CameraSystem>) {
+        let i = 0;
+        while i < ArraySize(this.m_truthMarkers) {
+            let world = this.SlotWorldPosition(this.m_truthSlots[i]);
+            let show = world.W > 0.5;
+            if show {
+                let screen = this.ProjectToScreen(camera, world);
+                show = screen.W > 0.5;
+                if show {
+                    this.m_truthMarkers[i].SetMargin(screen.X, screen.Y, 0.0, 0.0);
+                }
+            }
+            this.m_truthMarkers[i].SetVisible(show);
+            i += 1;
+        }
     }
 
     private func BuildMarkers() {
@@ -856,6 +926,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
+        this.UpdateTruthMarkers(camera);
         let component = APM_GizmoGetComponent();
         if !IsDefined(component) {
             this.m_gizmoLayer.SetVisible(false);
@@ -977,7 +1048,87 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
         }
+        return text + " | " + this.SlotGapText();
+    }
+
+    // Distance (cm) between where the game puts some slots of the rendered body and our markers.
+    private func SlotGapText() -> String {
+        let comp = APM_GizmoGetComponent();
+        if !IsDefined(comp) {
+            return "no component";
+        }
+        let toWorld = comp.GetLocalToWorld();
+        let text = "gap";
+        text += " hand " + this.SlotGap(toWorld, n"RightHand", "Right hand");
+        text += " head " + this.SlotGap(toWorld, n"Head", "Head");
+        text += " hips " + this.SlotGap(toWorld, n"Hips", "Body (hips)");
         return text;
+    }
+
+    private func FormatVector(v: Vector4) -> String {
+        return "(" + FloatToStringPrec(v.X, 3) + " " + FloatToStringPrec(v.Y, 3) + " " + FloatToStringPrec(v.Z, 3) + ")";
+    }
+
+    // One log line per slot: game slot position, our marker position, and the gap.
+    private func LogGizmoDiagnostics() {
+        let comp = APM_GizmoGetComponent();
+        if !IsDefined(comp) {
+            return;
+        }
+        let toWorld = comp.GetLocalToWorld();
+        let ikX = APM_UiGetValue(7712u);
+        let ikY = APM_UiGetValue(7713u);
+        let ikZ = APM_UiGetValue(7714u);
+        let line = "GizmoCheck part=" + APM_UiGetOptionLabel(7701u, Cast<Int32>(APM_UiGetValue(7701u)))
+            + " bend=" + FloatToStringPrec(APM_UiGetValue(7702u), 1) + "/" + FloatToStringPrec(APM_UiGetValue(7703u), 1) + "/" + FloatToStringPrec(APM_UiGetValue(7704u), 1)
+            + " ikLimb=" + IntToString(Cast<Int32>(APM_UiGetValue(7710u))) + " pin=" + FloatToStringPrec(APM_UiGetValue(7711u), 0)
+            + " ik=" + FloatToStringPrec(ikX, 1) + "/" + FloatToStringPrec(ikY, 1) + "/" + FloatToStringPrec(ikZ, 1);
+        APM_LogInfo(line);
+        this.LogSlot(toWorld, n"RightHand", "Right hand");
+        this.LogSlot(toWorld, n"Head", "Head");
+        this.LogSlot(toWorld, n"Hips", "Body (hips)");
+        this.LogSlot(toWorld, n"Chest", "Chest");
+        this.LogSlot(toWorld, n"LegLeft", "Left foot");
+        this.LogSlot(toWorld, n"LegRight", "Right foot");
+    }
+
+    private func LogSlot(toWorld: Matrix, slot: CName, part: String) {
+        let slotWorld = this.SlotWorldPosition(slot);
+        let index = this.PartIndex(part);
+        let ours = index >= 0 ? APM_PartWorldPosition(toWorld, index) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        let text = "  " + NameToString(slot) + " slot=" + (slotWorld.W > 0.5 ? this.FormatVector(slotWorld) : "-")
+            + " ours(" + part + ")=" + (ours.W > 0.5 ? this.FormatVector(ours) : "-");
+        if slotWorld.W > 0.5 && ours.W > 0.5 {
+            let gap = Vector4.Distance(APM_Vector(slotWorld.X, slotWorld.Y, slotWorld.Z, 0.0), APM_Vector(ours.X, ours.Y, ours.Z, 0.0));
+            text += " gap=" + FloatToStringPrec(gap * 100.0, 1) + "cm";
+        }
+        APM_LogInfo(text);
+    }
+
+    private func SlotGap(toWorld: Matrix, slot: CName, part: String) -> String {
+        let slotWorld = this.SlotWorldPosition(slot);
+        let index = this.PartIndex(part);
+        if slotWorld.W < 0.5 || index < 0 {
+            return "-";
+        }
+        let ours = APM_PartWorldPosition(toWorld, index);
+        if ours.W < 0.5 {
+            return "-";
+        }
+        let gap = Vector4.Distance(APM_Vector(slotWorld.X, slotWorld.Y, slotWorld.Z, 0.0), APM_Vector(ours.X, ours.Y, ours.Z, 0.0));
+        return FloatToStringPrec(gap * 100.0, 1);
+    }
+
+    private func PartIndex(label: String) -> Int32 {
+        let count = APM_UiGetOptionCount(7701u);
+        let i = 0;
+        while i < count {
+            if Equals(APM_UiGetOptionLabel(7701u, i), label) {
+                return i;
+            }
+            i += 1;
+        }
+        return -1;
     }
 
     // Canvas units per raw mouse unit, used only when pointer events carry no screen position.
