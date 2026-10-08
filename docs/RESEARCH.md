@@ -92,11 +92,22 @@ The `deformations` component (181 bones) holds CDPR's twist helpers, all placed 
 | `l/r_thigh_0/1_JNT` | UpLeg | 0.33 / 0.67 |
 | `l/r_calf_0_JNT` | Leg | 0.75 |
 
-Muscle correctives (`*_mscl_JNT`, `*_out_JNT`) hang below them. The game computes the helpers before our Output hook,
-so `PoseProcessor` adds the twist part of our own change: forearm helpers take a share of the added hand twist,
-upper arm / thigh helpers cancel part of the added arm / thigh twist. Calf helpers take half of the added foot twist.
+Muscle correctives (`*_mscl_JNT`, `*_out_JNT`) hang below them. (A 0.4.1 attempt to drive the helpers from the hook
+never ran: see "Component skeletons inherit the main pose".)
 
 ## Photo Mode sliders
 
 Sliders with a fractional step (0.01) only reported changes on release in testing; distances are therefore shown in
 whole centimeters.
+
+## Component skeletons inherit the main pose (0.7.3)
+
+Measured with the game's own attachment slots (`SlotComponent.GetSlotTransform`: Head, Chest, Hips, RightHand
+match the main skeleton's bones exactly when nothing is edited): applying the same-named edits to every hooked
+skeleton multiplied them. A chest bent by 8 degrees was drawn bent by ~55 degrees; Spine3 exists in 8 of the 8
+hooked skeletons (root, shadow, face_rig, 3x hair_dangle, breasts, Animated4171), which take the shared bones from
+the already edited pose one after the other. Since 0.7.3 only the main skeleton is edited (plus linked bones such
+as the face rig's eyeballs).
+
+The `deformations` skeleton (181 bones, twist/muscle helpers) is never sampled through `animAnimNode_Output`, so
+the 0.4.1 twist-helper code never ran and was removed.
