@@ -73,6 +73,8 @@ public native func APM_PrefSet(key: String, value: Float) -> Bool
 // Gizmos
 // Model-space position (relative to V: X right, Y forward, Z up) of the main bone of a body part; w = 1 when valid
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
+// Model-space point where a part's gizmo is drawn (the joint, or halfway along palm bones); w = 1 when valid
+public native func APM_GizmoGetPartMarker(part: Int32) -> Vector4
 // Model-space point the main bone of a body part points at (its child); w = 1 when valid
 public native func APM_GizmoGetPartTip(part: Int32) -> Vector4
 // IK chain whose upper arm / forearm (thigh / shin) is this part, or -1

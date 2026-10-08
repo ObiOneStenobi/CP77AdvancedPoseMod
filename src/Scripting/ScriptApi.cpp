@@ -355,6 +355,32 @@ void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     Return(aOut, result);
 }
 
+// Model-space point where a part's gizmo is drawn: the joint, or halfway to the tip for palm bones; w = 1 when valid.
+void GizmoGetPartMarker(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()))
+    {
+        const auto hash = RED4ext::CName(catalog[part].bones.front()).hash;
+        APM::Math::Vec3 joint{};
+        APM::Math::Vec3 tip{};
+        if (APM::Pose::GizmoState::GetBoneModelPosition(hash, joint))
+        {
+            if (catalog[part].markerAtMiddle && APM::Pose::GizmoState::GetBoneTipModelPosition(hash, tip))
+            {
+                joint = (joint + tip) * 0.5f;
+            }
+            result = {joint.x, joint.y, joint.z, 1.f};
+        }
+    }
+    Return(aOut, result);
+}
+
 // Model-space point the main bone of a body part points at (w = 1 when valid); the gizmos rotate parts so that this
 // point follows the cursor.
 void GizmoGetPartTip(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -521,7 +547,7 @@ void GizmoIsPartDetail(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
     const auto& catalog = APM::Ui::GetBoneCatalog();
     Return(aOut, part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
-                     catalog[part].mode == APM::Ui::EntryMode::FingerSegment);
+                     (catalog[part].mode == APM::Ui::EntryMode::FingerSegment || catalog[part].detail));
 }
 
 // Model-space direction the main bone of a body part looks along (the bone axis that pointed forward in the
@@ -785,6 +811,7 @@ void Register()
     ::Register("APM_PrefSet", &PrefSet, "Bool", {{"String", "key"}, {"Float", "value"}});
 
     ::Register("APM_GizmoGetPartPosition", &GizmoGetPartPosition, "Vector4", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartMarker", &GizmoGetPartMarker, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartTip", &GizmoGetPartTip, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartSwivelChain", &GizmoGetPartSwivelChain, "Int32", {{"Int32", "part"}});

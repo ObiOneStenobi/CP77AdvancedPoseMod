@@ -76,6 +76,8 @@ closer.
 - The orange marker floating in front of the face is where the eyes look: drag it to move their gaze (it
 moves on a sphere around the eyes).
 - Shift / Ctrl can be pressed or released during a drag: the action changes on the fly, keeping what was done.
+- Close-up gizmos (camera near the hand / foot): palm bones (cup or spread the hand), thumb base, the point a held
+  prop hangs from (rotate it, or move it with the panel's Move rows) and the heel.
 - Moving a whole finger keeps the extra bend of its segments.
 
 The CET overlay still has the **AdvancedPoseMod (debug)** window with raw bone access.

@@ -1148,7 +1148,9 @@ public class APM_PoseEditor extends IScriptable {
             if marker.kind == APM_MarkerKindEyeLook() {
                 world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.m_lookTarget : this.EyeLookPoint(toWorld);
             } else {
-                world = APM_PartWorldPosition(toWorld, marker.part);
+                let markerModel = APM_GizmoGetPartMarker(marker.part);
+                world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+                world.W = markerModel.W;
             }
             let show = world.W > 0.5;
             let screen: Vector4;

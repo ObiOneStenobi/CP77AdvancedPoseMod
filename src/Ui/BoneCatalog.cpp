@@ -65,6 +65,22 @@ const std::vector<CatalogEntry>& GetBoneCatalog()
         {"Right hand", "Right ring tip", {"RightHandRing3"}, EntryMode::FingerSegment},
         {"Right hand", "Right little middle joint", {"RightHandPinky2"}, EntryMode::FingerSegment},
         {"Right hand", "Right little tip", {"RightHandPinky3"}, EntryMode::FingerSegment},
+
+        // Palm bones, heels and the points held props hang from: close-up gizmos (0.8.2).
+        {"Left hand", "Left thumb base", {"LeftInHandThumb"}, EntryMode::FingerSegment, false, true, true},
+        {"Left hand", "Left palm - index", {"LeftInHandIndex"}, EntryMode::FingerSegment, false, true, true},
+        {"Left hand", "Left palm - middle", {"LeftInHandMiddle"}, EntryMode::FingerSegment, false, true, true},
+        {"Left hand", "Left palm - ring", {"LeftInHandRing"}, EntryMode::FingerSegment, false, true, true},
+        {"Left hand", "Left palm - little", {"LeftInHandPinky"}, EntryMode::FingerSegment, false, true, true},
+        {"Left hand", "Left hand prop", {"WeaponLeft"}, EntryMode::Single, true, true},
+        {"Left leg", "Left heel", {"LeftHeel"}, EntryMode::Single, false, true},
+        {"Right hand", "Right thumb base", {"RightInHandThumb"}, EntryMode::FingerSegment, false, true, true},
+        {"Right hand", "Right palm - index", {"RightInHandIndex"}, EntryMode::FingerSegment, false, true, true},
+        {"Right hand", "Right palm - middle", {"RightInHandMiddle"}, EntryMode::FingerSegment, false, true, true},
+        {"Right hand", "Right palm - ring", {"RightInHandRing"}, EntryMode::FingerSegment, false, true, true},
+        {"Right hand", "Right palm - little", {"RightInHandPinky"}, EntryMode::FingerSegment, false, true, true},
+        {"Right hand", "Right hand prop", {"WeaponRight"}, EntryMode::Single, true, true},
+        {"Right leg", "Right heel", {"RightHeel"}, EntryMode::Single, false, true},
     };
     return catalog;
 }

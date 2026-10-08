@@ -23,6 +23,8 @@ struct CatalogEntry
     std::vector<const char*> bones; // first bone is the primary one (used to read values back)
     EntryMode mode = EntryMode::Single;
     bool allowsTranslation = false;
+    bool detail = false;      // close-up gizmo only, not listed in the panel (FingerSegment entries are always detail)
+    bool markerAtMiddle = false; // gizmo drawn halfway along the bone (palm bones start right next to the wrist)
 };
 
 const std::vector<CatalogEntry>& GetBoneCatalog();
