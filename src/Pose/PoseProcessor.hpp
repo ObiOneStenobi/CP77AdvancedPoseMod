@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Quat.hpp"
+#include "Math/Vec3.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -18,4 +19,15 @@ void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBone
 // Latest rotation of the bone an IK chain hangs from (shoulder / hips) relative to the original animation, in model
 // space. Chains pinned to the body express their offset in this frame.
 Math::Quat GetIkBodyRotation(size_t aChain);
+
+// Where an IK chain was last solved, to convert its settings when the pin switches between world and body.
+struct IkFrame
+{
+    Math::Vec3 originalEnd;      // hand / foot in the original animation (model space)
+    Math::Quat originalEndRotation;
+    Math::Vec3 originalParent;   // shoulder / hips in the original animation
+    Math::Vec3 currentParent;    // shoulder / hips after the edits
+    Math::Quat body;             // see GetIkBodyRotation
+};
+bool GetIkFrame(size_t aChain, IkFrame& aOut);
 } // namespace APM::Pose::PoseProcessor

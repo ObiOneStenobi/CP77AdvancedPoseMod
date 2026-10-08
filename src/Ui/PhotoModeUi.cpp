@@ -5,6 +5,7 @@
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
+#include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
 
@@ -101,6 +102,58 @@ Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngl
     const auto q2 = Math::FromAxisAngle(bend2, Math::DegToRad(aAngles[1]));
     const auto q3 = Math::FromAxisAngle(twist, Math::DegToRad(aAngles[2]));
     return Math::Normalize(Math::Mul(Math::Mul(q1, q2), q3));
+}
+
+bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, std::array<float, 3>& aOut);
+
+constexpr const char* IkChainEnds[] = {"LeftHand", "RightHand", "LeftFoot", "RightFoot"};
+
+// The pin of the current chain switches between world and body: convert its offset and the hand / foot rotation so
+// that nothing moves on screen.
+void KeepPinnedEndInPlace(Pose::IkChainSettings& aSettings)
+{
+    const auto chain = CurrentChain();
+    Pose::PoseProcessor::IkFrame frame;
+    if (!Pose::PoseProcessor::GetIkFrame(static_cast<size_t>(chain), frame))
+    {
+        return;
+    }
+    const Math::Vec3 offset{aSettings.offset[0], aSettings.offset[1], aSettings.offset[2]};
+    Math::Vec3 converted;
+    Math::Quat worldChange; // applied to the hand / foot's world rotation by the switch, to undo
+    if (aSettings.followBody)
+    {
+        // World -> body: same target, expressed relative to the shoulder / hips.
+        const Math::Vec3 target = frame.originalEnd + offset;
+        converted = Math::Rotate(Math::Conjugate(frame.body), target - frame.currentParent) - frame.originalEnd +
+                    frame.originalParent;
+        worldChange = Math::Conjugate(frame.body);
+    }
+    else
+    {
+        const Math::Vec3 target =
+            frame.currentParent + Math::Rotate(frame.body, frame.originalEnd + offset - frame.originalParent);
+        converted = target - frame.originalEnd;
+        worldChange = frame.body;
+    }
+    aSettings.offset = {converted.x, converted.y, converted.z};
+
+    // Hand / foot edit O: world rotation = (body) * original * O. Keep it: O' = original^-1 * change * original * O.
+    const char* bone = IkChainEnds[static_cast<size_t>(chain)];
+    std::array<float, 3> angles{};
+    Pose::PoseOverrides::GetUiAngles(bone, angles);
+    const Math::Quat edit = AnglesToRotation(bone, angles, false);
+    const Math::Quat updated = Math::Normalize(Math::Mul(
+        Math::Mul(Math::Mul(Math::Conjugate(frame.originalEndRotation), worldChange), frame.originalEndRotation), edit));
+    std::array<float, 3> updatedAngles{};
+    if (RotationToAngles(bone, updated, false, updatedAngles))
+    {
+        for (auto& angle : updatedAngles)
+        {
+            angle = std::clamp(angle, -180.f, 180.f);
+        }
+        Pose::PoseOverrides::SetRotationQuat(bone, AnglesToRotation(bone, updatedAngles, false), updatedAngles);
+    }
 }
 
 bool UsesFingerAxes(const Ui::CatalogEntry& aEntry)
@@ -338,6 +391,10 @@ void SetValue(uint32_t aAttribute, float aValue)
         {
             updated.enabled = aValue > 0.5f;
             updated.followBody = aValue > 1.5f;
+            if (settings.enabled && updated.enabled && settings.followBody != updated.followBody)
+            {
+                KeepPinnedEndInPlace(updated);
+            }
         }
         else if (aAttribute == Attr::IkSwivel)
         {

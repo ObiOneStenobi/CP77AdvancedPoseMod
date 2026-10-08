@@ -1658,8 +1658,15 @@ public class APM_PoseEditor extends IScriptable {
         if target.W < 0.5 {
             return;
         }
-        this.TurnEyeTowards(toWorld, this.m_leftEyePart, this.m_lookTarget, target);
-        this.TurnEyeTowards(toWorld, this.m_rightEyePart, this.m_lookTarget, target);
+        // Both eyes turn by the same rotation, the one that takes the marker from its old to its new place as seen
+        // from between the eyes: their average gaze then points exactly at the marker (no jump on release).
+        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
+        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
+        if left.W > 0.5 && right.W > 0.5 {
+            let middle = APM_Vector((left.X + right.X) * 0.5, (left.Y + right.Y) * 0.5, (left.Z + right.Z) * 0.5, 1.0);
+            this.TurnEyeTowards(toWorld, this.m_leftEyePart, middle, this.m_lookTarget, target);
+            this.TurnEyeTowards(toWorld, this.m_rightEyePart, middle, this.m_lookTarget, target);
+        }
         this.m_lookTarget = target;
         APM_UiSetValue(7701u, Cast<Float>(this.m_dragMarker.part));
     }
@@ -1733,11 +1740,8 @@ public class APM_PoseEditor extends IScriptable {
         return APM_Vector(cx + qx * scale, cy + qy * scale, cz + qz * scale, 1.0);
     }
 
-    private func TurnEyeTowards(toWorld: Matrix, part: Int32, from: Vector4, to: Vector4) {
-        let eye = APM_PartWorldPosition(toWorld, part);
-        if eye.W < 0.5 {
-            return;
-        }
+    // Turns an eye by the rotation that takes (from - center) to (to - center).
+    private func TurnEyeTowards(toWorld: Matrix, part: Int32, eye: Vector4, from: Vector4, to: Vector4) {
         let fx = from.X - eye.X;
         let fy = from.Y - eye.Y;
         let fz = from.Z - eye.Z;
@@ -2055,6 +2059,14 @@ public class APM_PoseEditor extends IScriptable {
         }
 
         if IsDefined(this.m_dragMarker) {
+            // Shift / Ctrl pressed or released mid-drag: carry on with the other action from where things are now.
+            let wanted = this.DragModeFor(this.m_dragMarker, this.m_shiftDown, this.m_controlDown);
+            if wanted != this.m_dragMode {
+                this.BeginMarkerDrag(this.m_dragMarker, this.m_shiftDown, this.m_controlDown);
+                if !IsDefined(this.m_dragMarker) {
+                    return false;
+                }
+            }
             // Follow the real cursor when the event carries its position, else the raw mouse movement.
             let pointer = e.GetScreenSpacePosition();
             let movedX = pointer.X - this.m_lastPointer.X;

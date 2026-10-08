@@ -65,10 +65,12 @@ closer.
   automatically). **Shift+drag** it to rotate the hand / foot instead.
 - The **Pin** button cycles **off / world / body**: *world* keeps the hand / foot where it is whatever the body does;
   *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
+  Switching between world and body leaves the hand / foot where it is.
 - While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the
   shoulder -> hand line.
 - The orange marker floating in front of the face is where the eyes look: drag it to move their gaze (it
 moves on a sphere around the eyes).
+- Shift / Ctrl can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Moving a whole finger keeps the extra bend of its segments.
 
 ### Photo Mode menu items

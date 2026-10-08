@@ -152,6 +152,10 @@ private final func APM_RefreshItems() {
             if attribute == 7720u {
                 this.APM_SetupSelector(attribute);
             }
+            // Sliders snap to whole steps and report the snapped value back: remember what was forced so that echo
+            // is not taken for a change (it moved gizmo edits by up to half a step on release).
+            listItem.m_apmForcedValue = APM_UiGetValue(attribute);
+            listItem.m_apmHasForcedValue = true;
             listItem.ForceValue(APM_UiGetValue(attribute), false);
             listItem.SetIsEnabled(APM_UiIsAttributeEnabled(attribute));
         }
@@ -173,9 +177,20 @@ private final func APM_ForwardValue() {
             APM_UiSetValue(data.attributeKey, Cast<Float>(this.m_OptionSelectorValues[index].optionData));
         }
     } else {
+        let current = APM_UiGetValue(data.attributeKey);
+        if this.m_apmHasForcedValue && AbsF(current - this.m_apmForcedValue) < 0.0001 && AbsF(this.m_SliderValue - this.m_apmForcedValue) < 0.51 {
+            return; // the slider echoing a value set by the plugin, rounded to its step
+        }
+        this.m_apmHasForcedValue = false;
         APM_UiSetValue(data.attributeKey, this.m_SliderValue);
     }
 }
+
+@addField(PhotoModeMenuListItem)
+public let m_apmForcedValue: Float;
+
+@addField(PhotoModeMenuListItem)
+public let m_apmHasForcedValue: Bool;
 
 @wrapMethod(PhotoModeMenuListItem)
 protected cb func OnScrollBarValueChanged(controller: wref<inkSliderController>, progress: Float, newValue: Float) -> Bool {

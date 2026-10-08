@@ -25,6 +25,8 @@ constexpr const char* MainSkeletonName = "root";
 
 std::mutex g_bodyRotationMutex;
 std::array<Quat, IkChainCount> g_bodyRotations{};
+std::array<APM::Pose::PoseProcessor::IkFrame, IkChainCount> g_ikFrames{};
+std::array<bool, IkChainCount> g_ikFrameValid{};
 
 struct ChainBones
 {
@@ -192,6 +194,12 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         {
             std::scoped_lock lock(g_bodyRotationMutex);
             g_bodyRotations[chainIndex] = body;
+            if (p >= 0 && static_cast<uint32_t>(p) < aCount)
+            {
+                g_ikFrames[chainIndex] = {aOriginalPose.positions[c], aOriginalPose.rotations[c],
+                                          aOriginalPose.positions[p], aCurrentPose.positions[p], body};
+                g_ikFrameValid[chainIndex] = true;
+            }
         }
 
         APM::Pose::TwoBoneIkInput input;
@@ -272,6 +280,17 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
 
 namespace APM::Pose::PoseProcessor
 {
+bool GetIkFrame(size_t aChain, IkFrame& aOut)
+{
+    std::scoped_lock lock(g_bodyRotationMutex);
+    if (aChain >= IkChainCount || !g_ikFrameValid[aChain])
+    {
+        return false;
+    }
+    aOut = g_ikFrames[aChain];
+    return true;
+}
+
 Math::Quat GetIkBodyRotation(size_t aChain)
 {
     std::scoped_lock lock(g_bodyRotationMutex);
