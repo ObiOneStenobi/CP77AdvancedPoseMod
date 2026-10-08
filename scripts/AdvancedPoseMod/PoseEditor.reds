@@ -256,6 +256,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_dragValue: Float;
     private let m_confirmResetAll: Bool;
     private let m_confirmDelete: Bool;
+    private let m_renaming: Bool;     // typing a pose name
+    private let m_renameFrom: String; // pose being renamed
     private let m_refreshTimer: Float;
     private let m_logTimer: Float;
 
@@ -299,6 +301,10 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     public func Uninitialize() {
+        if this.m_renaming {
+            APM_TextEntryEnd();
+            this.m_renaming = false;
+        }
         if IsDefined(this.m_controller) {
             this.m_controller.UnregisterFromGlobalInputCallback(n"OnPostOnRelative", this, n"OnGlobalRelative");
             this.m_controller.UnregisterFromGlobalInputCallback(n"OnPostOnRelease", this, n"OnGlobalRelease");
@@ -310,6 +316,7 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
+        this.UpdateRename();
         if this.m_gizmosOn && APM_IsPhotoModeActive() {
             this.m_logTimer -= timeDelta;
             if this.m_logTimer <= 0.0 {
@@ -426,12 +433,15 @@ public class APM_PoseEditor extends IScriptable {
         this.m_posesTitle = this.CreateText(panel, "Poses", 16.0, 744.0, 600.0, 26.0, 19, APM_ColorAccent());
         i = 0;
         while i < APM_PosesPerPage() {
-            ArrayPush(this.m_poseButtons, this.CreateButton(panel, "pose:" + IntToString(i), "", 16.0, 774.0 + Cast<Float>(i) * 34.0, 420.0, 30.0));
+            let poseButton = this.CreateButton(panel, "pose:" + IntToString(i), "", 16.0, 774.0 + Cast<Float>(i) * 34.0, 420.0, 30.0);
+            poseButton.label.SetLetterCase(textLetterCase.OriginalCase);
+            ArrayPush(this.m_poseButtons, poseButton);
             i += 1;
         }
         this.CreateButton(panel, "savenew", "Save new", 446.0, 774.0, 178.0, 30.0);
         this.CreateButton(panel, "overwrite", "Overwrite", 446.0, 808.0, 178.0, 30.0);
-        this.CreateButton(panel, "load", "Load", 446.0, 842.0, 178.0, 30.0);
+        this.CreateButton(panel, "load", "Load", 446.0, 842.0, 86.0, 30.0);
+        this.CreateButton(panel, "rename", "Rename", 538.0, 842.0, 86.0, 30.0);
         this.CreateButton(panel, "delete", "Delete", 446.0, 876.0, 178.0, 30.0);
         this.CreateButton(panel, "pageprev", "<", 446.0, 910.0, 86.0, 30.0);
         this.CreateButton(panel, "pagenext", ">", 538.0, 910.0, 86.0, 30.0);
@@ -683,6 +693,9 @@ public class APM_PoseEditor extends IScriptable {
             this.ReloadPoses();
             this.Refresh();
         } else {
+            if this.m_renaming {
+                this.FinishRename(true);
+            }
             this.m_panelHovered = false;
             this.SetHover(false);
         }
@@ -865,6 +878,66 @@ public class APM_PoseEditor extends IScriptable {
         return pages < 1 ? 1 : pages;
     }
 
+    // --- Pose names ----------------------------------------------------------------------------------------------
+
+    private func StartRename(name: String) {
+        if !APM_TextEntryBegin(name) {
+            this.SetStatus("Typing is not available");
+            return;
+        }
+        this.m_renaming = true;
+        this.m_renameFrom = name;
+        this.m_selectedPose = name;
+        this.ShowPose(name);
+        this.SetStatus("Type a name: Enter to confirm, Esc to cancel");
+    }
+
+    private func FinishRename(confirm: Bool) {
+        let text = APM_TextEntryGetText();
+        APM_TextEntryEnd();
+        this.m_renaming = false;
+        if !confirm || Equals(text, this.m_renameFrom) {
+            this.SetStatus(confirm ? "Name kept: " + this.m_renameFrom : "Rename cancelled");
+            return;
+        }
+        let renamed = APM_RenamePose(this.m_renameFrom, text);
+        if StrLen(renamed) > 0 {
+            this.m_selectedPose = renamed;
+            this.SetStatus("Renamed to " + renamed);
+        } else {
+            this.SetStatus("Could not rename " + this.m_renameFrom);
+        }
+        this.ReloadPoses();
+        this.ShowPose(this.m_selectedPose);
+    }
+
+    // While typing: show the text with a cursor on the pose's button, react to Enter / Esc.
+    private func UpdateRename() {
+        if !this.m_renaming {
+            return;
+        }
+        if !APM_IsPhotoModeActive() {
+            this.FinishRename(false);
+            return;
+        }
+        let state = APM_TextEntryGetState();
+        if state != 1 {
+            this.FinishRename(state == 2);
+            APM_UiRequestRefresh();
+            this.Refresh();
+            return;
+        }
+        let first = this.m_posePage * APM_PosesPerPage();
+        let i = 0;
+        while i < ArraySize(this.m_poseButtons) {
+            let index = first + i;
+            if index < ArraySize(this.m_poseNames) && Equals(this.m_poseNames[index], this.m_renameFrom) {
+                this.m_poseButtons[i].label.SetText(APM_TextEntryGetText() + "_");
+            }
+            i += 1;
+        }
+    }
+
     private func ShowPose(name: String) {
         let index = 0;
         while index < ArraySize(this.m_poseNames) {
@@ -980,8 +1053,10 @@ public class APM_PoseEditor extends IScriptable {
             let index = first + i;
             if index < ArraySize(this.m_poseNames) {
                 button.root.SetVisible(true);
-                button.label.SetText(this.m_poseNames[index]);
+                let isRenamed = this.m_renaming && Equals(this.m_poseNames[index], this.m_renameFrom);
+                button.label.SetText(isRenamed ? APM_TextEntryGetText() + "_" : this.m_poseNames[index]);
                 button.isSelected = Equals(this.m_poseNames[index], this.m_selectedPose);
+                button.isMarked = this.m_renaming && Equals(this.m_poseNames[index], this.m_renameFrom);
                 button.UpdateLook();
             } else {
                 button.root.SetVisible(false);
@@ -992,6 +1067,7 @@ public class APM_PoseEditor extends IScriptable {
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
+        this.SetButton("rename", this.m_renaming, hasSelection);
         this.SetButton("delete", false, hasSelection);
         let deleteButton = this.FindButton("delete");
         if IsDefined(deleteButton) {
@@ -1826,6 +1902,15 @@ public class APM_PoseEditor extends IScriptable {
             this.SetOpen(true);
             return;
         }
+        // Clicking anything while typing a name confirms it first ("Rename" again just confirms).
+        if this.m_renaming {
+            this.FinishRename(true);
+            if Equals(id, "rename") {
+                APM_UiRequestRefresh();
+                this.Refresh();
+                return;
+            }
+        }
         if Equals(id, "hide") {
             this.SetOpen(false);
             return;
@@ -1894,7 +1979,7 @@ public class APM_PoseEditor extends IScriptable {
             if StrLen(name) > 0 {
                 this.m_selectedPose = name;
                 this.ShowPose(name);
-                this.SetStatus("Saved as " + name);
+                this.StartRename(name); // type a name right away (Esc keeps the default one)
             } else {
                 this.SetStatus("Could not save the pose");
             }
@@ -1902,6 +1987,10 @@ public class APM_PoseEditor extends IScriptable {
             if StrLen(this.m_selectedPose) > 0 {
                 APM_SavePose(this.m_selectedPose);
                 this.SetStatus("Saved over " + this.m_selectedPose);
+            }
+        } else if Equals(id, "rename") {
+            if StrLen(this.m_selectedPose) > 0 {
+                this.StartRename(this.m_selectedPose);
             }
         } else if Equals(id, "load") {
             if StrLen(this.m_selectedPose) > 0 {

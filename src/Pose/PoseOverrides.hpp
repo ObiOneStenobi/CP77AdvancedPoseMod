@@ -113,6 +113,8 @@ bool Load(const std::string& aName);
 bool Delete(const std::string& aName);
 // Saves under the first free name "Pose 001", "Pose 002", ... and returns it (empty on failure).
 std::string SaveNew();
+// Renames a saved pose. Returns the new name (made unique if another pose already has it), or "" on failure.
+std::string Rename(const std::string& aOldName, const std::string& aNewName);
 std::vector<std::string> ListSaved();
 } // namespace PoseOverrides
 } // namespace APM::Pose

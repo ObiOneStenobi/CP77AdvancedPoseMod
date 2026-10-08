@@ -45,9 +45,11 @@ Open Photo Mode and click **Pose editor** (top left).
   `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
-- **IK**: choose a hand or foot, **Pin on** keeps it in place, the rows move it and turn the elbow/knee.
-- **Poses**: unlimited library (`poses\*.json`), five per page. **Save new** creates "Pose 001", "Pose 002", ...;
-  select a pose to **Overwrite**, **Load** or **Delete** it (delete asks for a second click).
+- **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
+- **Poses**: unlimited library (`poses\*.json`), five per page. **Save new** saves the pose and lets you type its
+  name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
+  **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
+  writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
 
 ### Gizmos
 

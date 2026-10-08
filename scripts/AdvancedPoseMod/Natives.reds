@@ -52,6 +52,14 @@ public native func APM_UiIsSlotSaved(slot: Int32) -> Bool
 public native func APM_DeletePose(name: String) -> Bool
 // Saves under the first free name ("Pose 001", ...) and returns it; empty on failure
 public native func APM_SaveNewPose() -> String
+// Renames a saved pose; returns the new name (made unique), or "" on failure
+public native func APM_RenamePose(oldName: String, newName: String) -> String
+// Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
+public native func APM_TextEntryBegin(text: String) -> Bool
+public native func APM_TextEntryEnd()
+// 0 inactive, 1 typing, 2 confirmed, 3 cancelled
+public native func APM_TextEntryGetState() -> Int32
+public native func APM_TextEntryGetText() -> String
 
 // Writes a line to the plugin log (red4ext/logs/advancedposemod-*.log)
 public native func APM_LogInfo(text: String) -> Bool

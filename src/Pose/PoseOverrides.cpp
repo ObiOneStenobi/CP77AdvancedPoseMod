@@ -448,6 +448,52 @@ bool Delete(const std::string& aName)
     return removed;
 }
 
+std::string Rename(const std::string& aOldName, const std::string& aNewName)
+{
+    const auto from = SanitizeName(aOldName);
+    std::string base = SanitizeName(aNewName);
+    while (!base.empty() && base.front() == ' ')
+    {
+        base.erase(base.begin());
+    }
+    if (from.empty() || base.empty())
+    {
+        return {};
+    }
+    if (base == from)
+    {
+        return from;
+    }
+    std::error_code ec;
+    const auto source = GetPoseDirectory() / (from + ".json");
+    if (!std::filesystem::exists(source, ec))
+    {
+        return {};
+    }
+    std::string name = base;
+    for (int number = 2; std::filesystem::exists(GetPoseDirectory() / (name + ".json"), ec); ++number)
+    {
+        // Same name in another case on a case-insensitive disk: renaming onto itself is fine.
+        if (std::filesystem::equivalent(source, GetPoseDirectory() / (name + ".json"), ec))
+        {
+            break;
+        }
+        if (number > 999)
+        {
+            return {};
+        }
+        name = base + " " + std::to_string(number);
+    }
+    std::filesystem::rename(source, GetPoseDirectory() / (name + ".json"), ec);
+    if (ec)
+    {
+        Log::Warn("Pose '%s' could not be renamed to '%s': %s", from.c_str(), name.c_str(), ec.message().c_str());
+        return {};
+    }
+    Log::Info("Pose '%s' renamed to '%s'", from.c_str(), name.c_str());
+    return name;
+}
+
 std::string SaveNew()
 {
     std::error_code ec;

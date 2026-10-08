@@ -8,6 +8,7 @@
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
 #include "Ui/PhotoModeUi.hpp"
+#include "Ui/TextEntry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
@@ -252,6 +253,42 @@ void DeletePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &name);
     aFrame->code++;
     Return(aOut, APM::Pose::PoseOverrides::Delete(name.c_str()));
+}
+
+void RenamePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString from;
+    CString to;
+    RED4ext::GetParameter(aFrame, &from);
+    RED4ext::GetParameter(aFrame, &to);
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::PoseOverrides::Rename(from.c_str(), to.c_str()).c_str()));
+}
+
+void TextEntryBegin(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString text;
+    RED4ext::GetParameter(aFrame, &text);
+    aFrame->code++;
+    Return(aOut, APM::Ui::TextEntry::Begin(text.c_str()));
+}
+
+void TextEntryEnd(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    aFrame->code++;
+    APM::Ui::TextEntry::End();
+}
+
+void TextEntryGetState(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(APM::Ui::TextEntry::GetState()));
+}
+
+void TextEntryGetText(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, CString(APM::Ui::TextEntry::GetText().c_str()));
 }
 
 void SaveNewPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -730,6 +767,11 @@ void Register()
     ::Register("APM_GetPoseName", &GetPoseName, "String", {{"Int32", "index"}});
     ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
     ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
+    ::Register("APM_RenamePose", &RenamePose, "String", {{"String", "oldName"}, {"String", "newName"}});
+    ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});
+    ::Register("APM_TextEntryEnd", &TextEntryEnd, nullptr, {});
+    ::Register("APM_TextEntryGetState", &TextEntryGetState, "Int32", {});
+    ::Register("APM_TextEntryGetText", &TextEntryGetText, "String", {});
 
     ::Register("APM_LogInfo", &LogInfo, "Bool", {{"String", "text"}});
     ::Register("APM_PrefGet", &PrefGet, "Float", {{"String", "key"}, {"Float", "fallback"}});

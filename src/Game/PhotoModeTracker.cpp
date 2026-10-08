@@ -9,6 +9,7 @@
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
+#include "Ui/TextEntry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Relocation.hpp>
@@ -320,6 +321,7 @@ void Detour_Deactivate(void* aSystem)
     APM::Pose::GizmoState::Clear();
     // The custom pose is kept in memory but must be re-enabled by the player next time.
     APM::Pose::PoseOverrides::SetEnabled(false);
+    APM::Ui::TextEntry::End();
     APM::Log::Info("PhotoMode: deactivated");
     g_origDeactivate(aSystem);
 }
