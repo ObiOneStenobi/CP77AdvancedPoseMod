@@ -1063,7 +1063,9 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        this.m_posesTitle.SetText("Poses (" + IntToString(ArraySize(this.m_poseNames)) + ")   page " + IntToString(this.m_posePage + 1) + " / " + IntToString(this.PageCount()));
+        let base = APM_GetBasePoseName();
+        this.m_posesTitle.SetText("Poses (" + IntToString(ArraySize(this.m_poseNames)) + ")   page " + IntToString(this.m_posePage + 1) + " / " + IntToString(this.PageCount())
+            + (StrLen(base) > 0 ? "   -   using " + base : ""));
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
@@ -1995,7 +1997,13 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "load") {
             if StrLen(this.m_selectedPose) > 0 {
                 let loaded = APM_LoadPose(this.m_selectedPose);
-                this.SetStatus(loaded ? "Loaded " + this.m_selectedPose : "Could not load " + this.m_selectedPose);
+                if !loaded {
+                    this.SetStatus("Could not load " + this.m_selectedPose);
+                } else if StrLen(APM_GetBasePoseName()) > 0 {
+                    this.SetStatus("Loaded " + this.m_selectedPose + ": it replaces the Photo Mode pose, Reset all goes back");
+                } else {
+                    this.SetStatus("Loaded " + this.m_selectedPose + " (edits on top of the Photo Mode pose)");
+                }
             }
         } else if Equals(id, "delete") {
             if StrLen(this.m_selectedPose) > 0 {

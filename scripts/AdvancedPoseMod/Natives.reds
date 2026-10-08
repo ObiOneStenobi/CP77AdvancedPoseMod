@@ -54,6 +54,8 @@ public native func APM_DeletePose(name: String) -> Bool
 public native func APM_SaveNewPose() -> String
 // Renames a saved pose; returns the new name (made unique), or "" on failure
 public native func APM_RenamePose(oldName: String, newName: String) -> String
+// Saved full pose currently replacing the Photo Mode pose ("" if none)
+public native func APM_GetBasePoseName() -> String
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
 public native func APM_TextEntryBegin(text: String) -> Bool
 public native func APM_TextEntryEnd()

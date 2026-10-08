@@ -265,6 +265,12 @@ void RenamePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, CString(APM::Pose::PoseOverrides::Rename(from.c_str(), to.c_str()).c_str()));
 }
 
+void GetBasePoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::PoseOverrides::GetBasePoseName().c_str()));
+}
+
 void TextEntryBegin(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     CString text;
@@ -768,6 +774,7 @@ void Register()
     ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
     ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
     ::Register("APM_RenamePose", &RenamePose, "String", {{"String", "oldName"}, {"String", "newName"}});
+    ::Register("APM_GetBasePoseName", &GetBasePoseName, "String", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});
     ::Register("APM_TextEntryEnd", &TextEntryEnd, nullptr, {});
     ::Register("APM_TextEntryGetState", &TextEntryGetState, "Int32", {});

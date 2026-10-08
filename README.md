@@ -2,9 +2,8 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-> Status: **phase 3 – Photo Mode menu**. Body parts of V can be bent/twisted/moved on top of the current
-> Photo Mode pose, hands and feet can be pinned with IK, poses can be saved to slots. Everything is available
-> at the bottom of the **Pose** page of the Photo Mode menu. A CET debug window is kept for development.
+> Status: **phase 4 – pose editor**. V can be posed bone by bone in Photo Mode from the **Pose editor** panel and
+> with gizmos on the joints (rotation, IK for hands and feet, eyes), and whole poses can be saved and loaded.
 
 ## Requirements
 
@@ -50,6 +49,10 @@ Open Photo Mode and click **Pose editor** (top left).
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
   writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
+- A saved pose stores the **whole visible pose** (every body bone, edits and IK included), not just the edits:
+  loading it replaces the Photo Mode pose underneath, whatever pose is selected there, and new edits go on top of
+  it. The face keeps its Photo Mode expression. **Reset all** goes back to the Photo Mode pose. Poses saved by
+  versions before 0.8.1 contain only edits and are still applied on top of the current Photo Mode pose.
 
 ### Gizmos
 
@@ -74,18 +77,6 @@ closer.
 moves on a sphere around the eyes).
 - Shift / Ctrl can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Moving a whole finger keeps the extra bend of its segments.
-
-### Photo Mode menu items
-
-The same controls are also available at the bottom of the **Pose** page:
-
-1. Open Photo Mode, go to the **Pose** page and scroll to the bottom.
-2. **Body part** selects what to edit; **Bend forward / back**, **Bend sideways** and **Twist** rotate it,
-   **Move ...** sliders are available for the body (hips).
-3. **IK limb** + **IK pin hand / foot** keep a hand/foot in place (e.g. while moving the hips); the IK sliders
-   move it and turn the elbow/knee.
-4. **Pose slot** + **Save pose to slot** / **Load pose from slot** (slot files: `poses\slot_01.json` ...).
-5. **Advanced pose** turns the custom pose on/off; it is turned off when leaving Photo Mode.
 
 The CET overlay still has the **AdvancedPoseMod (debug)** window with raw bone access.
 
@@ -121,7 +112,7 @@ src/Game      engine hooks (Photo Mode, animation graph)
 src/Math      quaternion helpers
 src/Pose      pose targets, override layer, pose files (later: IK)
 src/Scripting native functions exposed to redscript / CET (APM_*)
-scripts/      redscript: native declarations + Photo Mode menu items
+scripts/      redscript: native declarations + pose editor panel and gizmos
 src/Ui        menu state, body part catalog
 cet/          developer debug window for Cyber Engine Tweaks
 data/         files shipped next to the DLL

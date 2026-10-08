@@ -195,6 +195,57 @@ uintptr_t GetComponent()
     return g_component;
 }
 
+bool CaptureLocalPose(std::vector<CapturedBone>& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const Skeleton& skeleton = g_main;
+    const size_t count = skeleton.positions.size();
+    if (count == 0 || GetTickCount64() - skeleton.lastUpdate > 1000 || skeleton.boneNames.size() < count ||
+        skeleton.parents.size() < count || skeleton.rotations.size() < count)
+    {
+        return false;
+    }
+    const uint64_t head = RED4ext::CName("Head").hash;
+    const uint64_t hips = RED4ext::CName("Hips").hash;
+
+    // Bones below the head (face, eyes) stay out of the pose.
+    std::vector<bool> inFace(count, false);
+    for (size_t i = 0; i < count; ++i)
+    {
+        const int16_t parent = skeleton.parents[i];
+        if (parent >= 0 && static_cast<size_t>(parent) < i)
+        {
+            inFace[i] = inFace[parent] || skeleton.boneNames[parent] == head;
+        }
+    }
+
+    aOut.clear();
+    aOut.reserve(count);
+    for (size_t i = 0; i < count; ++i)
+    {
+        CapturedBone bone;
+        bone.hash = skeleton.boneNames[i];
+        const char* name = RED4ext::CName(bone.hash).ToString();
+        bone.name = name ? name : "";
+        const int16_t parent = skeleton.parents[i];
+        if (parent >= 0 && static_cast<size_t>(parent) < i)
+        {
+            const Quat parentInverse = Math::Conjugate(skeleton.rotations[parent]);
+            bone.rotation = Math::Normalize(Math::Mul(parentInverse, skeleton.rotations[i]));
+            bone.translation = Math::Rotate(parentInverse, skeleton.positions[i] - skeleton.positions[parent]);
+            bone.inBase = !inFace[i] && !bone.name.empty() && bone.name != "None";
+            bone.keepTranslation = bone.hash == hips;
+        }
+        else
+        {
+            bone.rotation = skeleton.rotations[i];
+            bone.translation = skeleton.positions[i];
+        }
+        aOut.push_back(std::move(bone));
+    }
+    return true;
+}
+
 bool GetAncestorModelPosition(uint64_t aBoneHash, const std::vector<uint64_t>& aCandidates, Math::Vec3& aOut)
 {
     std::scoped_lock lock(g_mutex);

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <iterator>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -242,11 +243,46 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 // ---------------------------------------------------------------------------------------------------------------------
 // Main skeleton: FK + IK
 // ---------------------------------------------------------------------------------------------------------------------
+// Full saved pose: replaces the animated local rotations (and the hips' position) of the bones it has.
+void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                   const APM::Pose::BasePose& aBase)
+{
+    thread_local std::unordered_map<uint64_t, uint32_t> indices;
+    indices.clear();
+    const uint32_t count = std::min<uint32_t>(aCount, static_cast<uint32_t>(aTarget.boneNames.size()));
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        indices.emplace(aTarget.boneNames[i], i);
+    }
+    for (const auto& bone : aBase.bones)
+    {
+        const auto it = indices.find(bone.boneHash);
+        if (it == indices.end())
+        {
+            continue;
+        }
+        auto& transform = aBones[it->second];
+        SetRotation(transform, bone.rotation);
+        if (bone.hasTranslation)
+        {
+            transform.Translation.X = bone.translation[0];
+            transform.Translation.Y = bone.translation[1];
+            transform.Translation.Z = bone.translation[2];
+        }
+    }
+}
+
 void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                          const APM::Pose::OverrideSnapshot& aPose)
 {
     thread_local ModelPose originalPose;
     thread_local ModelPose currentPose;
+
+    // A full saved pose takes the place of the Photo Mode pose: edits and IK work on top of it.
+    if (aPose.base)
+    {
+        ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
+    }
 
     const bool useIk = AnyIkEnabled(aPose);
     if (useIk)

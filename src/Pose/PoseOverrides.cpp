@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
+#include "Pose/GizmoState.hpp"
 
 #include <RED4ext/CName.hpp>
 #include <nlohmann/json.hpp>
@@ -12,16 +13,18 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <unordered_set>
 
 namespace
 {
 constexpr const char* PoseFormat = "AdvancedPoseMod.Pose";
-constexpr int PoseFormatVersion = 1;
+constexpr int PoseFormatVersion = 2; // 2: "base" holds the whole pose
 
 std::atomic<bool> g_enabled{false};
 std::mutex g_mutex; // guards g_bones and g_snapshot replacement
 std::vector<APM::Pose::BoneOverride> g_bones;
 std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> g_ik{};
+std::shared_ptr<const APM::Pose::BasePose> g_base;
 std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
 std::shared_ptr<const APM::Pose::OverrideSnapshot> g_snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
 
@@ -35,6 +38,7 @@ void PublishLocked()
 {
     auto snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
     snapshot->ik = g_ik;
+    snapshot->base = g_base;
     for (const auto& bone : g_bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -241,6 +245,7 @@ void ResetAll()
     std::scoped_lock lock(g_mutex);
     g_bones.clear();
     g_ik = {};
+    g_base.reset();
     PublishLocked();
 }
 
@@ -273,12 +278,45 @@ bool Save(const std::string& aName)
     root["format"] = PoseFormat;
     root["version"] = PoseFormatVersion;
     root["name"] = name;
-    root["mode"] = "additive";
     root["skeleton"] = "V";
+
+    // The whole visible pose: body bones as local rotations (edits and IK included). Bones of the face stay
+    // edits on top of the animation (the face keeps its Photo Mode expression).
+    std::vector<GizmoState::CapturedBone> captured;
+    const bool full = GizmoState::CaptureLocalPose(captured);
+    std::unordered_set<uint64_t> baseBones;
+    if (full)
+    {
+        root["mode"] = "full";
+        auto& base = root["base"] = nlohmann::json::object();
+        for (const auto& bone : captured)
+        {
+            if (!bone.inBase)
+            {
+                continue;
+            }
+            nlohmann::json entry;
+            entry["r"] = {bone.rotation.i, bone.rotation.j, bone.rotation.k, bone.rotation.r};
+            if (bone.keepTranslation)
+            {
+                entry["t"] = {bone.translation.x, bone.translation.y, bone.translation.z};
+            }
+            base[bone.name] = std::move(entry);
+            baseBones.insert(bone.hash);
+        }
+    }
+    else
+    {
+        root["mode"] = "additive";
+    }
 
     auto& bones = root["bones"] = nlohmann::json::array();
     for (const auto& bone : GetSnapshot()->bones)
     {
+        if (baseBones.contains(bone.boneHash))
+        {
+            continue; // already part of the saved pose
+        }
         nlohmann::json entry;
         entry["name"] = bone.boneName;
         if (bone.hasRotation)
@@ -302,7 +340,7 @@ bool Save(const std::string& aName)
 
     auto& ik = root["ik"] = nlohmann::json::object();
     const auto snapshot = GetSnapshot();
-    for (size_t i = 0; i < IkChainCount; ++i)
+    for (size_t i = 0; i < IkChainCount && !full; ++i) // a full pose already has the IK result in it
     {
         const auto& chain = snapshot->ik[i];
         if (chain.enabled)
@@ -322,7 +360,8 @@ bool Save(const std::string& aName)
         return false;
     }
     out << root.dump(2);
-    Log::Info("Pose saved: %s (%zu bones, %zu IK chains)", name.c_str(), bones.size(), ik.size());
+    Log::Info("Pose saved: %s (%s, %zu body bones, %zu edits, %zu IK chains)", name.c_str(), full ? "full" : "edits only",
+              baseBones.size(), bones.size(), ik.size());
     return true;
 }
 
@@ -356,8 +395,28 @@ bool Load(const std::string& aName)
 
     std::vector<BoneOverride> loaded;
     std::array<IkChainSettings, IkChainCount> loadedIk{};
+    std::shared_ptr<BasePose> loadedBase;
     try
     {
+        if (root.contains("base"))
+        {
+            loadedBase = std::make_shared<BasePose>();
+            loadedBase->name = name;
+            for (const auto& [boneName, entry] : root["base"].items())
+            {
+                BasePoseBone bone;
+                bone.boneHash = HashBone(boneName);
+                const auto q = entry.at("r").get<std::array<float, 4>>();
+                bone.rotation = Math::Normalize(Math::Quat{q[0], q[1], q[2], q[3]});
+                if (entry.contains("t"))
+                {
+                    bone.translation = entry["t"].get<std::array<float, 3>>();
+                    bone.hasTranslation = true;
+                }
+                loadedBase->bones.push_back(bone);
+            }
+        }
+
         if (root.contains("ik"))
         {
             for (const auto& [chainName, entry] : root["ik"].items())
@@ -413,11 +472,18 @@ bool Load(const std::string& aName)
         std::scoped_lock lock(g_mutex);
         g_bones = std::move(loaded);
         g_ik = loadedIk;
+        g_base = std::move(loadedBase);
         PublishLocked();
     }
     g_enabled = true;
     Log::Info("Pose loaded: %s (%zu bones)", name.c_str(), Count());
     return true;
+}
+
+std::string GetBasePoseName()
+{
+    std::scoped_lock lock(g_mutex);
+    return g_base ? g_base->name : std::string();
 }
 
 std::vector<std::string> ListSaved()

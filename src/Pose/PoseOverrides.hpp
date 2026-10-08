@@ -57,14 +57,31 @@ struct IkChainSettings
     float swivel = 0.f;
 };
 
+// A whole saved pose ("full" pose files): local rotations of V's body bones (plus the hips' position) that replace
+// the animated ones before the edits are applied, so the pose no longer depends on the Photo Mode pose underneath.
+struct BasePoseBone
+{
+    uint64_t boneHash = 0;
+    Math::Quat rotation{};
+    bool hasTranslation = false;
+    std::array<float, 3> translation{};
+};
+
+struct BasePose
+{
+    std::string name;
+    std::vector<BasePoseBone> bones;
+};
+
 struct OverrideSnapshot
 {
     std::vector<BoneOverride> bones;
     std::array<IkChainSettings, IkChainCount> ik{};
+    std::shared_ptr<const BasePose> base;
 
     bool IsEmpty() const
     {
-        if (!bones.empty())
+        if (!bones.empty() || base)
         {
             return false;
         }
@@ -108,7 +125,10 @@ size_t Count();
 
 // Pose files live in red4ext/plugins/AdvancedPoseMod/poses/<name>.json
 std::filesystem::path GetPoseDirectory();
+// Saves the whole visible pose (see BasePose) when V's skeleton is available, else only the edits.
 bool Save(const std::string& aName);
+// Name of the full pose currently replacing the Photo Mode pose, empty if none.
+std::string GetBasePoseName();
 bool Load(const std::string& aName);
 bool Delete(const std::string& aName);
 // Saves under the first free name "Pose 001", "Pose 002", ... and returns it (empty on failure).

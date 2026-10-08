@@ -7,6 +7,7 @@
 #include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 // Final pose of V's main skeleton, kept for the on-screen gizmos (joint markers, drag handles).
@@ -28,6 +29,18 @@ bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut);
 
 // Model-space position of the closest ancestor of a bone that is one of aCandidates (bone name hashes).
 bool GetAncestorModelPosition(uint64_t aBoneHash, const std::vector<uint64_t>& aCandidates, Math::Vec3& aOut);
+
+// A bone of the main skeleton's current pose in local space (relative to its parent), for full pose files.
+struct CapturedBone
+{
+    uint64_t hash = 0;
+    std::string name;
+    Math::Quat rotation{};
+    Math::Vec3 translation{};
+    bool inBase = false;          // body bone stored as part of the pose (not the root, not the face)
+    bool keepTranslation = false; // the hips: their position is part of the pose
+};
+bool CaptureLocalPose(std::vector<CapturedBone>& aOut);
 
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();
