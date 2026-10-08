@@ -157,6 +157,31 @@ bool HasBoneCount(uint32_t aCount)
     }
     return false;
 }
+
+bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.photoModeSlot != 0 || target.debugName != "root")
+        {
+            continue;
+        }
+        const auto it = std::find(target.boneNames.begin(), target.boneNames.end(), aBoneHash);
+        if (it == target.boneNames.end())
+        {
+            return false;
+        }
+        const size_t index = static_cast<size_t>(std::distance(target.boneNames.begin(), it));
+        if (index >= target.refRotationsMS.size())
+        {
+            return false;
+        }
+        aOut = Math::Normalize(Math::Rotate(Math::Conjugate(target.refRotationsMS[index]), Math::Vec3{0.f, 1.f, 0.f}));
+        return true;
+    }
+    return false;
+}
 } // namespace APM::Pose::TargetRegistry
 
 namespace APM::Pose::TargetRegistry

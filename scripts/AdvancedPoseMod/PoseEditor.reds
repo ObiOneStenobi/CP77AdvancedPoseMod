@@ -149,13 +149,30 @@ public class APM_ValueRow extends IScriptable {
 public class APM_Marker extends IScriptable {
     public let part: Int32;
     public let chain: Int32; // IK chain moved by dragging, or -1
+    public let swivelChain: Int32; // IK chain whose elbow / knee this part turns while that chain is pinned, or -1
+    public let kind: Int32; // APM_MarkerKind*
     public let group: String;
     public let root: wref<inkCanvas>;
     public let dot: wref<inkRectangle>;
+    public let line: wref<inkRectangle>;  // towards the point the bone points at (the eye look marker: from the left eye)
+    public let line2: wref<inkRectangle>; // the eye look marker only: from the right eye
+    public let parentLine: wref<inkRectangle>; // from the closest parent part with a gizmo (hips -> thighs)
     public let isHovered: Bool;
     public let screenX: Float; // last position on the ink canvas
     public let screenY: Float;
 }
+
+public func APM_MarkerKindBone() -> Int32 { return 0; }
+public func APM_MarkerKindFinger() -> Int32 { return 1; }        // whole finger, at the knuckle
+public func APM_MarkerKindFingerDetail() -> Int32 { return 2; }  // outer finger segment, close-up only
+public func APM_MarkerKindEyeLook() -> Int32 { return 3; }       // where both eyes look
+
+public func APM_DragRotate() -> Int32 { return 1; }    // the bone's end follows the cursor
+public func APM_DragTrackball() -> Int32 { return 2; } // turns like a ball under the cursor (head)
+public func APM_DragIkMove() -> Int32 { return 3; }    // the pinned hand / foot follows the cursor
+public func APM_DragSwivel() -> Int32 { return 4; }    // the elbow / knee of a pinned limb follows the cursor
+public func APM_DragTwist() -> Int32 { return 5; }     // rotation around the bone itself
+public func APM_DragEyeLook() -> Int32 { return 6; }   // the eyes look at the cursor
 
 // World position of a body part (w = 1 when valid): the bone's model-space position through the animated
 // component's local-to-world matrix (the puppet's entity transform is not where Photo Mode draws it).
@@ -213,7 +230,16 @@ public class APM_PoseEditor extends IScriptable {
     // Diagnostics: where the game itself places some attachment slots of V's rendered body.
     private let m_truthMarkers: array<wref<inkRectangle>>;
     private let m_truthSlots: array<CName>;
+    private let m_lineLayer: wref<inkCanvas>;
+    private let m_leftEyePart: Int32;
+    private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
+    private let m_dragMode: Int32;
+    private let m_dragSwivel: Float;      // elbow / knee direction (degrees) while dragging it
+    private let m_lookTarget: Vector4;    // world point the eyes look at while dragging it
+    private let m_shiftDown: Bool;        // modifier keys, from the latest input event
+    private let m_controlDown: Bool;
+    private let m_hint: wref<inkText>;    // what dragging the hovered marker does
     // IK drag: the hand / foot follows a virtual cursor on a plane facing the camera.
     private let m_dragCursorX: Float;
     private let m_dragCursorY: Float;
@@ -259,6 +285,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_gizmoLayer = gizmoLayer;
         this.BuildMarkers();
         this.BuildTruthMarkers();
+        this.BuildHint();
 
         this.m_openButton = this.CreateButton(layer, "open", "Pose editor", 0.0, 0.0, 160.0, 32.0);
         this.BuildPanel();
@@ -268,12 +295,14 @@ public class APM_PoseEditor extends IScriptable {
 
         controller.RegisterToGlobalInputCallback(n"OnPostOnRelative", this, n"OnGlobalRelative");
         controller.RegisterToGlobalInputCallback(n"OnPostOnRelease", this, n"OnGlobalRelease");
+        controller.RegisterToGlobalInputCallback(n"OnPostOnPress", this, n"OnGlobalPress");
     }
 
     public func Uninitialize() {
         if IsDefined(this.m_controller) {
             this.m_controller.UnregisterFromGlobalInputCallback(n"OnPostOnRelative", this, n"OnGlobalRelative");
             this.m_controller.UnregisterFromGlobalInputCallback(n"OnPostOnRelease", this, n"OnGlobalRelease");
+            this.m_controller.UnregisterFromGlobalInputCallback(n"OnPostOnPress", this, n"OnGlobalPress");
         }
         this.m_dragRow = null;
         this.m_dragMarker = null;
@@ -467,13 +496,24 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func BuildMarkers() {
+        // Bone lines below the markers
+        let lineLayer = new inkCanvas();
+        lineLayer.SetName(n"APM_GizmoLines");
+        lineLayer.SetAnchor(inkEAnchor.TopLeft);
+        lineLayer.SetSize(APM_ScreenWidth(), APM_ScreenHeight());
+        lineLayer.SetInteractive(false);
+        lineLayer.Reparent(this.m_gizmoLayer);
+        this.m_lineLayer = lineLayer;
+        this.m_leftEyePart = this.PartIndex("Left eye");
+        this.m_rightEyePart = this.PartIndex("Right eye");
+
         let s = APM_UiScale();
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
         while i < count {
             let label = APM_UiGetOptionLabel(7701u, i);
-            // "Eyes (both)" sits on the left eye: keep only the single eyes on screen.
-            if !Equals(label, "Eyes (both)") {
+            // The single eyes are driven by the "look" marker of "Eyes (both)".
+            if i != this.m_leftEyePart && i != this.m_rightEyePart {
                 let root = new inkCanvas();
                 root.SetName(StringToName("APM_gizmo:" + IntToString(i)));
                 root.SetAnchor(inkEAnchor.TopLeft);
@@ -496,13 +536,65 @@ public class APM_PoseEditor extends IScriptable {
                 let marker = new APM_Marker();
                 marker.part = i;
                 marker.chain = APM_GizmoGetPartIkChain(i);
+                marker.swivelChain = APM_GizmoGetPartSwivelChain(i);
                 marker.group = APM_UiGetOptionGroup(7701u, i);
+                marker.kind = APM_MarkerKindBone();
+                if Equals(label, "Eyes (both)") {
+                    marker.kind = APM_MarkerKindEyeLook();
+                } else if APM_GizmoIsPartDetail(i) {
+                    marker.kind = APM_MarkerKindFingerDetail();
+                } else if APM_IsHandGroup(marker.group) {
+                    marker.kind = APM_MarkerKindFinger();
+                }
                 marker.root = root;
                 marker.dot = dot;
+                marker.line = this.CreateLine();
+                if marker.kind == APM_MarkerKindEyeLook() {
+                    marker.line2 = this.CreateLine();
+                } else {
+                    marker.parentLine = this.CreateLine();
+                }
                 ArrayPush(this.m_markers, marker);
             }
             i += 1;
         }
+    }
+
+    private func BuildHint() {
+        let s = APM_UiScale();
+        let hint = new inkText();
+        hint.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
+        hint.SetFontStyle(n"Medium");
+        hint.SetFontSize(Cast<Int32>(13.0 * s));
+        hint.SetLetterCase(textLetterCase.UpperCase);
+        hint.SetTintColor(APM_ColorText());
+        hint.SetAnchor(inkEAnchor.TopLeft);
+        hint.SetSize(700.0 * s, 24.0 * s);
+        hint.SetInteractive(false);
+        hint.SetVisible(false);
+        hint.Reparent(this.m_gizmoLayer);
+        this.m_hint = hint;
+    }
+
+    private func CreateLine() -> wref<inkRectangle> {
+        let line = new inkRectangle();
+        line.SetAnchor(inkEAnchor.TopLeft);
+        line.SetAnchorPoint(0.0, 0.5);
+        line.SetRenderTransformPivot(0.0, 0.5);
+        line.SetInteractive(false);
+        line.SetVisible(false);
+        line.Reparent(this.m_lineLayer);
+        return line;
+    }
+
+    // Straight line between two points of the ink canvas.
+    private func PlaceLine(line: wref<inkRectangle>, x1: Float, y1: Float, x2: Float, y2: Float, thickness: Float) {
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let length = SqrtF(dx * dx + dy * dy);
+        line.SetMargin(x1, y1, 0.0, 0.0);
+        line.SetSize(length, thickness);
+        line.SetRotation(Rad2Deg(AtanF(dy, dx)));
     }
 
     private func CreateText(parent: wref<inkCompoundWidget>, text: String, x: Float, y: Float, w: Float, h: Float, size: Int32, color: HDRColor) -> ref<inkText> {
@@ -815,7 +907,7 @@ public class APM_PoseEditor extends IScriptable {
         let slot = 0;
         i = 0;
         while i < count && slot < ArraySize(this.m_partButtons) {
-            if Equals(APM_UiGetOptionGroup(7701u, i), group) {
+            if Equals(APM_UiGetOptionGroup(7701u, i), group) && !APM_GizmoIsPartDetail(i) {
                 this.m_partIndices[slot] = i;
                 let button = this.m_partButtons[slot];
                 button.root.SetVisible(true);
@@ -872,10 +964,11 @@ public class APM_PoseEditor extends IScriptable {
             this.SetButton("ik:" + IntToString(i), i == limb, true);
             i += 1;
         }
-        let pinned = APM_UiGetValue(7711u) > 0.5;
+        let pin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5);
+        let pinned = pin > 0;
         let pinButton = this.FindButton("pin");
         if IsDefined(pinButton) {
-            pinButton.label.SetText(pinned ? "Pin on" : "Pin off");
+            pinButton.label.SetText(pin == 2 ? "Pin: body" : (pin == 1 ? "Pin: world" : "Pin: off"));
         }
         this.SetButton("pin", pinned, true);
 
@@ -913,6 +1006,38 @@ public class APM_PoseEditor extends IScriptable {
 
     // --- Gizmos --------------------------------------------------------------------------------------------------
 
+    // Camera distance below which the finger gizmos appear (whole fingers, then their segments).
+    private func FingerDistance() -> Float {
+        return 1.3;
+    }
+
+    private func FingerDetailDistance() -> Float {
+        return 0.8;
+    }
+
+    // How far in front of the eyes their "look" marker floats (meters).
+    private func LookDistance() -> Float {
+        return 0.4;
+    }
+
+    // World point both eyes look at, LookDistance() in front of them; w = 1 when valid.
+    private func EyeLookPoint(toWorld: Matrix) -> Vector4 {
+        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
+        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
+        let leftForward = APM_GizmoGetPartForward(this.m_leftEyePart);
+        let rightForward = APM_GizmoGetPartForward(this.m_rightEyePart);
+        if left.W < 0.5 || right.W < 0.5 || leftForward.W < 0.5 || rightForward.W < 0.5 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let gaze = Vector4.TransformDir(toWorld, APM_Vector(leftForward.X + rightForward.X, leftForward.Y + rightForward.Y, leftForward.Z + rightForward.Z, 0.0));
+        let length = SqrtF(gaze.X * gaze.X + gaze.Y * gaze.Y + gaze.Z * gaze.Z);
+        if length < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let scale = this.LookDistance() / length;
+        return APM_Vector((left.X + right.X) * 0.5 + gaze.X * scale, (left.Y + right.Y) * 0.5 + gaze.Y * scale, (left.Z + right.Z) * 0.5 + gaze.Z * scale, 1.0);
+    }
+
     private func UpdateMarkers() {
         let visible = this.m_gizmosOn && APM_IsPhotoModeActive();
         this.m_gizmoLayer.SetVisible(visible);
@@ -940,41 +1065,164 @@ public class APM_PoseEditor extends IScriptable {
         let i = 0;
         while i < ArraySize(this.m_markers) {
             let marker = this.m_markers[i];
-            let show = true;
-            // Fingers only when a hand group is being edited, to keep the hand readable.
-            if APM_IsHandGroup(marker.group) && !Equals(marker.group, selectedGroup) {
-                show = false;
+            let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
+            let world: Vector4;
+            if marker.kind == APM_MarkerKindEyeLook() {
+                world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.m_lookTarget : this.EyeLookPoint(toWorld);
+            } else {
+                world = APM_PartWorldPosition(toWorld, marker.part);
             }
-            let world = APM_PartWorldPosition(toWorld, marker.part);
-            if world.W < 0.5 {
-                show = false;
-            }
+            let show = world.W > 0.5;
+            let screen: Vector4;
             if show {
-                let screen = this.ProjectToScreen(camera, world);
-                if screen.W < 0.5 {
-                    show = false;
-                } else {
-                    marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
-                    marker.screenX = screen.X;
-                    marker.screenY = screen.Y;
-                }
+                screen = this.ProjectToScreen(camera, world);
+                show = screen.W > 0.5;
             }
+            // Fingers only up close (or while their hand is being edited), their segments even closer.
+            if show && marker.kind == APM_MarkerKindFinger() {
+                show = screen.Z < this.FingerDistance() || Equals(marker.group, selectedGroup);
+            }
+            if show && marker.kind == APM_MarkerKindFingerDetail() {
+                show = screen.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && screen.Z < this.FingerDistance());
+            }
+            show = show || (isDragged && screen.W > 0.5);
+
             marker.root.SetVisible(show);
             if show {
+                marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
+                marker.screenX = screen.X;
+                marker.screenY = screen.Y;
                 let isSelected = marker.part == selected;
-                let size = isSelected || marker.isHovered ? 14.0 : 10.0;
-                marker.dot.SetSize(size * s, size * s);
-                if isSelected {
-                    marker.dot.SetTintColor(APM_ColorAccent());
-                } else if marker.chain >= 0 {
-                    marker.dot.SetTintColor(APM_ColorIk());
-                } else {
-                    marker.dot.SetTintColor(APM_ColorText());
+                let isDetail = marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger();
+                let size = isDetail ? 7.0 : 10.0;
+                if isSelected || marker.isHovered {
+                    size += 4.0;
                 }
+                // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
+                // flat bar across the bone = twist. Orange = IK.
+                let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
+                let color = APM_ColorText();
+                if isSelected {
+                    color = APM_ColorAccent();
+                } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
+                    color = APM_ColorIk();
+                }
+                marker.dot.SetTintColor(color);
                 marker.root.SetOpacity(isSelected || marker.isHovered ? 1.0 : 0.75);
+                let boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, screen, color, isSelected || marker.isHovered);
+                if mode == APM_DragTwist() {
+                    marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
+                    marker.dot.SetRotation(boneAngle + 90.0);
+                } else if mode == APM_DragIkMove() || mode == APM_DragEyeLook() {
+                    marker.dot.SetSize(size * 0.85 * s, size * 0.85 * s);
+                    marker.dot.SetRotation(0.0);
+                } else {
+                    marker.dot.SetSize(size * s, size * s);
+                    marker.dot.SetRotation(45.0);
+                }
+            } else {
+                marker.line.SetVisible(false);
+                if IsDefined(marker.line2) {
+                    marker.line2.SetVisible(false);
+                }
+                if IsDefined(marker.parentLine) {
+                    marker.parentLine.SetVisible(false);
+                }
             }
             i += 1;
         }
+        this.UpdateHint();
+    }
+
+    // Label next to the hovered (or dragged) marker: what a drag does now, and what the keys change.
+    private func UpdateHint() {
+        let marker = this.m_dragMarker;
+        if !IsDefined(marker) {
+            let i = 0;
+            while i < ArraySize(this.m_markers) {
+                if this.m_markers[i].isHovered && this.m_markers[i].root.IsVisible() {
+                    marker = this.m_markers[i];
+                }
+                i += 1;
+            }
+        }
+        if !IsDefined(marker) {
+            this.m_hint.SetVisible(false);
+            return;
+        }
+        let s = APM_UiScale();
+        let mode = IsDefined(this.m_dragMarker) ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
+        let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
+        if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && marker.kind != APM_MarkerKindEyeLook() {
+            text += marker.chain >= 0 ? "   (Shift: rotate, Ctrl: twist)" : "   (Ctrl: twist)";
+        }
+        this.m_hint.SetText(text);
+        this.m_hint.SetMargin(marker.screenX + 16.0 * s, marker.screenY - 30.0 * s, 0.0, 0.0);
+        this.m_hint.SetVisible(true);
+    }
+
+    private func ModeName(mode: Int32) -> String {
+        if mode == APM_DragIkMove() {
+            return "move (IK)";
+        }
+        if mode == APM_DragSwivel() {
+            return "turn elbow / knee (IK)";
+        }
+        if mode == APM_DragTwist() {
+            return "twist";
+        }
+        if mode == APM_DragEyeLook() {
+            return "look";
+        }
+        if mode == APM_DragTrackball() {
+            return "turn";
+        }
+        return "rotate";
+    }
+
+    // Bone lines: from the joint towards the point the bone points at, and from the parent part's joint; for the
+    // eyes, from each eye to the point they look at. Returns the on-screen angle of the bone (degrees).
+    private func UpdateMarkerLines(camera: ref<CameraSystem>, toWorld: Matrix, marker: ref<APM_Marker>, screen: Vector4, color: HDRColor, strong: Bool) -> Float {
+        let s = APM_UiScale();
+        let thickness = (strong ? 2.5 : 1.5) * s;
+        let opacity = strong ? 0.9 : 0.45;
+        if marker.kind == APM_MarkerKindEyeLook() {
+            this.UpdateLineFrom(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), screen, color, thickness, opacity);
+            this.UpdateLineFrom(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), screen, color, thickness, opacity);
+            return 0.0;
+        }
+        let parentModel = APM_GizmoGetPartParent(marker.part);
+        let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        this.UpdateLineFrom(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), screen, APM_ColorText(), 1.5 * s, 0.35);
+
+        let tipModel = APM_GizmoGetPartTip(marker.part);
+        if tipModel.W < 0.5 {
+            marker.line.SetVisible(false);
+            return 0.0;
+        }
+        let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
+        let tipScreen = this.ProjectToScreen(camera, APM_Vector(tip.X, tip.Y, tip.Z, 1.0));
+        if tipScreen.W < 0.5 {
+            marker.line.SetVisible(false);
+            return 0.0;
+        }
+        this.PlaceLine(marker.line, screen.X, screen.Y, tipScreen.X, tipScreen.Y, thickness);
+        marker.line.SetTintColor(color);
+        marker.line.SetOpacity(opacity);
+        marker.line.SetVisible(true);
+        return Rad2Deg(AtanF(tipScreen.Y - screen.Y, tipScreen.X - screen.X));
+    }
+
+    private func UpdateLineFrom(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float) {
+        let fromScreen = from.W > 0.5 ? this.ProjectToScreen(camera, from) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        if fromScreen.W < 0.5 {
+            line.SetVisible(false);
+            return;
+        }
+        this.PlaceLine(line, fromScreen.X, fromScreen.Y, to.X, to.Y, thickness);
+        line.SetTintColor(color);
+        line.SetOpacity(opacity);
+        line.SetVisible(true);
     }
 
     // Perspective projection of a world point to the 3840x2160 ink canvas (X, Y); W = 1 when on screen.
@@ -1170,11 +1418,43 @@ public class APM_PoseEditor extends IScriptable {
             1.0);
     }
 
-    private func BeginMarkerDrag(marker: ref<APM_Marker>) {
-        this.m_dragMarker = marker;
-        if marker.chain < 0 {
-            return;
+    // What dragging a marker does, from the marker and the keys held when the drag starts.
+    private func DragModeFor(marker: ref<APM_Marker>, shift: Bool, control: Bool) -> Int32 {
+        if marker.kind == APM_MarkerKindEyeLook() {
+            return APM_DragEyeLook();
         }
+        if control {
+            return APM_DragTwist();
+        }
+        if marker.chain >= 0 {
+            return shift ? APM_DragRotate() : APM_DragIkMove();
+        }
+        if marker.swivelChain >= 0 && !shift && APM_GizmoIsIkActive(marker.swivelChain) {
+            return APM_DragSwivel();
+        }
+        if this.IsTrackballPart(marker.part) {
+            return APM_DragTrackball();
+        }
+        return APM_DragRotate();
+    }
+
+    private func DragHint(marker: ref<APM_Marker>) -> String {
+        let label = APM_UiGetOptionLabel(7701u, marker.part);
+        if marker.kind == APM_MarkerKindEyeLook() {
+            return label + ": drag where the eyes look";
+        }
+        if marker.chain >= 0 {
+            return label + ": drag to move (IK), Shift+drag to rotate, Ctrl+drag to twist";
+        }
+        if marker.swivelChain >= 0 && APM_GizmoIsIkActive(marker.swivelChain) {
+            return label + ": drag to turn the elbow / knee (IK), Ctrl+drag to twist";
+        }
+        return label + ": drag to rotate, Ctrl+drag to twist";
+    }
+
+    private func BeginMarkerDrag(marker: ref<APM_Marker>, shift: Bool, control: Bool) {
+        this.m_dragMarker = marker;
+        this.m_dragMode = this.DragModeFor(marker, shift, control);
         let player = this.m_controller.GetPlayerControlledObject();
         let component = APM_GizmoGetComponent();
         if !IsDefined(player) || !IsDefined(component) {
@@ -1182,15 +1462,40 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
-        let world = APM_PartWorldPosition(component.GetLocalToWorld(), marker.part);
+        let toWorld = component.GetLocalToWorld();
+
+        if this.m_dragMode == APM_DragSwivel() {
+            APM_UiSetValue(7710u, Cast<Float>(marker.swivelChain));
+            this.m_dragSwivel = APM_UiGetValue(7715u);
+            return;
+        }
+        if this.m_dragMode == APM_DragEyeLook() {
+            let look = this.EyeLookPoint(toWorld);
+            let lookScreen = this.ProjectToScreen(camera, look);
+            if look.W < 0.5 || lookScreen.W < 0.5 {
+                this.m_dragMarker = null;
+                return;
+            }
+            this.m_lookTarget = look;
+            this.m_dragCursorX = lookScreen.X;
+            this.m_dragCursorY = lookScreen.Y;
+            this.m_dragDepth = lookScreen.Z;
+            return;
+        }
+        if this.m_dragMode != APM_DragIkMove() {
+            return;
+        }
+        let world = APM_PartWorldPosition(toWorld, marker.part);
         let screen = this.ProjectToScreen(camera, world);
         if world.W < 0.5 || screen.W < 0.5 {
             this.m_dragMarker = null;
             return;
         }
-        // Select and pin the limb, remember where the drag started.
+        // Select and pin the limb (keeping a body pin), remember where the drag started.
         APM_UiSetValue(7710u, Cast<Float>(marker.chain));
-        APM_UiSetValue(7711u, 1.0);
+        if APM_UiGetValue(7711u) < 0.5 {
+            APM_UiSetValue(7711u, 1.0);
+        }
         this.m_dragCursorX = screen.X;
         this.m_dragCursorY = screen.Y;
         this.m_dragDepth = screen.Z;
@@ -1208,7 +1513,7 @@ public class APM_PoseEditor extends IScriptable {
         let camera = GameInstance.GetCameraSystem(player.GetGame());
         let toWorld = component.GetLocalToWorld();
 
-        if marker.chain >= 0 {
+        if this.m_dragMode == APM_DragIkMove() {
             // The hand / foot follows the cursor on a plane facing the camera, at its starting depth.
             this.m_dragCursorX += dx;
             this.m_dragCursorY += dy;
@@ -1217,14 +1522,18 @@ public class APM_PoseEditor extends IScriptable {
                 return;
             }
             let worldDelta = APM_Vector(target.X - this.m_dragStartWorld.X, target.Y - this.m_dragStartWorld.Y, target.Z - this.m_dragStartWorld.Z, 0.0);
-            let modelDelta = APM_WorldToModelDirection(toWorld, worldDelta);
+            let modelDelta = APM_GizmoIkModelToOffset(marker.chain, APM_WorldToModelDirection(toWorld, worldDelta));
             APM_UiSetValue(7712u, ClampF(this.m_dragStartOffset.X + modelDelta.X * 100.0, -80.0, 80.0));
             APM_UiSetValue(7713u, ClampF(this.m_dragStartOffset.Y + modelDelta.Y * 100.0, -80.0, 80.0));
             APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
-        } else if !this.IsTrackballPart(marker.part) {
-            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy);
-        } else {
-            // Head and eyes: rotate as seen from the camera - left/right turns around the camera's vertical axis,
+        } else if this.m_dragMode == APM_DragSwivel() {
+            this.TurnElbowTowardsCursor(camera, toWorld, marker.swivelChain, dx, dy);
+        } else if this.m_dragMode == APM_DragTwist() {
+            this.TwistPart(camera, toWorld, marker.part, dx, dy);
+        } else if this.m_dragMode == APM_DragEyeLook() {
+            this.MoveEyeLook(camera, toWorld, dx, dy);
+        } else if this.m_dragMode == APM_DragTrackball() {
+            // Head: rotate as seen from the camera - left/right turns around the camera's vertical axis,
             // up/down tilts around its horizontal axis (the side facing the camera follows the cursor).
             if AbsF(dx) > 0.0 {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()), dx * this.DegreesPerCanvasUnit());
@@ -1232,13 +1541,224 @@ public class APM_PoseEditor extends IScriptable {
             if AbsF(dy) > 0.0 {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraRight()), dy * this.DegreesPerCanvasUnit());
             }
+        } else {
+            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy);
         }
+    }
+
+    // Cursor movement on the canvas -> world movement on the plane facing the camera at a given depth.
+    private func CursorToWorld(camera: ref<CameraSystem>, depth: Float, dx: Float, dy: Float) -> Vector4 {
+        let meters = this.MetersPerCanvasUnit(camera, depth);
+        let right = camera.GetActiveCameraRight();
+        let up = camera.GetActiveCameraUp();
+        return APM_Vector((right.X * dx - up.X * dy) * meters, (right.Y * dx - up.Y * dy) * meters, (right.Z * dx - up.Z * dy) * meters, 0.0);
+    }
+
+    // Pinned limb: turns the elbow / knee around the shoulder -> hand (hip -> foot) line so it follows the cursor.
+    private func TurnElbowTowardsCursor(camera: ref<CameraSystem>, toWorld: Matrix, chain: Int32, dx: Float, dy: Float) {
+        let aModel = APM_GizmoGetChainJoint(chain, 0);
+        let bModel = APM_GizmoGetChainJoint(chain, 1);
+        let cModel = APM_GizmoGetChainJoint(chain, 2);
+        if aModel.W < 0.5 || bModel.W < 0.5 || cModel.W < 0.5 {
+            return;
+        }
+        let a = Vector4.Transform(toWorld, APM_Vector(aModel.X, aModel.Y, aModel.Z, 1.0));
+        let b = Vector4.Transform(toWorld, APM_Vector(bModel.X, bModel.Y, bModel.Z, 1.0));
+        let c = Vector4.Transform(toWorld, APM_Vector(cModel.X, cModel.Y, cModel.Z, 1.0));
+        // Swivel axis (A -> C) and the elbow's offset from it.
+        let nx = c.X - a.X;
+        let ny = c.Y - a.Y;
+        let nz = c.Z - a.Z;
+        let nLength = SqrtF(nx * nx + ny * ny + nz * nz);
+        if nLength < 0.01 {
+            return;
+        }
+        nx /= nLength;
+        ny /= nLength;
+        nz /= nLength;
+        let px = b.X - a.X;
+        let py = b.Y - a.Y;
+        let pz = b.Z - a.Z;
+        let along = px * nx + py * ny + pz * nz;
+        let rx = px - nx * along;
+        let ry = py - ny * along;
+        let rz = pz - nz * along;
+        let radius = SqrtF(rx * rx + ry * ry + rz * rz);
+        if radius < 0.02 {
+            return; // limb straight: no elbow direction to turn
+        }
+        // Direction the elbow moves for a positive swivel: axis x offset.
+        let tx = (ny * rz - nz * ry) / radius;
+        let ty = (nz * rx - nx * rz) / radius;
+        let tz = (nx * ry - ny * rx) / radius;
+        let bScreen = this.ProjectToScreen(camera, APM_Vector(b.X, b.Y, b.Z, 1.0));
+        let move = this.CursorToWorld(camera, bScreen.W > 0.5 ? bScreen.Z : 2.0, dx, dy);
+        let degrees = Rad2Deg((move.X * tx + move.Y * ty + move.Z * tz) / radius);
+        this.m_dragSwivel += degrees;
+        if this.m_dragSwivel > 180.0 {
+            this.m_dragSwivel -= 360.0;
+        }
+        if this.m_dragSwivel < -180.0 {
+            this.m_dragSwivel += 360.0;
+        }
+        APM_UiSetValue(7710u, Cast<Float>(chain));
+        APM_UiSetValue(7715u, this.m_dragSwivel);
+    }
+
+    // Rotation around the bone itself: the side facing the camera follows the cursor (like rolling a pencil).
+    // When the bone points at the camera, left/right turns it like a knob.
+    private func TwistPart(camera: ref<CameraSystem>, toWorld: Matrix, part: Int32, dx: Float, dy: Float) {
+        let joint = APM_PartWorldPosition(toWorld, part);
+        let tipModel = APM_GizmoGetPartTip(part);
+        if joint.W < 0.5 || tipModel.W < 0.5 {
+            return;
+        }
+        let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
+        let ax = tip.X - joint.X;
+        let ay = tip.Y - joint.Y;
+        let az = tip.Z - joint.Z;
+        let length = SqrtF(ax * ax + ay * ay + az * az);
+        if length < 0.001 {
+            return;
+        }
+        ax /= length;
+        ay /= length;
+        az /= length;
+        let forward = camera.GetActiveCameraForward();
+        let right = camera.GetActiveCameraRight();
+        let up = camera.GetActiveCameraUp();
+        // Movement of the bone's front surface for a positive twist: axis x (towards the camera).
+        let sx = -(ay * forward.Z - az * forward.Y);
+        let sy = -(az * forward.X - ax * forward.Z);
+        let sz = -(ax * forward.Y - ay * forward.X);
+        let screenX = sx * right.X + sy * right.Y + sz * right.Z;
+        let screenY = -(sx * up.X + sy * up.Y + sz * up.Z);
+        let screenLength = SqrtF(screenX * screenX + screenY * screenY);
+        let degrees: Float;
+        let axis = APM_Vector(ax, ay, az, 0.0);
+        if screenLength > 0.35 {
+            degrees = (dx * screenX + dy * screenY) / screenLength * this.DegreesPerCanvasUnit() * 1.5;
+        } else {
+            // Knob: around the bone pointing away from the camera, so dragging right turns it clockwise.
+            if ax * forward.X + ay * forward.Y + az * forward.Z < 0.0 {
+                axis = APM_Vector(-ax, -ay, -az, 0.0);
+            }
+            degrees = dx * this.DegreesPerCanvasUnit() * 1.5;
+        }
+        if AbsF(degrees) > 0.0001 {
+            APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, axis), degrees);
+        }
+    }
+
+    // Moves the point both eyes look at with the cursor and turns each eye by the same change of direction.
+    private func MoveEyeLook(camera: ref<CameraSystem>, toWorld: Matrix, dx: Float, dy: Float) {
+        this.m_dragCursorX += dx;
+        this.m_dragCursorY += dy;
+        let target = this.CursorOnLookSphere(camera, toWorld);
+        if target.W < 0.5 {
+            return;
+        }
+        this.TurnEyeTowards(toWorld, this.m_leftEyePart, this.m_lookTarget, target);
+        this.TurnEyeTowards(toWorld, this.m_rightEyePart, this.m_lookTarget, target);
+        this.m_lookTarget = target;
+        APM_UiSetValue(7701u, Cast<Float>(this.m_dragMarker.part));
+    }
+
+    // Point under the cursor on the sphere the look marker moves on (LookDistance() around the eyes), on the side
+    // the eyes are looking at; w = 1 when valid.
+    private func CursorOnLookSphere(camera: ref<CameraSystem>, toWorld: Matrix) -> Vector4 {
+        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
+        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
+        let cameraTransform: Transform;
+        let ahead = this.UnprojectFromScreen(camera, this.m_dragCursorX, this.m_dragCursorY, 1.0);
+        if left.W < 0.5 || right.W < 0.5 || ahead.W < 0.5 || !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let cx = (left.X + right.X) * 0.5;
+        let cy = (left.Y + right.Y) * 0.5;
+        let cz = (left.Z + right.Z) * 0.5;
+        let radius = this.LookDistance();
+        let px = cameraTransform.position.X;
+        let py = cameraTransform.position.Y;
+        let pz = cameraTransform.position.Z;
+        let dx = ahead.X - px;
+        let dy = ahead.Y - py;
+        let dz = ahead.Z - pz;
+        let length = SqrtF(dx * dx + dy * dy + dz * dz);
+        if length < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        dx /= length;
+        dy /= length;
+        dz /= length;
+        // Ray P + t*d against the sphere: t^2 + 2bt + c = 0.
+        let ox = px - cx;
+        let oy = py - cy;
+        let oz = pz - cz;
+        let b = ox * dx + oy * dy + oz * dz;
+        let c = ox * ox + oy * oy + oz * oz - radius * radius;
+        let disc = b * b - c;
+        // Current gaze direction, to pick the intersection on the side the eyes look at.
+        let gx = this.m_lookTarget.X - cx;
+        let gy = this.m_lookTarget.Y - cy;
+        let gz = this.m_lookTarget.Z - cz;
+        let qx: Float;
+        let qy: Float;
+        let qz: Float;
+        if disc >= 0.0 {
+            let root = SqrtF(disc);
+            let t1 = -b - root;
+            let t2 = -b + root;
+            let ax = ox + dx * t1;
+            let ay = oy + dy * t1;
+            let az = oz + dz * t1;
+            let bx = ox + dx * t2;
+            let by = oy + dy * t2;
+            let bz = oz + dz * t2;
+            let useFirst = ax * gx + ay * gy + az * gz >= bx * gx + by * gy + bz * gz;
+            qx = useFirst ? ax : bx;
+            qy = useFirst ? ay : by;
+            qz = useFirst ? az : bz;
+        } else {
+            // The cursor is outside the sphere: closest point of the ray, pushed onto the sphere.
+            qx = ox - dx * b;
+            qy = oy - dy * b;
+            qz = oz - dz * b;
+        }
+        let qLength = SqrtF(qx * qx + qy * qy + qz * qz);
+        if qLength < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let scale = radius / qLength;
+        return APM_Vector(cx + qx * scale, cy + qy * scale, cz + qz * scale, 1.0);
+    }
+
+    private func TurnEyeTowards(toWorld: Matrix, part: Int32, from: Vector4, to: Vector4) {
+        let eye = APM_PartWorldPosition(toWorld, part);
+        if eye.W < 0.5 {
+            return;
+        }
+        let fx = from.X - eye.X;
+        let fy = from.Y - eye.Y;
+        let fz = from.Z - eye.Z;
+        let tx = to.X - eye.X;
+        let ty = to.Y - eye.Y;
+        let tz = to.Z - eye.Z;
+        let ax = fy * tz - fz * ty;
+        let ay = fz * tx - fx * tz;
+        let az = fx * ty - fy * tx;
+        let sine = SqrtF(ax * ax + ay * ay + az * az);
+        if sine < 0.0000001 {
+            return;
+        }
+        let degrees = Rad2Deg(AtanF(sine, fx * tx + fy * ty + fz * tz));
+        APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, APM_Vector(ax / sine, ay / sine, az / sine, 0.0)), degrees);
     }
 
     // Parts that turn like a ball under the cursor instead of pointing at it.
     private func IsTrackballPart(part: Int32) -> Bool {
         let label = APM_UiGetOptionLabel(7701u, part);
-        return Equals(label, "Head") || Equals(label, "Left eye") || Equals(label, "Right eye");
+        return Equals(label, "Head");
     }
 
     // Meters per ink canvas unit at a given distance in front of the camera.
@@ -1259,14 +1779,11 @@ public class APM_PoseEditor extends IScriptable {
         }
         let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
         let tipScreen = this.ProjectToScreen(camera, APM_Vector(tip.X, tip.Y, tip.Z, 1.0));
-        let depth = tipScreen.W > 0.5 ? tipScreen.Z : 2.0;
-        let meters = this.MetersPerCanvasUnit(camera, depth);
-        let right = camera.GetActiveCameraRight();
-        let up = camera.GetActiveCameraUp();
-        // Cursor movement in the world, on the plane facing the camera (canvas y grows downwards).
-        let mx = (right.X * dx - up.X * dy) * meters;
-        let my = (right.Y * dx - up.Y * dy) * meters;
-        let mz = (right.Z * dx - up.Z * dy) * meters;
+        // Cursor movement in the world, on the plane facing the camera at the tip.
+        let move = this.CursorToWorld(camera, tipScreen.W > 0.5 ? tipScreen.Z : 2.0, dx, dy);
+        let mx = move.X;
+        let my = move.Y;
+        let mz = move.Z;
         let bx = tip.X - joint.X;
         let by = tip.Y - joint.Y;
         let bz = tip.Z - joint.Z;
@@ -1350,7 +1867,9 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(prefix, "ik") {
             APM_UiSetValue(7710u, Cast<Float>(StringToInt(arg)));
         } else if Equals(id, "pin") {
-            APM_UiSetValue(7711u, APM_UiGetValue(7711u) > 0.5 ? 0.0 : 1.0);
+            // Off -> world (stays where it is) -> body (moves with the shoulder / hips) -> off
+            let nextPin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5) + 1;
+            APM_UiSetValue(7711u, Cast<Float>(nextPin > 2 ? 0 : nextPin));
         } else if Equals(id, "resetpart") {
             APM_UiSetValue(7721u, 1.0);
         } else if Equals(id, "resetall") {
@@ -1482,7 +2001,7 @@ public class APM_PoseEditor extends IScriptable {
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
         if IsDefined(marker) {
             marker.isHovered = true;
-            this.SetStatus(APM_UiGetOptionLabel(7701u, marker.part) + (marker.chain >= 0 ? ": drag to move (IK)" : ": drag to rotate"));
+            this.SetStatus(this.DragHint(marker));
         }
         this.SetHover(true);
     }
@@ -1515,13 +2034,21 @@ public class APM_PoseEditor extends IScriptable {
             this.m_cursorScaleY = marker.screenY / pointer.Y;
             this.m_useRealCursor = this.m_cursorScaleX > 0.3 && this.m_cursorScaleX < 6.0 && this.m_cursorScaleY > 0.3 && this.m_cursorScaleY < 6.0;
         }
-        this.BeginMarkerDrag(marker);
+        this.BeginMarkerDrag(marker, e.IsShiftDown(), e.IsControlDown());
         this.SetHover(true);
         APM_UiRequestRefresh();
         this.Refresh();
     }
 
+    protected cb func OnGlobalPress(e: ref<inkPointerEvent>) -> Bool {
+        this.m_shiftDown = e.IsShiftDown();
+        this.m_controlDown = e.IsControlDown();
+        return false;
+    }
+
     protected cb func OnGlobalRelative(e: ref<inkPointerEvent>) -> Bool {
+        this.m_shiftDown = e.IsShiftDown();
+        this.m_controlDown = e.IsControlDown();
         let horizontal = e.IsAction(n"mouse_x");
         if !horizontal && !e.IsAction(n"mouse_y") {
             return false;
@@ -1556,12 +2083,15 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     protected cb func OnGlobalRelease(e: ref<inkPointerEvent>) -> Bool {
+        this.m_shiftDown = e.IsShiftDown();
+        this.m_controlDown = e.IsControlDown();
         if !e.IsAction(n"click") {
             return false;
         }
         if IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) {
             this.m_dragRow = null;
             this.m_dragMarker = null;
+            this.m_dragMode = 0;
             if !this.m_panelHovered {
                 this.SetHover(false);
             }

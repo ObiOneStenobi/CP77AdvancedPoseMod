@@ -307,7 +307,8 @@ bool Save(const std::string& aName)
         const auto& chain = snapshot->ik[i];
         if (chain.enabled)
         {
-            ik[GetIkChainName(static_cast<IkChain>(i))] = {{"offset", chain.offset}, {"swivel", chain.swivel}};
+            ik[GetIkChainName(static_cast<IkChain>(i))] = {
+                {"offset", chain.offset}, {"swivel", chain.swivel}, {"pin", chain.followBody ? "body" : "world"}};
         }
     }
 
@@ -370,6 +371,7 @@ bool Load(const std::string& aName)
                 settings.enabled = true;
                 settings.offset = entry.value("offset", std::array<float, 3>{});
                 settings.swivel = entry.value("swivel", 0.f);
+                settings.followBody = entry.value("pin", std::string("world")) == "body";
             }
         }
 

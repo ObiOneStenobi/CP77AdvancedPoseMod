@@ -4,6 +4,7 @@
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
+#include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
 #include "Ui/PhotoModeUi.hpp"
@@ -402,6 +403,160 @@ void GizmoGetPartIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, chain);
 }
 
+// Bones of the IK chains, in APM::Pose::IkChain order: upper, middle, end.
+constexpr const char* IkChainBones[4][3] = {
+    {"LeftArm", "LeftForeArm", "LeftHand"},
+    {"RightArm", "RightForeArm", "RightHand"},
+    {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+    {"RightUpLeg", "RightLeg", "RightFoot"},
+};
+
+// IK chain whose upper or middle bone (upper arm / forearm, thigh / shin) is a body part, or -1.
+void GizmoGetPartSwivelChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    int32_t chain = -1;
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) && catalog[part].bones.size() == 1)
+    {
+        const std::string bone = catalog[part].bones.front();
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            if (bone == IkChainBones[i][0] || bone == IkChainBones[i][1])
+            {
+                chain = i;
+            }
+        }
+    }
+    Return(aOut, chain);
+}
+
+// True when the custom pose is on and the IK chain pins its hand / foot.
+void GizmoIsIkActive(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t chain = 0;
+    RED4ext::GetParameter(aFrame, &chain);
+    aFrame->code++;
+
+    bool active = false;
+    if (chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount))
+    {
+        active = APM::Pose::PoseOverrides::IsEnabled() &&
+                 APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain)).enabled;
+    }
+    Return(aOut, active);
+}
+
+// Model-space position of a joint of an IK chain (0 shoulder / hip, 1 elbow / knee, 2 hand / foot); w = 1 when valid.
+void GizmoGetChainJoint(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t chain = 0;
+    int32_t joint = 0;
+    RED4ext::GetParameter(aFrame, &chain);
+    RED4ext::GetParameter(aFrame, &joint);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    APM::Math::Vec3 position{};
+    if (chain >= 0 && chain < 4 && joint >= 0 && joint < 3 &&
+        APM::Pose::GizmoState::GetBoneModelPosition(RED4ext::CName(IkChainBones[chain][joint]).hash, position))
+    {
+        result = {position.x, position.y, position.z, 1.f};
+    }
+    Return(aOut, result);
+}
+
+// True for body parts that only the close-up gizmos edit (outer finger segments).
+void GizmoIsPartDetail(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    Return(aOut, part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
+                     catalog[part].mode == APM::Ui::EntryMode::FingerSegment);
+}
+
+// Model-space direction the main bone of a body part looks along (the bone axis that pointed forward in the
+// reference pose, e.g. an eye's gaze); w = 1 when valid.
+void GizmoGetPartForward(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()))
+    {
+        const auto hash = RED4ext::CName(catalog[part].bones.front()).hash;
+        APM::Math::Vec3 localForward{};
+        APM::Math::Quat rotation{};
+        if (APM::Pose::TargetRegistry::GetBoneReferenceForward(hash, localForward) &&
+            APM::Pose::GizmoState::GetBoneModelRotation(hash, rotation))
+        {
+            const auto forward = APM::Math::Rotate(rotation, localForward);
+            result = {forward.x, forward.y, forward.z, 1.f};
+        }
+    }
+    Return(aOut, result);
+}
+
+// Model-space position of the closest ancestor bone that has a gizmo of its own (thigh -> hips); w = 1 when valid.
+void GizmoGetPartParent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    static const std::vector<uint64_t> gizmoBones = []
+    {
+        std::vector<uint64_t> bones;
+        for (const auto& entry : APM::Ui::GetBoneCatalog())
+        {
+            if (entry.bones.size() == 1 || entry.mode == APM::Ui::EntryMode::Curl)
+            {
+                bones.push_back(RED4ext::CName(entry.bones.front()).hash);
+            }
+        }
+        return bones;
+    }();
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    APM::Math::Vec3 position{};
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
+        APM::Pose::GizmoState::GetAncestorModelPosition(RED4ext::CName(catalog[part].bones.front()).hash, gizmoBones,
+                                                        position))
+    {
+        result = {position.x, position.y, position.z, 1.f};
+    }
+    Return(aOut, result);
+}
+
+// Model-space movement of an IK pin -> change of its offset (the same, unless the chain is pinned to the body).
+void GizmoIkModelToOffset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t chain = 0;
+    RED4ext::Vector4 model{};
+    RED4ext::GetParameter(aFrame, &chain);
+    RED4ext::GetParameter(aFrame, &model);
+    aFrame->code++;
+
+    APM::Math::Vec3 result{model.X, model.Y, model.Z};
+    if (chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount) &&
+        APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain)).followBody)
+    {
+        const auto body = APM::Pose::PoseProcessor::GetIkBodyRotation(static_cast<size_t>(chain));
+        result = APM::Math::Rotate(APM::Math::Conjugate(body), result);
+    }
+    Return(aOut, RED4ext::Vector4{result.x, result.y, result.z, 0.f});
+}
+
 // Moves the IK target of a chain by a model-space vector (meters, X right, Y forward, Z up) and pins the chain.
 void GizmoMoveIk(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -583,6 +738,13 @@ void Register()
     ::Register("APM_GizmoGetPartPosition", &GizmoGetPartPosition, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartTip", &GizmoGetPartTip, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartIkChain", &GizmoGetPartIkChain, "Int32", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartSwivelChain", &GizmoGetPartSwivelChain, "Int32", {{"Int32", "part"}});
+    ::Register("APM_GizmoIsIkActive", &GizmoIsIkActive, "Bool", {{"Int32", "chain"}});
+    ::Register("APM_GizmoGetChainJoint", &GizmoGetChainJoint, "Vector4", {{"Int32", "chain"}, {"Int32", "joint"}});
+    ::Register("APM_GizmoIsPartDetail", &GizmoIsPartDetail, "Bool", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});
+    ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
     ::Register("APM_GizmoRotatePart", &GizmoRotatePart, "Bool",

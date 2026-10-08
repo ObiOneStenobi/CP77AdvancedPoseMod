@@ -23,6 +23,9 @@ using APM::Pose::IkChainCount;
 
 constexpr const char* MainSkeletonName = "root";
 
+std::mutex g_bodyRotationMutex;
+std::array<Quat, IkChainCount> g_bodyRotations{};
+
 struct ChainBones
 {
     const char* upper;
@@ -172,6 +175,25 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 
         const Vec3 offset{settings.offset[0], settings.offset[1], settings.offset[2]};
 
+        // Pinned to the body: the pin moves and turns with the bone the limb hangs from.
+        Quat body{0.f, 0.f, 0.f, 1.f};
+        Vec3 target = aOriginalPose.positions[c] + offset;
+        const int16_t p = static_cast<size_t>(a) < aTarget.parents.size() ? aTarget.parents[a] : int16_t(-1);
+        if (p >= 0 && static_cast<uint32_t>(p) < aCount)
+        {
+            body = APM::Math::Normalize(
+                APM::Math::Mul(aCurrentPose.rotations[p], APM::Math::Conjugate(aOriginalPose.rotations[p])));
+            if (settings.followBody)
+            {
+                target = aCurrentPose.positions[p] +
+                         APM::Math::Rotate(body, aOriginalPose.positions[c] + offset - aOriginalPose.positions[p]);
+            }
+        }
+        {
+            std::scoped_lock lock(g_bodyRotationMutex);
+            g_bodyRotations[chainIndex] = body;
+        }
+
         APM::Pose::TwoBoneIkInput input;
         input.a = aCurrentPose.positions[a];
         input.b = aCurrentPose.positions[b];
@@ -180,7 +202,7 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         input.bGlobal = aCurrentPose.rotations[b];
         input.aLocal = GetRotation(aBones[a]);
         input.bLocal = GetRotation(aBones[b]);
-        input.target = aOriginalPose.positions[c] + offset;
+        input.target = target;
         input.swivelRadians = APM::Math::DegToRad(settings.swivel);
 
         const auto result = APM::Pose::SolveTwoBoneIk(input);
@@ -190,7 +212,11 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         const Quat cLocalOriginal =
             APM::Math::Mul(APM::Math::Conjugate(aOriginalPose.rotations[b]), aOriginalPose.rotations[c]);
         const Quat cEdit = APM::Math::Mul(APM::Math::Conjugate(cLocalOriginal), GetRotation(aBones[c]));
-        const Quat cWorld = APM::Math::Mul(aOriginalPose.rotations[c], cEdit);
+        Quat cWorld = APM::Math::Mul(aOriginalPose.rotations[c], cEdit);
+        if (settings.followBody)
+        {
+            cWorld = APM::Math::Mul(body, cWorld);
+        }
         const Quat cLocalNew = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), cWorld));
 
         SetRotation(aBones[a], result.aLocal);
@@ -246,6 +272,12 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
 
 namespace APM::Pose::PoseProcessor
 {
+Math::Quat GetIkBodyRotation(size_t aChain)
+{
+    std::scoped_lock lock(g_bodyRotationMutex);
+    return aChain < IkChainCount ? g_bodyRotations[aChain] : Math::Quat{0.f, 0.f, 0.f, 1.f};
+}
+
 void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBoneCount, const OverrideSnapshot& aPose)
 {
     if (aTarget.debugName == MainSkeletonName)

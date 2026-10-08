@@ -47,9 +47,12 @@ constexpr size_t IkChainCount = static_cast<size_t>(IkChain::Count);
 // plus `offset` (model space, meters: X right, Y forward, Z up). Bones edited above the chain
 // (hips, spine...) therefore no longer drag the hand/foot along.
 // `swivel` rotates the elbow/knee around the shoulder->hand (hip->foot) axis, in degrees.
+// With `followBody` the pin moves with the bone the limb hangs from (shoulder / hips) instead: the hand/foot keeps
+// its place relative to the body, and `offset` is expressed in that bone's current orientation.
 struct IkChainSettings
 {
     bool enabled = false;
+    bool followBody = false;
     std::array<float, 3> offset{};
     float swivel = 0.f;
 };

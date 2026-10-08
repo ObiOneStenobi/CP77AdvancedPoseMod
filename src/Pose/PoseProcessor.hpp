@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Math/Quat.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -13,4 +14,8 @@
 namespace APM::Pose::PoseProcessor
 {
 void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBoneCount, const OverrideSnapshot& aPose);
+
+// Latest rotation of the bone an IK chain hangs from (shoulder / hips) relative to the original animation, in model
+// space. Chains pinned to the body express their offset in this frame.
+Math::Quat GetIkBodyRotation(size_t aChain);
 } // namespace APM::Pose::PoseProcessor

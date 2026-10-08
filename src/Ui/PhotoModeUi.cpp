@@ -26,6 +26,7 @@ using namespace APM::Ui::PhotoModeUi;
 constexpr int32_t SlotCount = 10;
 constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
 constexpr const char* OnOffLabels[] = {"Off", "On"};
+constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
 constexpr const char* ActionLabels[] = {"-", "Apply"};
 
 // Distances are shown in centimeters: the game's sliders only update live with whole-number steps.
@@ -102,17 +103,27 @@ Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngl
     return Math::Normalize(Math::Mul(Math::Mul(q1, q2), q3));
 }
 
+bool UsesFingerAxes(const Ui::CatalogEntry& aEntry)
+{
+    return aEntry.mode == Ui::EntryMode::Curl || aEntry.mode == Ui::EntryMode::FingerSegment;
+}
+
 void ApplyAngles(const std::array<float, 3>& aAngles)
 {
     const auto& entry = CurrentEntry();
+    const float curlChange = aAngles[0] - CurrentAngles()[0];
     for (size_t i = 0; i < entry.bones.size(); ++i)
     {
         std::array<float, 3> angles = aAngles;
         if (entry.mode == Ui::EntryMode::Curl && i > 0)
         {
-            angles = {aAngles[0], 0.f, 0.f}; // only the curl reaches the outer finger segments
+            // Only the curl reaches the outer finger segments, as a change: their own edits (close-up gizmos) stay.
+            std::array<float, 3> segment{};
+            Pose::PoseOverrides::GetUiAngles(entry.bones[i], segment);
+            angles = segment;
+            angles[0] = std::clamp(segment[0] + curlChange, -180.f, 180.f);
         }
-        const bool isFinger = entry.mode == Ui::EntryMode::Curl;
+        const bool isFinger = UsesFingerAxes(entry);
         Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles, isFinger),
                                              angles);
     }
@@ -232,7 +243,10 @@ float GetValue(uint32_t aAttribute)
     case Attr::IkLimb:
         return static_cast<float>(g_ikLimb);
     case Attr::IkPin:
-        return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled ? 1.f : 0.f;
+    {
+        const auto chain = Pose::PoseOverrides::GetIkChain(CurrentChain());
+        return chain.enabled ? (chain.followBody ? 2.f : 1.f) : 0.f;
+    }
     case Attr::IkX:
     case Attr::IkY:
     case Attr::IkZ:
@@ -323,6 +337,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         if (aAttribute == Attr::IkPin)
         {
             updated.enabled = aValue > 0.5f;
+            updated.followBody = aValue > 1.5f;
         }
         else if (aAttribute == Attr::IkSwivel)
         {
@@ -333,7 +348,8 @@ void SetValue(uint32_t aAttribute, float aValue)
             updated.offset[aAttribute - Attr::IkX] = aValue / CentimetersPerMeter;
         }
 
-        const bool changed = updated.enabled != settings.enabled || !Same(updated.swivel, settings.swivel) ||
+        const bool changed = updated.enabled != settings.enabled || updated.followBody != settings.followBody ||
+                             !Same(updated.swivel, settings.swivel) ||
                              !Same(updated.offset[0], settings.offset[0]) ||
                              !Same(updated.offset[1], settings.offset[1]) ||
                              !Same(updated.offset[2], settings.offset[2]);
@@ -390,7 +406,7 @@ int32_t GetOptionCount(uint32_t aAttribute)
     {
     case Attr::Enabled:
     case Attr::IkPin:
-        return 2;
+        return static_cast<int32_t>(std::size(IkPinLabels));
     case Attr::BodyPart:
         return static_cast<int32_t>(GetBoneCatalog().size());
     case Attr::IkLimb:
@@ -417,7 +433,7 @@ std::string GetOptionLabel(uint32_t aAttribute, int32_t aIndex)
     {
     case Attr::Enabled:
     case Attr::IkPin:
-        return OnOffLabels[aIndex];
+        return IkPinLabels[aIndex];
     case Attr::BodyPart:
         return GetBoneCatalog()[aIndex].label;
     case Attr::IkLimb:
@@ -487,7 +503,7 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
     g_bodyPart = aPart;
     const auto& entry = CurrentEntry();
     const char* bone = entry.bones.front();
-    const bool isFinger = entry.mode == EntryMode::Curl;
+    const bool isFinger = UsesFingerAxes(entry);
 
     // Current bone rotation in model space (with the current edit) and the current edit itself.
     Math::Quat boneModel{};

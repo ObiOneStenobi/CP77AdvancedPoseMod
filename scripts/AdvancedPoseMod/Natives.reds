@@ -65,6 +65,20 @@ public native func APM_PrefSet(key: String, value: Float) -> Bool
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
 // Model-space point the main bone of a body part points at (its child); w = 1 when valid
 public native func APM_GizmoGetPartTip(part: Int32) -> Vector4
+// IK chain whose upper arm / forearm (thigh / shin) is this part, or -1
+public native func APM_GizmoGetPartSwivelChain(part: Int32) -> Int32
+// True when the custom pose is on and the IK chain pins its hand / foot
+public native func APM_GizmoIsIkActive(chain: Int32) -> Bool
+// Model-space joint of an IK chain (0 shoulder / hip, 1 elbow / knee, 2 hand / foot); w = 1 when valid
+public native func APM_GizmoGetChainJoint(chain: Int32, joint: Int32) -> Vector4
+// True for parts only edited from the close-up gizmos (outer finger segments)
+public native func APM_GizmoIsPartDetail(part: Int32) -> Bool
+// Model-space direction a part looks along (e.g. an eye's gaze); w = 1 when valid
+public native func APM_GizmoGetPartForward(part: Int32) -> Vector4
+// Model-space joint of the closest parent part that has a gizmo (thigh -> hips); w = 1 when valid
+public native func APM_GizmoGetPartParent(part: Int32) -> Vector4
+// Model-space movement of an IK pin -> change of its offset (differs when the limb is pinned to the body)
+public native func APM_GizmoIkModelToOffset(chain: Int32, modelDelta: Vector4) -> Vector4
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
 // Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)

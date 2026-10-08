@@ -45,6 +45,26 @@ const std::vector<CatalogEntry>& GetBoneCatalog()
         {"Right leg", "Right shin", {"RightLeg"}},
         {"Right leg", "Right foot", {"RightFoot"}},
         {"Right leg", "Right toes", {"RightToeBase"}},
+
+        // Outer finger segments, edited from the close-up gizmos (kept last so earlier indices never change).
+        {"Left hand", "Left thumb tip", {"LeftHandThumb2"}, EntryMode::FingerSegment},
+        {"Left hand", "Left index middle joint", {"LeftHandIndex2"}, EntryMode::FingerSegment},
+        {"Left hand", "Left index tip", {"LeftHandIndex3"}, EntryMode::FingerSegment},
+        {"Left hand", "Left middle middle joint", {"LeftHandMiddle2"}, EntryMode::FingerSegment},
+        {"Left hand", "Left middle tip", {"LeftHandMiddle3"}, EntryMode::FingerSegment},
+        {"Left hand", "Left ring middle joint", {"LeftHandRing2"}, EntryMode::FingerSegment},
+        {"Left hand", "Left ring tip", {"LeftHandRing3"}, EntryMode::FingerSegment},
+        {"Left hand", "Left little middle joint", {"LeftHandPinky2"}, EntryMode::FingerSegment},
+        {"Left hand", "Left little tip", {"LeftHandPinky3"}, EntryMode::FingerSegment},
+        {"Right hand", "Right thumb tip", {"RightHandThumb2"}, EntryMode::FingerSegment},
+        {"Right hand", "Right index middle joint", {"RightHandIndex2"}, EntryMode::FingerSegment},
+        {"Right hand", "Right index tip", {"RightHandIndex3"}, EntryMode::FingerSegment},
+        {"Right hand", "Right middle middle joint", {"RightHandMiddle2"}, EntryMode::FingerSegment},
+        {"Right hand", "Right middle tip", {"RightHandMiddle3"}, EntryMode::FingerSegment},
+        {"Right hand", "Right ring middle joint", {"RightHandRing2"}, EntryMode::FingerSegment},
+        {"Right hand", "Right ring tip", {"RightHandRing3"}, EntryMode::FingerSegment},
+        {"Right hand", "Right little middle joint", {"RightHandPinky2"}, EntryMode::FingerSegment},
+        {"Right hand", "Right little tip", {"RightHandPinky3"}, EntryMode::FingerSegment},
     };
     return catalog;
 }

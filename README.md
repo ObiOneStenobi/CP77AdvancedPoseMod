@@ -51,13 +51,25 @@ Open Photo Mode and click **Pose editor** (top left).
 
 ### Gizmos
 
-Diamond markers sit on V's joints (finger markers appear while a hand tab is selected).
+Markers sit on V's joints, linked by lines like a skeleton. Their shape shows what a drag does with the keys held
+right now (diamond = rotate, square = move, flat bar = twist; orange = IK), and a label next to the hovered marker says
+it too. Finger markers appear when
+the camera is close to a hand (or while a hand tab is selected); markers for the outer finger segments appear even
+closer.
 
 - Click a marker to select that body part in the panel.
-- Drag a white marker to rotate the part as seen from the camera (left/right turns it around the screen's vertical
-  axis, up/down tilts it around the screen's horizontal axis); the panel angles follow.
+- Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
+  camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
+- **Ctrl+drag** any marker to twist the part around the bone itself.
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
-  automatically).
+  automatically). **Shift+drag** it to rotate the hand / foot instead.
+- The **Pin** button cycles **off / world / body**: *world* keeps the hand / foot where it is whatever the body does;
+  *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
+- While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the
+  shoulder -> hand line.
+- The orange marker floating in front of the face is where the eyes look: drag it to move their gaze (it
+moves on a sphere around the eyes).
+- Moving a whole finger keeps the extra bend of its segments.
 
 ### Photo Mode menu items
 

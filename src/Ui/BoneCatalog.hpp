@@ -13,6 +13,7 @@ enum class EntryMode
     Single, // one bone
     Mirror, // same rotation on every bone (e.g. both eyes)
     Curl,   // finger: "bend" goes to every segment, the other axes only to the first one
+    FingerSegment, // one outer finger segment (finger axes); gizmo only, not listed in the panel
 };
 
 struct CatalogEntry

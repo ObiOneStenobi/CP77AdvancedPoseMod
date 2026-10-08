@@ -195,6 +195,32 @@ uintptr_t GetComponent()
     return g_component;
 }
 
+bool GetAncestorModelPosition(uint64_t aBoneHash, const std::vector<uint64_t>& aCandidates, Math::Vec3& aOut)
+{
+    std::scoped_lock lock(g_mutex);
+    const Skeleton& skeleton = g_main;
+    int32_t index = IndexOf(skeleton, aBoneHash);
+    if (index < 0)
+    {
+        return false;
+    }
+    for (int32_t guard = 0; guard < 256; ++guard)
+    {
+        const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
+        if (parent < 0 || static_cast<size_t>(parent) >= skeleton.positions.size())
+        {
+            return false;
+        }
+        index = parent;
+        if (std::find(aCandidates.begin(), aCandidates.end(), skeleton.boneNames[index]) != aCandidates.end())
+        {
+            aOut = skeleton.positions[index];
+            return true;
+        }
+    }
+    return false;
+}
+
 bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
 {
     std::scoped_lock lock(g_mutex);
@@ -204,16 +230,33 @@ bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
     {
         return false;
     }
-    // First child that is not on top of the bone.
+    // Children that are not on top of the bone: their average (a hand points at the middle of its fingers, the
+    // chest between the neck and the shoulders), or the farthest one when they surround the bone (the hips).
+    const Vec3 origin = skeleton.positions[index];
+    Vec3 sum{};
+    Vec3 farthest{};
+    float farthestDistance = 0.f;
+    int32_t children = 0;
     for (size_t child = static_cast<size_t>(index) + 1; child < skeleton.parents.size() && child < skeleton.positions.size();
          ++child)
     {
-        if (skeleton.parents[child] == index &&
-            Math::Length(skeleton.positions[child] - skeleton.positions[index]) > 0.01f)
+        const float distance = Math::Length(skeleton.positions[child] - origin);
+        if (skeleton.parents[child] == index && distance > 0.01f)
         {
-            aOut = skeleton.positions[child];
-            return true;
+            sum = sum + skeleton.positions[child];
+            ++children;
+            if (distance > farthestDistance)
+            {
+                farthestDistance = distance;
+                farthest = skeleton.positions[child];
+            }
         }
+    }
+    if (children > 0)
+    {
+        const Vec3 average = sum * (1.f / static_cast<float>(children));
+        aOut = Math::Length(average - origin) > 0.03f ? average : farthest;
+        return true;
     }
     // Leaf bone: continue the parent -> bone direction.
     const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);

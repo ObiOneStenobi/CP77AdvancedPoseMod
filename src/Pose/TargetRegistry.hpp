@@ -70,6 +70,10 @@ bool HasBoneCount(uint32_t aCount);
 // Returns false if the main skeleton is not available or the bone is unknown.
 bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist);
 
+// Direction, in the bone's local space, that points forward (model +Y) in the skeleton's reference pose.
+// Used for the eyes' gaze. Returns false if the main skeleton is not available or the bone is unknown.
+bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut);
+
 // Bone names of V's main skeleton ("root" component), for UIs. Empty if not available.
 std::vector<uint64_t> GetMainSkeletonBones();
 } // namespace TargetRegistry
