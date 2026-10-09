@@ -438,7 +438,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(header, "hide", "Hide", 510.0, 8.0, 114.0, 32.0);
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
-        this.CreateIconButton(header, "resetpart", "bone-trash", 116.0, 46.0, "Reset the selected part");
+        this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
 
@@ -497,14 +497,21 @@ public class APM_PoseEditor extends IScriptable {
         let limbs = APM_UiGetOptionCount(7710u);
         i = 0;
         while i < limbs {
-            this.CreateButton(ik, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 60.0 + Cast<Float>(i) * 112.0, 8.0, 108.0, 30.0);
+            this.CreateButton(ik, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 60.0 + Cast<Float>(i) * 142.0, 8.0, 138.0, 30.0);
             i += 1;
         }
-        this.CreateButton(ik, "pin", "Pin off", 512.0, 8.0, 112.0, 30.0);
+        // Pin of the selected limb, on its own row
+        this.CreateText(ik, "Pin", 30.0, 44.0, 80.0, 28.0, 14, APM_ColorDimText());
+        let pinOff = this.CreateSmallButton(ik, "pin:0", "Off", 116.0, 44.0, 166.0, 28.0);
+        pinOff.tooltip = "Pin off: the hand / foot follows the arm / leg rotations";
+        let pinWorld = this.CreateSmallButton(ik, "pin:1", "World", 288.0, 44.0, 166.0, 28.0);
+        pinWorld.tooltip = "Pin world: the hand / foot stays in its place in the scene, whatever the body does";
+        let pinBody = this.CreateSmallButton(ik, "pin:2", "Body", 460.0, 44.0, 164.0, 28.0);
+        pinBody.tooltip = "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them";
         let ikRows = new inkCanvas();
         ikRows.SetName(n"APM_IkRows");
         ikRows.SetAnchor(inkEAnchor.TopLeft);
-        ikRows.SetMargin(0.0, 44.0 * s, 0.0, 0.0);
+        ikRows.SetMargin(0.0, 80.0 * s, 0.0, 0.0);
         ikRows.SetSize(width * s, 148.0 * s);
         ikRows.Reparent(ik);
         this.m_ikRows = ikRows;
@@ -549,8 +556,7 @@ public class APM_PoseEditor extends IScriptable {
         this.AddSeparator(items);
         this.CreateText(items, "In hand", 16.0, 8.0, 100.0, 30.0, 16, APM_ColorAccent());
         this.CreateButton(items, "prop:hand", "Right", 116.0, 8.0, 90.0, 30.0);
-        this.CreateButton(items, "prop:open", "", 210.0, 8.0, 322.0, 30.0);
-        this.CreateIconButton(items, "prop:hide", "eye-off", 538.0, 9.0, "Hide this item from the list (it shows nothing in the hand) and empty the hand");
+        this.CreateButton(items, "prop:open", "", 210.0, 8.0, 368.0, 30.0);
         this.CreateIconButton(items, "prop:clear", "x", 584.0, 9.0, "Empty the hand");
 
         // Status line
@@ -576,7 +582,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionMove, y, 144.0, APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
         this.m_ikRows.SetVisible(pinned);
-        y = this.PlaceSection(this.m_sectionIk, y, pinned ? 194.0 : 46.0, true);
+        y = this.PlaceSection(this.m_sectionIk, y, pinned ? 230.0 : 82.0, true);
         this.m_posesBody.SetVisible(this.m_posesOpen);
         y = this.PlaceSection(this.m_sectionPoses, y, this.m_posesOpen ? 218.0 : 40.0, true);
         y = this.PlaceSection(this.m_sectionItems, y, 46.0, true);
@@ -1161,7 +1167,7 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         let number = TDBID.ToNumber(this.m_itemIds[index]);
-        return !ArrayContains(this.m_noModelItems, number) && !APM_IsItemHidden(number);
+        return !ArrayContains(this.m_noModelItems, number);
     }
 
     private func OpenPicker() {
@@ -1330,21 +1336,6 @@ public class APM_PoseEditor extends IScriptable {
             }
             return;
         }
-        if Equals(arg, "hide") {
-            let held = APM_GetHandProp(this.m_propRight);
-            if held == 0ul {
-                this.SetStatus("Nothing in this hand to hide");
-                return;
-            }
-            APM_HideItem(held);
-            ArrayRemove(this.m_recentItems, APM_RecordFromNumber(held));
-            APM_SetHandProp(this.m_propRight, 0ul);
-            if this.m_pickerOpen {
-                this.UpdatePickerResults();
-            }
-            this.SetStatus("Item hidden from the list (remove it from hidden_items.txt to bring it back)");
-            return;
-        }
         if Equals(arg, "clear") {
             APM_SetHandProp(this.m_propRight, 0ul);
             this.SetStatus((this.m_propRight ? "Right" : "Left") + " hand emptied");
@@ -1378,7 +1369,6 @@ public class APM_PoseEditor extends IScriptable {
             openButton.UpdateLook();
         }
         this.SetButton("prop:clear", false, APM_GetHandProp(this.m_propRight) != 0ul);
-        this.SetButton("prop:hide", false, APM_GetHandProp(this.m_propRight) != 0ul);
     }
 
     // Puts the chosen items on the Photo Mode puppet (also after loading a pose, or when Photo Mode opens again).
@@ -1616,12 +1606,11 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let pin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5);
-        let pinned = pin > 0;
-        let pinButton = this.FindButton("pin");
-        if IsDefined(pinButton) {
-            pinButton.label.SetText(pin == 2 ? "Pin: body" : (pin == 1 ? "Pin: world" : "Pin: off"));
+        i = 0;
+        while i < 3 {
+            this.SetButton("pin:" + IntToString(i), i == pin, true);
+            i += 1;
         }
-        this.SetButton("pin", pinned, true);
 
         // Pose library
         let first = this.m_posePage * APM_PosesPerPage();
@@ -1841,11 +1830,13 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let mode = IsDefined(this.m_dragMarker) ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
         let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
-        if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && marker.kind != APM_MarkerKindEyeLook() {
+        if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
-                text += "   (Shift: rotate, Ctrl: twist)";
+                text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
             } else if marker.canMove {
-                text += "   (Shift: move, Ctrl: twist)";
+                text += "   (Shift: move, Alt: free, Ctrl: twist)";
+            } else if !this.IsTrackballPart(marker.part) {
+                text += "   (Alt: free, Ctrl: twist)";
             } else {
                 text += "   (Ctrl: twist)";
             }
@@ -1872,7 +1863,7 @@ public class APM_PoseEditor extends IScriptable {
             return "look";
         }
         if mode == APM_DragTrackball() {
-            return "turn";
+            return "free rotate";
         }
         return "rotate";
     }
@@ -2016,6 +2007,10 @@ public class APM_PoseEditor extends IScriptable {
         if marker.kind == APM_MarkerKindEyeLook() {
             return APM_DragEyeLook();
         }
+        // Alt: free rotation of any part, like a ball under the cursor (seen from the camera).
+        if APM_IsAltDown() {
+            return APM_DragTrackball();
+        }
         if control {
             return APM_DragTwist();
         }
@@ -2040,15 +2035,15 @@ public class APM_PoseEditor extends IScriptable {
             return label + ": drag where the eyes look, wheel: nearer / farther";
         }
         if marker.chain >= 0 {
-            return label + ": drag to move (IK, wheel: depth), Shift+drag to rotate, Ctrl+drag to twist";
+            return label + ": drag to move (IK, wheel: depth), Shift+drag to rotate, Alt+drag to rotate freely, Ctrl+drag to twist";
         }
         if marker.swivelChain >= 0 && APM_GizmoIsIkActive(marker.swivelChain) {
             return label + ": drag to turn the elbow / knee (IK), Ctrl+drag to twist";
         }
         if marker.canMove {
-            return label + ": drag to rotate, Shift+drag to move (wheel: depth), Ctrl+drag to twist";
+            return label + ": drag to rotate, Shift+drag to move (wheel: depth), Alt+drag to rotate freely, Ctrl+drag to twist";
         }
-        return label + ": drag to rotate, Ctrl+drag to twist";
+        return label + ": drag to rotate, Alt+drag to rotate freely, Ctrl+drag to twist";
     }
 
     // Drags that the mouse wheel pushes away from / pulls towards the camera.
@@ -2433,11 +2428,10 @@ public class APM_PoseEditor extends IScriptable {
             }
         } else if Equals(prefix, "ik") {
             APM_UiSetValue(7710u, Cast<Float>(StringToInt(arg)));
-        } else if Equals(id, "pin") {
+        } else if Equals(prefix, "pin") {
             APM_HistoryCheckpoint();
-            // Off -> world (stays where it is) -> body (moves with the shoulder / hips) -> off
-            let nextPin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5) + 1;
-            APM_UiSetValue(7711u, Cast<Float>(nextPin > 2 ? 0 : nextPin));
+            // World keeps the hand / foot where it is now; body makes it follow the shoulder / hips.
+            APM_UiSetValue(7711u, Cast<Float>(StringToInt(arg)));
         } else if Equals(id, "poses:toggle") {
             this.m_posesOpen = !this.m_posesOpen;
             APM_PrefSet("PosesOpen", this.m_posesOpen ? 1.0 : 0.0);

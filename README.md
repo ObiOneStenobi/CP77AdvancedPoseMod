@@ -42,7 +42,8 @@ Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
   `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
-  Below them icon buttons (hover one to see what it does): **Undo**, **Redo**, **Reset part**, **Reset all** (click
+  Below them icon buttons (hover one to see what it does): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
+  where the pose puts it), **Reset all** (click
   twice), **Mirror**.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
   chosen limb is pinned. The pose library folds with **-** / **+**.
@@ -70,23 +71,23 @@ closer.
 - Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
   camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
 - **Ctrl+drag** any marker to twist the part around the bone itself.
+- **Alt+drag** any marker to rotate the part freely, like a ball under the cursor: left / right turns it around the
+  camera's vertical axis, up / down around its horizontal axis (as the head always does).
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
   automatically). **Shift+drag** it to rotate the hand / foot instead.
-- The **Pin** button cycles **off / world / body**: *world* keeps the hand / foot where it is whatever the body does;
+- The **Pin** row (under the limb buttons) sets **Off / World / Body**: *world* keeps the hand / foot where it is whatever the body does;
   *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
   Turning the pin on, or switching between world and body, leaves the hand / foot where it is.
 - While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the
   shoulder -> hand line.
 - The orange marker in front of the face is the point both eyes look at: drag it and the eyes converge on it.
-- Shift / Ctrl can be pressed or released during a drag: the action changes on the fly, keeping what was done.
+- Shift / Ctrl / Alt can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
 - **In hand**: choose the hand, then click the item name to open the item list beside the panel: type to search
   (Enter takes the first result, Esc closes), filter with the **All / Weapons / Food / Other** tabs; recent items
-  come first. **X** empties the hand. The **eye** button hides the held item from the list for good (for items that
-  show nothing in the hand; the list is kept in `hidden_items.txt` in the plugin folder, delete a line to bring an item
-  back). Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
+  come first. **X** empties the hand. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
   or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**

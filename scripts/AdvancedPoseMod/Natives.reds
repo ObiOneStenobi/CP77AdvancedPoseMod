@@ -61,9 +61,6 @@ public native func APM_PropRecordCount(kind: Int32) -> Int32
 public native func APM_PropRecordAt(kind: Int32, index: Int32) -> Uint64
 // TweakDBID from TDBID.ToNumber()
 public native func APM_RecordFromNumber(number: Uint64) -> TweakDBID
-// Items hidden from the item list by the player (kept in hidden_items.txt)
-public native func APM_IsItemHidden(record: Uint64) -> Bool
-public native func APM_HideItem(record: Uint64)
 // Item held in a hand (TweakDBID number, 0 = none); saved with poses
 public native func APM_SetHandProp(rightHand: Bool, record: Uint64)
 public native func APM_GetHandProp(rightHand: Bool) -> Uint64
@@ -75,6 +72,8 @@ public native func APM_CanUndo() -> Bool
 public native func APM_CanRedo() -> Bool
 // Ctrl+Z / Ctrl+Y since the last call: 1 undo, 2 redo, 0 none
 public native func APM_PollHotkey() -> Int32
+// Alt key held: free (trackball) rotation while dragging a gizmo
+public native func APM_IsAltDown() -> Bool
 // Copies one side onto the other, mirrored; group "Left arm" etc. or "" for the whole body. Returns parts copied.
 public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
 // Mirror mode: edits of a left / right part are copied, mirrored, to the other side

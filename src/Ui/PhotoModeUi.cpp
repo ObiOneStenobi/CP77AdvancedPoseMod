@@ -10,10 +10,12 @@
 #include "Ui/BoneCatalog.hpp"
 
 #include <RED4ext/CName.hpp>
+#include <string_view>
 
 #include <Windows.h>
 
 #include <algorithm>
+#include <string_view>
 #include <atomic>
 #include <cmath>
 #include <filesystem>
@@ -290,9 +292,36 @@ bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, s
 
 void ResetCurrentPart()
 {
+    // IK chains: upper bone, middle bone, end bone.
+    constexpr const char* chainBones[4][3] = {{"LeftArm", "LeftForeArm", "LeftHand"},
+                                              {"RightArm", "RightForeArm", "RightHand"},
+                                              {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+                                              {"RightUpLeg", "RightLeg", "RightFoot"}};
     for (const auto* bone : CurrentEntry().bones)
     {
         Pose::PoseOverrides::ResetBone(bone);
+        // A pinned limb is placed by its pin: the hand / foot goes back to where the pose puts it (pin kept),
+        // the upper / middle bones lose the elbow / knee turn.
+        for (size_t c = 0; c < 4; ++c)
+        {
+            const auto chain = static_cast<Pose::IkChain>(c);
+            auto settings = Pose::PoseOverrides::GetIkChain(chain);
+            if (!settings.enabled)
+            {
+                continue;
+            }
+            if (std::string_view(bone) == chainBones[c][2])
+            {
+                settings.offset = {};
+                settings.swivel = 0.f;
+                Pose::PoseOverrides::SetIkChain(chain, settings);
+            }
+            else if (std::string_view(bone) == chainBones[c][0] || std::string_view(bone) == chainBones[c][1])
+            {
+                settings.swivel = 0.f;
+                Pose::PoseOverrides::SetIkChain(chain, settings);
+            }
+        }
     }
 }
 
