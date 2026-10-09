@@ -11,6 +11,8 @@
 #include "Ui/TextEntry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/TweakDB.hpp>
+#include <RED4ext/Scripting/Natives/gamedataTweakDBRecord.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
 #include <algorithm>
@@ -269,6 +271,85 @@ void GetBasePoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
     Return(aOut, CString(APM::Pose::PoseOverrides::GetBasePoseName().c_str()));
+}
+
+// Item records the prop picker offers: 0 weapons, 1 consumables, 2 other items. Cached on first use.
+const std::vector<uint64_t>& PropRecords(int32_t aKind)
+{
+    static std::array<std::vector<uint64_t>, 3> lists;
+    static std::array<bool, 3> loaded{};
+    if (aKind < 0 || aKind > 2)
+    {
+        static const std::vector<uint64_t> empty;
+        return empty;
+    }
+    if (!loaded[aKind])
+    {
+        constexpr const char* types[] = {"gamedataWeaponItem_Record", "gamedataConsumableItem_Record",
+                                         "gamedataItem_Record"};
+        auto* type = RED4ext::CRTTISystem::Get()->GetType(types[aKind]);
+        auto* tweakDb = RED4ext::TweakDB::Get();
+        if (type && tweakDb)
+        {
+            for (const auto& handle : tweakDb->GetRecordsByType(type))
+            {
+                if (const auto* record = reinterpret_cast<const RED4ext::game::data::TweakDBRecord*>(handle.GetPtr()))
+                {
+                    lists[aKind].push_back(record->recordID.value);
+                }
+            }
+            loaded[aKind] = true;
+            APM::Log::Info("Props: %zu records of %s", lists[aKind].size(), types[aKind]);
+        }
+    }
+    return lists[aKind];
+}
+
+void PropRecordCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t kind = 0;
+    RED4ext::GetParameter(aFrame, &kind);
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(PropRecords(kind).size()));
+}
+
+void PropRecordAt(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t kind = 0;
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &kind);
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    const auto& list = PropRecords(kind);
+    Return(aOut, index >= 0 && index < static_cast<int32_t>(list.size()) ? list[index] : uint64_t{0});
+}
+
+void RecordFromNumber(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint64_t number = 0;
+    RED4ext::GetParameter(aFrame, &number);
+    aFrame->code++;
+    RED4ext::TweakDBID id;
+    id.value = number;
+    Return(aOut, id);
+}
+
+void SetHandProp(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool right = true;
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &right);
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    APM::Pose::PoseOverrides::SetHandProp(right, record);
+}
+
+void GetHandProp(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    bool right = true;
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    Return(aOut, APM::Pose::PoseOverrides::GetHandProp(right));
 }
 
 void HistoryCheckpoint(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -890,6 +971,11 @@ void Register()
     ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
     ::Register("APM_RenamePose", &RenamePose, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_GetBasePoseName", &GetBasePoseName, "String", {});
+    ::Register("APM_PropRecordCount", &PropRecordCount, "Int32", {{"Int32", "kind"}});
+    ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
+    ::Register("APM_RecordFromNumber", &RecordFromNumber, "TweakDBID", {{"Uint64", "number"}});
+    ::Register("APM_SetHandProp", &SetHandProp, nullptr, {{"Bool", "rightHand"}, {"Uint64", "record"}});
+    ::Register("APM_GetHandProp", &GetHandProp, "Uint64", {{"Bool", "rightHand"}});
     ::Register("APM_HistoryCheckpoint", &HistoryCheckpoint, nullptr, {});
     ::Register("APM_Undo", &HistoryUndo, "Bool", {});
     ::Register("APM_Redo", &HistoryRedo, "Bool", {});

@@ -23,7 +23,7 @@ public func APM_PanelWidth() -> Float {
 }
 
 public func APM_PanelHeight() -> Float {
-    return 984.0;
+    return 1022.0;
 }
 
 public func APM_ScreenWidth() -> Float {
@@ -267,6 +267,15 @@ public class APM_PoseEditor extends IScriptable {
     private let m_dragValue: Float;
     private let m_confirmResetAll: Bool;
     private let m_confirmDelete: Bool;
+    // Props: items put in V's hands
+    private let m_propRight: Bool;            // the hand the picker works on
+    private let m_propCategory: Int32;        // 0 weapons, 1 food & drink, 2 other items
+    private let m_propIds: array<TweakDBID>;  // items of the category, sorted by name
+    private let m_propNames: array<String>;
+    private let m_propListCategory: Int32;    // category m_propIds was built for (-1 = none)
+    private let m_propIndex: Int32;
+    private let m_shownRight: Uint64;         // items actually placed on the puppet
+    private let m_shownLeft: Uint64;
     private let m_renaming: Bool;     // typing a pose name
     private let m_renameFrom: String; // pose being renamed
     private let m_refreshTimer: Float;
@@ -281,6 +290,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_dockRight = APM_PrefGet("DockRight", 0.0) > 0.5;
         this.m_opacityStep = Cast<Int32>(APM_PrefGet("OpacityStep", 1.0));
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
+        this.m_propRight = true;
+        this.m_propListCategory = -1;
 
         let layer = new inkCanvas();
         layer.SetName(n"APM_PoseEditorLayer");
@@ -326,6 +337,7 @@ public class APM_PoseEditor extends IScriptable {
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
         this.UpdateRename();
+        this.SyncProps();
         if APM_IsPhotoModeActive() && !this.m_renaming {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
@@ -461,7 +473,14 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(panel, "delete", "Delete", 446.0, 876.0, 178.0, 30.0);
         this.CreateButton(panel, "pageprev", "<", 446.0, 910.0, 86.0, 30.0);
         this.CreateButton(panel, "pagenext", ">", 538.0, 910.0, 86.0, 30.0);
-        this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 948.0, 608.0, 26.0, 12, APM_ColorDimText());
+        // Item held in a hand
+        this.CreateButton(panel, "prop:hand", "Right hand", 16.0, 948.0, 104.0, 30.0);
+        this.CreateButton(panel, "prop:category", "Weapons", 124.0, 948.0, 116.0, 30.0);
+        this.CreateButton(panel, "prop:prev", "<", 244.0, 948.0, 36.0, 30.0);
+        this.CreateButton(panel, "prop:equip", "", 284.0, 948.0, 252.0, 30.0);
+        this.CreateButton(panel, "prop:next", ">", 540.0, 948.0, 36.0, 30.0);
+        this.CreateButton(panel, "prop:clear", "X", 580.0, 948.0, 44.0, 30.0);
+        this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 986.0, 608.0, 26.0, 12, APM_ColorDimText());
 
         this.ReloadPoses();
     }
@@ -841,6 +860,177 @@ public class APM_PoseEditor extends IScriptable {
         return pages < 1 ? 1 : pages;
     }
 
+    // --- Props ----------------------------------------------------------------------------------------------------
+
+    private func PropCategoryName(category: Int32) -> String {
+        if category == 0 {
+            return "Weapons";
+        }
+        if category == 1 {
+            return "Food & drink";
+        }
+        return "Other items";
+    }
+
+    // Whether an item record belongs to a category of the picker.
+    private func PropFits(category: Int32, record: ref<Item_Record>) -> Bool {
+        let itemType = record.ItemType();
+        if !IsDefined(itemType) {
+            return false;
+        }
+        let typeName = EnumValueToString("gamedataItemType", Cast<Int64>(EnumInt(itemType.Type())));
+        if category == 0 {
+            return StrBeginsWith(typeName, "Wea_") && !Equals(typeName, "Wea_Fists") && !Equals(typeName, "Wea_VehicleMissileLauncher") && !Equals(typeName, "Wea_VehiclePowerWeapon");
+        }
+        if category == 1 {
+            return Equals(typeName, "Con_Edible");
+        }
+        return Equals(typeName, "Gen_Junk") || Equals(typeName, "Gen_Jewellery") || Equals(typeName, "Gen_Misc") || Equals(typeName, "Gen_Tarot");
+    }
+
+    // Items of a category with a name, one per name, sorted by name.
+    private func BuildPropList(category: Int32) {
+        ArrayClear(this.m_propIds);
+        ArrayClear(this.m_propNames);
+        this.m_propListCategory = category;
+        let kind = category == 0 ? 0 : (category == 1 ? 1 : 2);
+        let count = APM_PropRecordCount(kind);
+        let i = 0;
+        while i < count {
+            let id = APM_RecordFromNumber(APM_PropRecordAt(kind, i));
+            let record = TweakDBInterface.GetItemRecord(id);
+            if IsDefined(record) && this.PropFits(category, record) {
+                let name = GetLocalizedItemNameByCName(record.DisplayName());
+                if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") && !ArrayContains(this.m_propNames, name) {
+                    // Insert sorted (binary search).
+                    let low = 0;
+                    let high = ArraySize(this.m_propNames);
+                    while low < high {
+                        let middle = (low + high) / 2;
+                        if StrCmp(this.m_propNames[middle], name) < 0 {
+                            low = middle + 1;
+                        } else {
+                            high = middle;
+                        }
+                    }
+                    ArrayInsert(this.m_propNames, low, name);
+                    ArrayInsert(this.m_propIds, low, id);
+                }
+            }
+            i += 1;
+        }
+        this.m_propIndex = 0;
+        APM_LogInfo("Props: " + this.PropCategoryName(category) + " " + IntToString(ArraySize(this.m_propIds)) + " items");
+    }
+
+    private func EnsurePropList() {
+        if this.m_propListCategory != this.m_propCategory {
+            this.BuildPropList(this.m_propCategory);
+        }
+    }
+
+    private func RunPropButton(arg: String) {
+        if Equals(arg, "hand") {
+            this.m_propRight = !this.m_propRight;
+            return;
+        }
+        if Equals(arg, "category") {
+            this.m_propCategory = (this.m_propCategory + 1) % 3;
+            this.EnsurePropList();
+            return;
+        }
+        if Equals(arg, "clear") {
+            APM_SetHandProp(this.m_propRight, 0ul);
+            this.SetStatus((this.m_propRight ? "Right" : "Left") + " hand emptied");
+            return;
+        }
+        this.EnsurePropList();
+        let count = ArraySize(this.m_propIds);
+        if count == 0 {
+            this.SetStatus("No items in " + this.PropCategoryName(this.m_propCategory));
+            return;
+        }
+        if Equals(arg, "prev") {
+            this.m_propIndex = (this.m_propIndex + count - 1) % count;
+        } else if Equals(arg, "next") {
+            this.m_propIndex = (this.m_propIndex + 1) % count;
+        }
+        // Browsing puts the item in the hand right away.
+        APM_SetHandProp(this.m_propRight, TDBID.ToNumber(this.m_propIds[this.m_propIndex]));
+        this.SetStatus(this.m_propNames[this.m_propIndex] + " in the " + (this.m_propRight ? "right" : "left") + " hand (" + IntToString(this.m_propIndex + 1) + " / " + IntToString(count) + ")");
+    }
+
+    private func RefreshProps() {
+        let handButton = this.FindButton("prop:hand");
+        if IsDefined(handButton) {
+            handButton.label.SetText(this.m_propRight ? "Right hand" : "Left hand");
+        }
+        let categoryButton = this.FindButton("prop:category");
+        if IsDefined(categoryButton) {
+            categoryButton.label.SetText(this.PropCategoryName(this.m_propCategory));
+        }
+        let equipButton = this.FindButton("prop:equip");
+        if IsDefined(equipButton) {
+            let held = APM_GetHandProp(this.m_propRight);
+            let text = "Empty hand";
+            if held != 0ul {
+                let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(held));
+                text = IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "Item";
+            }
+            equipButton.label.SetText(text);
+            equipButton.isMarked = held != 0ul;
+            equipButton.UpdateLook();
+        }
+        this.SetButton("prop:clear", false, APM_GetHandProp(this.m_propRight) != 0ul);
+    }
+
+    // Puts the chosen items on the Photo Mode puppet (also after loading a pose, or when Photo Mode opens again).
+    private func SyncProps() {
+        if !APM_IsPhotoModeActive() {
+            this.m_shownRight = 0ul;
+            this.m_shownLeft = 0ul;
+            return;
+        }
+        let right = APM_GetHandProp(true);
+        let left = APM_GetHandProp(false);
+        if right != this.m_shownRight {
+            if this.PlaceProp(true, right) {
+                this.m_shownRight = right;
+            }
+        }
+        if left != this.m_shownLeft {
+            if this.PlaceProp(false, left) {
+                this.m_shownLeft = left;
+            }
+        }
+    }
+
+    private func PlaceProp(right: Bool, record: Uint64) -> Bool {
+        let puppet = APM_GizmoGetEntity() as GameObject;
+        if !IsDefined(puppet) {
+            return false;
+        }
+        let transactions = GameInstance.GetTransactionSystem(puppet.GetGame());
+        let slot = right ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
+        transactions.RemoveItemFromSlot(puppet, slot, true);
+        if record == 0ul {
+            return true;
+        }
+        let id = APM_RecordFromNumber(record);
+        let itemRecord = TweakDBInterface.GetItemRecord(id);
+        if !IsDefined(itemRecord) {
+            return true; // unknown item (e.g. from a removed mod): nothing to place
+        }
+        let isWeapon = IsDefined(itemRecord as WeaponItem_Record);
+        let itemID = isWeapon ? ItemID.CreateQuery(id) : ItemID.FromTDBID(id);
+        if !transactions.HasItem(puppet, itemID) {
+            transactions.GiveItem(puppet, itemID, 1);
+        }
+        let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
+        APM_LogInfo("Props: " + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed in the " : " could not be placed in the ") + (right ? "right" : "left") + " hand");
+        return true;
+    }
+
     // --- Pose names ----------------------------------------------------------------------------------------------
 
     private func StartRename(name: String) {
@@ -1032,6 +1222,7 @@ public class APM_PoseEditor extends IScriptable {
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
+        this.RefreshProps();
         this.SetButton("undo", false, APM_CanUndo());
         this.SetButton("redo", false, APM_CanRedo());
         this.SetButton("rename", this.m_renaming, hasSelection);
@@ -1774,6 +1965,8 @@ public class APM_PoseEditor extends IScriptable {
             // Off -> world (stays where it is) -> body (moves with the shoulder / hips) -> off
             let nextPin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5) + 1;
             APM_UiSetValue(7711u, Cast<Float>(nextPin > 2 ? 0 : nextPin));
+        } else if Equals(prefix, "prop") {
+            this.RunPropButton(arg);
         } else if Equals(id, "undo") {
             this.SetStatus(APM_Undo() ? "Undone" : "Nothing to undo");
         } else if Equals(id, "redo") {

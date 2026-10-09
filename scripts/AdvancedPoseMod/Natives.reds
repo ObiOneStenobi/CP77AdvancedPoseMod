@@ -56,6 +56,14 @@ public native func APM_SaveNewPose() -> String
 public native func APM_RenamePose(oldName: String, newName: String) -> String
 // Saved full pose currently replacing the Photo Mode pose ("" if none)
 public native func APM_GetBasePoseName() -> String
+// Item records for the prop picker (0 weapons, 1 consumables, 2 other items), as TweakDBID numbers
+public native func APM_PropRecordCount(kind: Int32) -> Int32
+public native func APM_PropRecordAt(kind: Int32, index: Int32) -> Uint64
+// TweakDBID from TDBID.ToNumber()
+public native func APM_RecordFromNumber(number: Uint64) -> TweakDBID
+// Item held in a hand (TweakDBID number, 0 = none); saved with poses
+public native func APM_SetHandProp(rightHand: Bool, record: Uint64)
+public native func APM_GetHandProp(rightHand: Bool) -> Uint64
 // Undo / redo: record the state when an edit starts
 public native func APM_HistoryCheckpoint()
 public native func APM_Undo() -> Bool

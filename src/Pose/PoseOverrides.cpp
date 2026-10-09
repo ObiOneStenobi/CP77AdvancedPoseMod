@@ -38,6 +38,8 @@ struct EditState
 constexpr size_t MaxHistory = 100;
 std::vector<EditState> g_undo;
 std::vector<EditState> g_redo;
+std::atomic<uint64_t> g_propRight{0};
+std::atomic<uint64_t> g_propLeft{0};
 std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
 std::shared_ptr<const APM::Pose::OverrideSnapshot> g_snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
 
@@ -431,6 +433,19 @@ bool Save(const std::string& aName)
         }
     }
 
+    if (g_propRight != 0 || g_propLeft != 0)
+    {
+        auto& props = root["props"] = nlohmann::json::object();
+        if (g_propRight != 0)
+        {
+            props["right"] = std::to_string(g_propRight.load());
+        }
+        if (g_propLeft != 0)
+        {
+            props["left"] = std::to_string(g_propLeft.load());
+        }
+    }
+
     std::error_code ec;
     std::filesystem::create_directories(GetPoseDirectory(), ec);
     const auto path = GetPoseDirectory() / (name + ".json");
@@ -556,10 +571,37 @@ bool Load(const std::string& aName)
         g_ik = loadedIk;
         g_base = std::move(loadedBase);
         PublishLocked();
+        const auto prop = [&](const char* aKey) -> uint64_t
+        {
+            if (!root.contains("props") || !root["props"].contains(aKey))
+            {
+                return 0;
+            }
+            try
+            {
+                return std::stoull(root["props"][aKey].get<std::string>());
+            }
+            catch (...)
+            {
+                return 0;
+            }
+        };
+        g_propRight = prop("right");
+        g_propLeft = prop("left");
     }
     g_enabled = true;
     Log::Info("Pose loaded: %s (%zu bones)", name.c_str(), Count());
     return true;
+}
+
+void SetHandProp(bool aRightHand, uint64_t aRecord)
+{
+    (aRightHand ? g_propRight : g_propLeft) = aRecord;
+}
+
+uint64_t GetHandProp(bool aRightHand)
+{
+    return (aRightHand ? g_propRight : g_propLeft).load();
 }
 
 void Checkpoint()
