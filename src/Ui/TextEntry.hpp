@@ -25,6 +25,11 @@ std::string GetText();
 // The first call hooks the game window.
 int32_t ConsumeHotkey();
 
+// While captured, the mouse wheel is kept from the game (Photo Mode camera distance) and summed for the editor
+// (120 per notch, positive = away from the user).
+void SetWheelCapture(bool aCapture);
+int32_t ConsumeWheel();
+
 // Restores the game window's message handler (plugin unload).
 void Shutdown();
 } // namespace APM::Ui::TextEntry

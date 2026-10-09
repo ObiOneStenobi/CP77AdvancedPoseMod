@@ -78,6 +78,9 @@ public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
 public native func APM_SetNeutralPose(armsDown: Bool) -> Bool
 // Turns a part (an eye) to look at a model-space point
 public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
+// Mouse wheel kept from the game while captured; ConsumeWheel returns the sum since the last call (120 per notch)
+public native func APM_SetWheelCapture(capture: Bool)
+public native func APM_ConsumeWheel() -> Int32
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
 public native func APM_TextEntryBegin(text: String) -> Bool
 public native func APM_TextEntryEnd()

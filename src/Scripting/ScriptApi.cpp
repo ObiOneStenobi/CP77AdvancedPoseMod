@@ -422,6 +422,20 @@ void GizmoAimPart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Ui::PhotoModeUi::AimPart(part, {target.X, target.Y, target.Z}));
 }
 
+void SetWheelCapture(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool capture = false;
+    RED4ext::GetParameter(aFrame, &capture);
+    aFrame->code++;
+    APM::Ui::TextEntry::SetWheelCapture(capture);
+}
+
+void ConsumeWheel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::TextEntry::ConsumeWheel());
+}
+
 void TextEntryBegin(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     CString text;
@@ -985,6 +999,8 @@ void Register()
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
     ::Register("APM_SetNeutralPose", &SetNeutralPose, "Bool", {{"Bool", "armsDown"}});
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
+    ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
+    ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});
     ::Register("APM_TextEntryEnd", &TextEntryEnd, nullptr, {});
     ::Register("APM_TextEntryGetState", &TextEntryGetState, "Int32", {});

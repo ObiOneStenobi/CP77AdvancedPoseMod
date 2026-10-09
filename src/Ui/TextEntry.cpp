@@ -19,6 +19,27 @@ std::string g_text;
 std::atomic<State> g_state{State::Inactive};
 HWND g_window = nullptr;
 std::atomic<int32_t> g_hotkey{0};
+std::atomic<bool> g_wheelCapture{false};
+std::atomic<int32_t> g_wheel{0};
+std::atomic<uint64_t> g_lastRawWheel{0};
+
+// Mouse wheel while captured: summed for the editor, kept from the game. Returns true to swallow the input.
+bool CaptureRawWheel(LPARAM aParam)
+{
+    RAWINPUT input{};
+    UINT size = sizeof(input);
+    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(aParam), RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) ==
+            static_cast<UINT>(-1) ||
+        input.header.dwType != RIM_TYPEMOUSE || (input.data.mouse.usButtonFlags & RI_MOUSE_WHEEL) == 0)
+    {
+        return false;
+    }
+    g_wheel += static_cast<SHORT>(input.data.mouse.usButtonData);
+    g_lastRawWheel = GetTickCount64();
+    // Only packets that carry nothing but the wheel are kept from the game (movement must still reach it).
+    return input.data.mouse.lLastX == 0 && input.data.mouse.lLastY == 0 &&
+           (input.data.mouse.usButtonFlags & ~RI_MOUSE_WHEEL) == 0;
+}
 WNDPROC g_originalProc = nullptr;
 
 // Characters a pose name (file name) may contain.
@@ -91,6 +112,21 @@ LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM 
     if (aMessage == WM_INPUT && (IsTyping() || !g_keysDown.empty()) && SwallowRawKeyboard(aLParam))
     {
         return DefWindowProcW(aWindow, aMessage, aWParam, aLParam);
+    }
+    if (g_wheelCapture)
+    {
+        if (aMessage == WM_INPUT && CaptureRawWheel(aLParam))
+        {
+            return DefWindowProcW(aWindow, aMessage, aWParam, aLParam);
+        }
+        if (aMessage == WM_MOUSEWHEEL)
+        {
+            if (GetTickCount64() - g_lastRawWheel > 1000) // no raw input wheel: count this one
+            {
+                g_wheel += GET_WHEEL_DELTA_WPARAM(aWParam);
+            }
+            return 0;
+        }
     }
     // Undo / redo shortcuts (the keys still reach the game: Photo Mode does not use them).
     if (aMessage == WM_KEYDOWN && !IsTyping() && (aLParam & (1 << 30)) == 0 && (GetKeyState(VK_CONTROL) & 0x8000))
@@ -206,6 +242,22 @@ bool Begin(const std::string& aText)
     }
     g_state = State::Typing;
     return true;
+}
+
+void SetWheelCapture(bool aCapture)
+{
+    if (aCapture)
+    {
+        std::scoped_lock lock(g_mutex);
+        InstallLocked();
+    }
+    g_wheelCapture = aCapture;
+    g_wheel = 0;
+}
+
+int32_t ConsumeWheel()
+{
+    return g_wheel.exchange(0);
 }
 
 int32_t ConsumeHotkey()

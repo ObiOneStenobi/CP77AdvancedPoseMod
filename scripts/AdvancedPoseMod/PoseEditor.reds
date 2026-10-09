@@ -236,8 +236,38 @@ public class APM_PoseEditor extends IScriptable {
     private let m_posePage: Int32;
     private let m_selectedPose: String;
     private let m_partTitle: wref<inkText>;
-    private let m_moveTitle: wref<inkText>;
     private let m_posesTitle: wref<inkText>;
+    // Panel sections, stacked by Layout()
+    private let m_sectionHeader: wref<inkCanvas>;
+    private let m_sectionPart: wref<inkCanvas>;
+    private let m_sectionRotation: wref<inkCanvas>;
+    private let m_sectionMove: wref<inkCanvas>;
+    private let m_sectionIk: wref<inkCanvas>;
+    private let m_ikRows: wref<inkCanvas>;
+    private let m_sectionPoses: wref<inkCanvas>;
+    private let m_posesBody: wref<inkCanvas>;
+    private let m_sectionItems: wref<inkCanvas>;
+    private let m_sectionStatus: wref<inkCanvas>;
+    private let m_posesOpen: Bool;
+    // Item picker (search list next to the panel)
+    private let m_picker: wref<inkCanvas>;
+    private let m_pickerSearch: wref<inkText>;
+    private let m_pickerPageText: wref<inkText>;
+    private let m_pickerButtons: array<ref<APM_Button>>;
+    private let m_pickerOpen: Bool;
+    private let m_pickerQuery: String;
+    private let m_pickerPage: Int32;
+    private let m_pickerResults: array<Int32>; // indexes into m_itemIds
+    private let m_itemIds: array<TweakDBID>;   // every item the picker offers, sorted by name
+    private let m_itemNames: array<String>;
+    private let m_itemSearch: array<String>;   // lower case names
+    private let m_itemWeapon: array<Bool>;
+    private let m_itemsBuilt: Bool;
+    private let m_recentItems: array<TweakDBID>;
+    private let m_noModelItems: array<Uint64>; // items that showed nothing in the hand (this session)
+    private let m_checkTimer: Float;           // time left before checking that a placed item shows up
+    private let m_checkRight: Bool;
+    private let m_checkRecord: Uint64;
     private let m_status: wref<inkText>;
 
     private let m_markers: array<ref<APM_Marker>>;
@@ -269,11 +299,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_confirmDelete: Bool;
     // Props: items put in V's hands
     private let m_propRight: Bool;            // the hand the picker works on
-    private let m_propCategory: Int32;        // 0 weapons, 1 food & drink, 2 other items
-    private let m_propIds: array<TweakDBID>;  // items of the category, sorted by name
-    private let m_propNames: array<String>;
-    private let m_propListCategory: Int32;    // category m_propIds was built for (-1 = none)
-    private let m_propIndex: Int32;
     private let m_shownRight: Uint64;         // items actually placed on the puppet
     private let m_shownLeft: Uint64;
     private let m_renaming: Bool;     // typing a pose name
@@ -291,7 +316,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_opacityStep = Cast<Int32>(APM_PrefGet("OpacityStep", 1.0));
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
         this.m_propRight = true;
-        this.m_propListCategory = -1;
+        this.m_posesOpen = APM_PrefGet("PosesOpen", 1.0) > 0.5;
 
         let layer = new inkCanvas();
         layer.SetName(n"APM_PoseEditorLayer");
@@ -321,6 +346,11 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     public func Uninitialize() {
+        APM_SetWheelCapture(false);
+        if this.m_pickerOpen {
+            APM_TextEntryEnd();
+            this.m_pickerOpen = false;
+        }
         if this.m_renaming {
             APM_TextEntryEnd();
             this.m_renaming = false;
@@ -337,8 +367,10 @@ public class APM_PoseEditor extends IScriptable {
     public func Update(timeDelta: Float) {
         this.UpdateMarkers();
         this.UpdateRename();
-        this.SyncProps();
-        if APM_IsPhotoModeActive() && !this.m_renaming {
+        this.SyncProps(timeDelta);
+        this.UpdatePicker();
+        this.UpdateDragWheel();
+        if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerOpen {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
                 this.SetStatus(APM_Undo() ? "Undone (Ctrl+Z)" : "Nothing to undo");
@@ -386,15 +418,26 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(panel);
 
-        // Header
-        this.CreateText(panel, "Advanced pose", 16.0, 8.0, 200.0, 32.0, 22, APM_ColorAccent());
-        this.CreateButton(panel, "enabled", "Pose off", 214.0, 8.0, 96.0, 32.0);
-        this.CreateButton(panel, "gizmos", "Gizmos", 316.0, 8.0, 88.0, 32.0);
-        this.CreateButton(panel, "opacity", "100%", 410.0, 8.0, 64.0, 32.0);
-        this.CreateButton(panel, "dock", "<  >", 480.0, 8.0, 56.0, 32.0);
-        this.CreateButton(panel, "hide", "Hide", 542.0, 8.0, 82.0, 32.0);
+        // Header: switches, then the tools used all the time
+        let header = this.CreateSection(n"APM_Header");
+        this.m_sectionHeader = header;
+        this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
+        this.CreateButton(header, "enabled", "Pose off", 190.0, 8.0, 92.0, 32.0);
+        this.CreateButton(header, "gizmos", "Gizmos", 286.0, 8.0, 92.0, 32.0);
+        this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
+        this.CreateButton(header, "dock", "<  >", 450.0, 8.0, 56.0, 32.0);
+        this.CreateButton(header, "hide", "Hide", 510.0, 8.0, 114.0, 32.0);
+        this.CreateSmallButton(header, "undo", "Undo", 16.0, 46.0, 80.0, 28.0);
+        this.CreateSmallButton(header, "redo", "Redo", 100.0, 46.0, 80.0, 28.0);
+        this.CreateSmallButton(header, "resetpart", "Reset part", 196.0, 46.0, 106.0, 28.0);
+        this.CreateSmallButton(header, "resetall", "Reset all", 306.0, 46.0, 118.0, 28.0);
+        this.CreateSmallButton(header, "mirror:l", "Copy L > R", 440.0, 46.0, 90.0, 28.0);
+        this.CreateSmallButton(header, "mirror:r", "Copy R > L", 534.0, 46.0, 90.0, 28.0);
 
-        // Body part groups (two rows of four tabs)
+        // Body part: group tabs (two rows of four), parts of the group (two rows of three)
+        let partSection = this.CreateSection(n"APM_Part");
+        this.m_sectionPart = partSection;
+        this.AddSeparator(partSection);
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
         while i < count {
@@ -407,82 +450,183 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < ArraySize(this.m_groupNames) {
             let x = 16.0 + Cast<Float>(i % 4) * 152.0;
-            let y = 48.0 + Cast<Float>(i / 4) * 38.0;
-            ArrayPush(this.m_groupButtons, this.CreateButton(panel, "group:" + IntToString(i), this.m_groupNames[i], x, y, 146.0, 32.0));
+            let y = 10.0 + Cast<Float>(i / 4) * 36.0;
+            ArrayPush(this.m_groupButtons, this.CreateButton(partSection, "group:" + IntToString(i), this.m_groupNames[i], x, y, 146.0, 32.0));
             i += 1;
         }
-
-        // Body parts of the selected group (up to six, two rows of three)
         i = 0;
         while i < 6 {
             let x = 16.0 + Cast<Float>(i % 3) * 203.0;
-            let y = 130.0 + Cast<Float>(i / 3) * 38.0;
-            ArrayPush(this.m_partButtons, this.CreateButton(panel, "part:" + IntToString(i), "", x, y, 197.0, 32.0));
+            let y = 86.0 + Cast<Float>(i / 3) * 36.0;
+            ArrayPush(this.m_partButtons, this.CreateButton(partSection, "part:" + IntToString(i), "", x, y, 197.0, 32.0));
             ArrayPush(this.m_partIndices, -1);
             i += 1;
         }
 
-        // Rotation
-        this.m_partTitle = this.CreateText(panel, "", 16.0, 208.0, 600.0, 26.0, 19, APM_ColorAccent());
-        this.CreateRow(panel, 7702u, "Bend forward / back", 236.0, -180.0, 180.0, 1.0, 0.2, "");
-        this.CreateRow(panel, 7703u, "Bend sideways", 272.0, -180.0, 180.0, 1.0, 0.2, "");
-        this.CreateRow(panel, 7704u, "Twist", 308.0, -180.0, 180.0, 1.0, 0.2, "");
+        // Rotation of the selected part
+        let rotation = this.CreateSection(n"APM_Rotation");
+        this.m_sectionRotation = rotation;
+        this.AddSeparator(rotation);
+        this.m_partTitle = this.CreateText(rotation, "", 16.0, 6.0, 600.0, 26.0, 18, APM_ColorAccent());
+        this.CreateRow(rotation, 7702u, "Bend forward / back", 34.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateRow(rotation, 7703u, "Bend sideways", 70.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateRow(rotation, 7704u, "Twist", 106.0, -180.0, 180.0, 1.0, 0.2, "");
 
-        // Translation (body only)
-        this.m_moveTitle = this.CreateText(panel, "Move (cm)", 16.0, 346.0, 300.0, 26.0, 19, APM_ColorAccent());
-        // Copy one side onto the other (the selected left / right tab, or the whole body from the other tabs)
-        this.CreateButton(panel, "mirror:l", "Copy L > R", 320.0, 344.0, 150.0, 26.0);
-        this.CreateButton(panel, "mirror:r", "Copy R > L", 474.0, 344.0, 150.0, 26.0);
-        this.CreateRow(panel, 7705u, "Left / right", 374.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateRow(panel, 7706u, "Forward / back", 410.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateRow(panel, 7707u, "Up / down", 446.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateButton(panel, "resetpart", "Reset part", 16.0, 486.0, 148.0, 32.0);
-        this.CreateButton(panel, "resetall", "Reset all", 168.0, 486.0, 148.0, 32.0);
-        this.CreateButton(panel, "undo", "Undo", 320.0, 486.0, 150.0, 32.0);
-        this.CreateButton(panel, "redo", "Redo", 474.0, 486.0, 150.0, 32.0);
+        // Position (only parts that can move: hips, held items)
+        let move = this.CreateSection(n"APM_Move");
+        this.m_sectionMove = move;
+        this.AddSeparator(move);
+        this.CreateText(move, "Move (cm)", 16.0, 6.0, 300.0, 26.0, 18, APM_ColorAccent());
+        this.CreateRow(move, 7705u, "Left / right", 34.0, -100.0, 100.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7706u, "Forward / back", 70.0, -100.0, 100.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7707u, "Up / down", 106.0, -100.0, 100.0, 0.5, 0.05, " cm");
 
-        // IK
-        this.CreateText(panel, "IK: pin a hand or foot", 16.0, 526.0, 600.0, 26.0, 19, APM_ColorAccent());
+        // IK: limb + pin; the rows only while that limb is pinned
+        let ik = this.CreateSection(n"APM_Ik");
+        this.m_sectionIk = ik;
+        this.AddSeparator(ik);
+        this.CreateText(ik, "IK", 16.0, 8.0, 40.0, 30.0, 18, APM_ColorAccent());
         let limbs = APM_UiGetOptionCount(7710u);
         i = 0;
         while i < limbs {
-            this.CreateButton(panel, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 16.0 + Cast<Float>(i) * 124.0, 556.0, 118.0, 32.0);
+            this.CreateButton(ik, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 60.0 + Cast<Float>(i) * 112.0, 8.0, 108.0, 30.0);
             i += 1;
         }
-        this.CreateButton(panel, "pin", "Pin off", 512.0, 556.0, 112.0, 32.0);
-        this.CreateRow(panel, 7712u, "Right / left", 594.0, -80.0, 80.0, 0.5, 0.05, " cm");
-        this.CreateRow(panel, 7713u, "Forward / back", 630.0, -80.0, 80.0, 0.5, 0.05, " cm");
-        this.CreateRow(panel, 7714u, "Up / down", 666.0, -80.0, 80.0, 0.5, 0.05, " cm");
-        this.CreateRow(panel, 7715u, "Elbow / knee", 702.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateButton(ik, "pin", "Pin off", 512.0, 8.0, 112.0, 30.0);
+        let ikRows = new inkCanvas();
+        ikRows.SetName(n"APM_IkRows");
+        ikRows.SetAnchor(inkEAnchor.TopLeft);
+        ikRows.SetMargin(0.0, 44.0 * s, 0.0, 0.0);
+        ikRows.SetSize(width * s, 148.0 * s);
+        ikRows.Reparent(ik);
+        this.m_ikRows = ikRows;
+        this.CreateRow(ikRows, 7712u, "Right / left", 0.0, -80.0, 80.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7713u, "Forward / back", 36.0, -80.0, 80.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7714u, "Up / down", 72.0, -80.0, 80.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7715u, "Elbow / knee", 108.0, -180.0, 180.0, 1.0, 0.2, "");
 
-        // Pose library
-        this.m_posesTitle = this.CreateText(panel, "Poses", 16.0, 744.0, 400.0, 26.0, 19, APM_ColorAccent());
-        this.CreateButton(panel, "neutral:t", "T pose", 446.0, 742.0, 86.0, 26.0);
-        this.CreateButton(panel, "neutral:a", "A pose", 538.0, 742.0, 86.0, 26.0);
+        // Pose library (folds)
+        let poses = this.CreateSection(n"APM_Poses");
+        this.m_sectionPoses = poses;
+        this.AddSeparator(poses);
+        this.m_posesTitle = this.CreateText(poses, "Poses", 16.0, 6.0, 340.0, 28.0, 16, APM_ColorAccent());
+        this.CreateSmallButton(poses, "neutral:t", "T pose", 360.0, 6.0, 100.0, 28.0);
+        this.CreateSmallButton(poses, "neutral:a", "A pose", 464.0, 6.0, 100.0, 28.0);
+        this.CreateSmallButton(poses, "poses:toggle", "-", 572.0, 6.0, 52.0, 28.0);
+        let posesBody = new inkCanvas();
+        posesBody.SetName(n"APM_PosesBody");
+        posesBody.SetAnchor(inkEAnchor.TopLeft);
+        posesBody.SetMargin(0.0, 40.0 * s, 0.0, 0.0);
+        posesBody.SetSize(width * s, 174.0 * s);
+        posesBody.Reparent(poses);
+        this.m_posesBody = posesBody;
         i = 0;
         while i < APM_PosesPerPage() {
-            let poseButton = this.CreateButton(panel, "pose:" + IntToString(i), "", 16.0, 774.0 + Cast<Float>(i) * 34.0, 420.0, 30.0);
+            let poseButton = this.CreateButton(posesBody, "pose:" + IntToString(i), "", 16.0, Cast<Float>(i) * 34.0, 420.0, 30.0);
             poseButton.label.SetLetterCase(textLetterCase.OriginalCase);
             ArrayPush(this.m_poseButtons, poseButton);
             i += 1;
         }
-        this.CreateButton(panel, "savenew", "Save new", 446.0, 774.0, 178.0, 30.0);
-        this.CreateButton(panel, "overwrite", "Overwrite", 446.0, 808.0, 178.0, 30.0);
-        this.CreateButton(panel, "load", "Load", 446.0, 842.0, 86.0, 30.0);
-        this.CreateButton(panel, "rename", "Rename", 538.0, 842.0, 86.0, 30.0);
-        this.CreateButton(panel, "delete", "Delete", 446.0, 876.0, 178.0, 30.0);
-        this.CreateButton(panel, "pageprev", "<", 446.0, 910.0, 86.0, 30.0);
-        this.CreateButton(panel, "pagenext", ">", 538.0, 910.0, 86.0, 30.0);
-        // Item held in a hand
-        this.CreateButton(panel, "prop:hand", "Right hand", 16.0, 948.0, 104.0, 30.0);
-        this.CreateButton(panel, "prop:category", "Weapons", 124.0, 948.0, 116.0, 30.0);
-        this.CreateButton(panel, "prop:prev", "<", 244.0, 948.0, 36.0, 30.0);
-        this.CreateButton(panel, "prop:equip", "", 284.0, 948.0, 252.0, 30.0);
-        this.CreateButton(panel, "prop:next", ">", 540.0, 948.0, 36.0, 30.0);
-        this.CreateButton(panel, "prop:clear", "X", 580.0, 948.0, 44.0, 30.0);
-        this.m_status = this.CreateText(panel, "Drag a value or a gizmo with the mouse", 16.0, 986.0, 608.0, 26.0, 12, APM_ColorDimText());
+        this.CreateButton(posesBody, "savenew", "Save new", 446.0, 0.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "overwrite", "Overwrite", 446.0, 34.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "load", "Load", 446.0, 68.0, 86.0, 30.0);
+        this.CreateButton(posesBody, "rename", "Rename", 538.0, 68.0, 86.0, 30.0);
+        this.CreateButton(posesBody, "delete", "Delete", 446.0, 102.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "pageprev", "<", 446.0, 136.0, 86.0, 30.0);
+        this.CreateButton(posesBody, "pagenext", ">", 538.0, 136.0, 86.0, 30.0);
 
+        // Item in hand
+        let items = this.CreateSection(n"APM_Items");
+        this.m_sectionItems = items;
+        this.AddSeparator(items);
+        this.CreateText(items, "In hand", 16.0, 8.0, 100.0, 30.0, 16, APM_ColorAccent());
+        this.CreateButton(items, "prop:hand", "Right", 116.0, 8.0, 90.0, 30.0);
+        this.CreateButton(items, "prop:open", "", 210.0, 8.0, 360.0, 30.0);
+        this.CreateButton(items, "prop:clear", "X", 574.0, 8.0, 50.0, 30.0);
+
+        // Status line
+        let status = this.CreateSection(n"APM_Status");
+        this.m_sectionStatus = status;
+        this.m_status = this.CreateText(status, "Drag a value or a gizmo with the mouse", 16.0, 2.0, 608.0, 26.0, 12, APM_ColorDimText());
+
+        this.BuildPicker();
         this.ReloadPoses();
+        this.Layout();
+    }
+
+    // Stacks the visible sections and sizes the panel to them.
+    private func Layout() {
+        if !IsDefined(this.m_panel) {
+            return;
+        }
+        let s = APM_UiScale();
+        let y = 0.0;
+        y = this.PlaceSection(this.m_sectionHeader, y, 80.0, true);
+        y = this.PlaceSection(this.m_sectionPart, y, 160.0, true);
+        y = this.PlaceSection(this.m_sectionRotation, y, 144.0, true);
+        y = this.PlaceSection(this.m_sectionMove, y, 144.0, APM_UiIsAttributeEnabled(7705u));
+        let pinned = APM_UiGetValue(7711u) > 0.5;
+        this.m_ikRows.SetVisible(pinned);
+        y = this.PlaceSection(this.m_sectionIk, y, pinned ? 194.0 : 46.0, true);
+        this.m_posesBody.SetVisible(this.m_posesOpen);
+        y = this.PlaceSection(this.m_sectionPoses, y, this.m_posesOpen ? 218.0 : 40.0, true);
+        y = this.PlaceSection(this.m_sectionItems, y, 46.0, true);
+        y = this.PlaceSection(this.m_sectionStatus, y, 32.0, true);
+        this.m_panel.SetSize(APM_PanelWidth() * s, y * s);
+    }
+
+    private func PlaceSection(section: wref<inkCanvas>, y: Float, height: Float, visible: Bool) -> Float {
+        let s = APM_UiScale();
+        section.SetVisible(visible);
+        if !visible {
+            return y;
+        }
+        section.SetMargin(0.0, y * s, 0.0, 0.0);
+        section.SetSize(APM_PanelWidth() * s, height * s);
+        return y + height;
+    }
+
+    // Search list for the item in hand, shown beside the panel.
+    private func BuildPicker() {
+        let s = APM_UiScale();
+        let picker = new inkCanvas();
+        picker.SetName(n"APM_ItemPicker");
+        picker.SetSize(460.0 * s, 520.0 * s);
+        picker.SetInteractive(true);
+        picker.SetVisible(false);
+        picker.Reparent(this.m_layer);
+        picker.RegisterToCallback(n"OnHoverOver", this, n"OnPanelHoverOver");
+        picker.RegisterToCallback(n"OnHoverOut", this, n"OnPanelHoverOut");
+        this.m_picker = picker;
+
+        let bg = new inkRectangle();
+        bg.SetAnchor(inkEAnchor.Fill);
+        bg.SetTintColor(APM_ColorDark());
+        bg.SetOpacity(0.92);
+        bg.SetInteractive(true);
+        bg.Reparent(picker);
+        let accent = new inkRectangle();
+        accent.SetAnchor(inkEAnchor.TopFillHorizontaly);
+        accent.SetSize(460.0 * s, 3.0 * s);
+        accent.SetTintColor(APM_ColorAccent());
+        accent.Reparent(picker);
+
+        let search = this.CreateText(picker, "Type to search", 16.0, 8.0, 428.0, 30.0, 17, APM_ColorAccent());
+        search.SetLetterCase(textLetterCase.OriginalCase);
+        this.m_pickerSearch = search;
+        let i = 0;
+        while i < this.PickerRows() {
+            let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, 44.0 + Cast<Float>(i) * 34.0, 428.0, 30.0);
+            button.label.SetLetterCase(textLetterCase.OriginalCase);
+            ArrayPush(this.m_pickerButtons, button);
+            i += 1;
+        }
+        let footer = 44.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
+        this.CreateSmallButton(picker, "pick:prev", "<", 16.0, footer, 60.0, 28.0);
+        this.m_pickerPageText = this.CreateText(picker, "", 84.0, footer, 200.0, 28.0, 13, APM_ColorDimText());
+        this.CreateSmallButton(picker, "pick:next", ">", 290.0, footer, 60.0, 28.0);
+        this.CreateSmallButton(picker, "pick:close", "Close", 354.0, footer, 90.0, 28.0);
+        picker.SetSize(460.0 * s, (footer + 40.0) * s);
     }
 
     private func BuildMarkers() {
@@ -606,6 +750,34 @@ public class APM_PoseEditor extends IScriptable {
         return label;
     }
 
+    private func CreateSmallButton(parent: wref<inkCompoundWidget>, id: String, text: String, x: Float, y: Float, w: Float, h: Float) -> ref<APM_Button> {
+        let button = this.CreateButton(parent, id, text, x, y, w, h);
+        button.label.SetFontSize(Cast<Int32>(14.0 * APM_UiScale()));
+        return button;
+    }
+
+    private func CreateSection(name: CName) -> ref<inkCanvas> {
+        let s = APM_UiScale();
+        let section = new inkCanvas();
+        section.SetName(name);
+        section.SetAnchor(inkEAnchor.TopLeft);
+        section.SetSize(APM_PanelWidth() * s, 10.0 * s);
+        section.Reparent(this.m_panel);
+        return section;
+    }
+
+    // Thin line at the top of a section.
+    private func AddSeparator(section: wref<inkCanvas>) {
+        let s = APM_UiScale();
+        let line = new inkRectangle();
+        line.SetAnchor(inkEAnchor.TopLeft);
+        line.SetMargin(12.0 * s, 0.0, 0.0, 0.0);
+        line.SetSize((APM_PanelWidth() - 24.0) * s, 1.5 * s);
+        line.SetTintColor(APM_ColorAccent());
+        line.SetOpacity(0.35);
+        line.Reparent(section);
+    }
+
     private func CreateButton(parent: wref<inkCompoundWidget>, id: String, text: String, x: Float, y: Float, w: Float, h: Float) -> ref<APM_Button> {
         let s = APM_UiScale();
         let root = new inkCanvas();
@@ -692,6 +864,9 @@ public class APM_PoseEditor extends IScriptable {
             this.m_openButton.root.SetAnchor(inkEAnchor.TopRight);
             this.m_openButton.root.SetAnchorPoint(1.0, 0.0);
             this.m_openButton.root.SetMargin(0.0, 60.0 * s, 24.0 * s, 0.0);
+            this.m_picker.SetAnchor(inkEAnchor.TopRight);
+            this.m_picker.SetAnchorPoint(1.0, 0.0);
+            this.m_picker.SetMargin(0.0, 60.0 * s, (24.0 + APM_PanelWidth() + 8.0) * s, 0.0);
         } else {
             this.m_panel.SetAnchor(inkEAnchor.TopLeft);
             this.m_panel.SetAnchorPoint(0.0, 0.0);
@@ -699,6 +874,9 @@ public class APM_PoseEditor extends IScriptable {
             this.m_openButton.root.SetAnchor(inkEAnchor.TopLeft);
             this.m_openButton.root.SetAnchorPoint(0.0, 0.0);
             this.m_openButton.root.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
+            this.m_picker.SetAnchor(inkEAnchor.TopLeft);
+            this.m_picker.SetAnchorPoint(0.0, 0.0);
+            this.m_picker.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
         }
     }
 
@@ -860,83 +1038,223 @@ public class APM_PoseEditor extends IScriptable {
         return pages < 1 ? 1 : pages;
     }
 
-    // --- Props ----------------------------------------------------------------------------------------------------
+    // --- Items in hand -------------------------------------------------------------------------------------------
 
-    private func PropCategoryName(category: Int32) -> String {
-        if category == 0 {
-            return "Weapons";
-        }
-        if category == 1 {
-            return "Food & drink";
-        }
-        return "Other items";
-    }
-
-    // Whether an item record belongs to a category of the picker.
-    private func PropFits(category: Int32, record: ref<Item_Record>) -> Bool {
+    // Item records the picker offers: weapons, food & drink, other small items.
+    private func ItemFits(record: ref<Item_Record>) -> Bool {
         let itemType = record.ItemType();
         if !IsDefined(itemType) {
             return false;
         }
         let typeName = EnumValueToString("gamedataItemType", Cast<Int64>(EnumInt(itemType.Type())));
-        if category == 0 {
-            return StrBeginsWith(typeName, "Wea_") && !Equals(typeName, "Wea_Fists") && !Equals(typeName, "Wea_VehicleMissileLauncher") && !Equals(typeName, "Wea_VehiclePowerWeapon");
+        if StrBeginsWith(typeName, "Wea_") {
+            return !Equals(typeName, "Wea_Fists") && !Equals(typeName, "Wea_VehicleMissileLauncher") && !Equals(typeName, "Wea_VehiclePowerWeapon");
         }
-        if category == 1 {
-            return Equals(typeName, "Con_Edible");
-        }
-        return Equals(typeName, "Gen_Junk") || Equals(typeName, "Gen_Jewellery") || Equals(typeName, "Gen_Misc") || Equals(typeName, "Gen_Tarot");
+        return Equals(typeName, "Con_Edible") || Equals(typeName, "Gen_Junk") || Equals(typeName, "Gen_Jewellery") || Equals(typeName, "Gen_Misc") || Equals(typeName, "Gen_Tarot");
     }
 
-    // Items of a category with a name, one per name, sorted by name.
-    private func BuildPropList(category: Int32) {
-        ArrayClear(this.m_propIds);
-        ArrayClear(this.m_propNames);
-        this.m_propListCategory = category;
-        let kind = category == 0 ? 0 : (category == 1 ? 1 : 2);
-        let count = APM_PropRecordCount(kind);
-        let i = 0;
-        while i < count {
-            let id = APM_RecordFromNumber(APM_PropRecordAt(kind, i));
-            let record = TweakDBInterface.GetItemRecord(id);
-            if IsDefined(record) && this.PropFits(category, record) {
-                let name = GetLocalizedItemNameByCName(record.DisplayName());
-                if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") && !ArrayContains(this.m_propNames, name) {
-                    // Insert sorted (binary search).
-                    let low = 0;
-                    let high = ArraySize(this.m_propNames);
-                    while low < high {
-                        let middle = (low + high) / 2;
-                        if StrCmp(this.m_propNames[middle], name) < 0 {
-                            low = middle + 1;
-                        } else {
-                            high = middle;
+    // Every item with a name, one per name, sorted by name (built the first time the picker opens).
+    private func BuildItemList() {
+        if this.m_itemsBuilt {
+            return;
+        }
+        this.m_itemsBuilt = true;
+        let kind = 0;
+        while kind < 3 {
+            let count = APM_PropRecordCount(kind);
+            let i = 0;
+            while i < count {
+                let id = APM_RecordFromNumber(APM_PropRecordAt(kind, i));
+                let record = TweakDBInterface.GetItemRecord(id);
+                if IsDefined(record) && this.ItemFits(record) {
+                    let name = GetLocalizedItemNameByCName(record.DisplayName());
+                    if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") && !ArrayContains(this.m_itemNames, name) {
+                        let low = 0;
+                        let high = ArraySize(this.m_itemNames);
+                        while low < high {
+                            let middle = (low + high) / 2;
+                            if StrCmp(this.m_itemNames[middle], name) < 0 {
+                                low = middle + 1;
+                            } else {
+                                high = middle;
+                            }
                         }
+                        ArrayInsert(this.m_itemNames, low, name);
+                        ArrayInsert(this.m_itemSearch, low, StrLower(name));
+                        ArrayInsert(this.m_itemIds, low, id);
+                        ArrayInsert(this.m_itemWeapon, low, kind == 0);
                     }
-                    ArrayInsert(this.m_propNames, low, name);
-                    ArrayInsert(this.m_propIds, low, id);
                 }
+                i += 1;
+            }
+            kind += 1;
+        }
+        APM_LogInfo("Items: " + IntToString(ArraySize(this.m_itemIds)) + " in the picker");
+    }
+
+    private func PickerRows() -> Int32 {
+        return 12;
+    }
+
+    // An item can go in the current hand: weapons only in the right one (the game poses both hands around them).
+    private func ItemAllowed(index: Int32) -> Bool {
+        if !this.m_propRight && this.m_itemWeapon[index] {
+            return false;
+        }
+        return !ArrayContains(this.m_noModelItems, TDBID.ToNumber(this.m_itemIds[index]));
+    }
+
+    private func OpenPicker() {
+        if this.m_renaming {
+            this.FinishRename(true);
+        }
+        this.BuildItemList();
+        if !APM_TextEntryBegin("") {
+            this.SetStatus("Typing is not available");
+        }
+        this.m_pickerOpen = true;
+        this.m_pickerQuery = "";
+        this.m_pickerPage = 0;
+        this.UpdatePickerResults();
+        this.m_picker.SetVisible(true);
+        this.SetStatus("Type to search, Enter takes the first item, Esc closes");
+    }
+
+    private func ClosePicker() {
+        if this.m_pickerOpen {
+            APM_TextEntryEnd();
+        }
+        this.m_pickerOpen = false;
+        this.m_picker.SetVisible(false);
+    }
+
+    // Results for the current text: recently used items first when nothing is typed.
+    private func UpdatePickerResults() {
+        ArrayClear(this.m_pickerResults);
+        let query = StrLower(this.m_pickerQuery);
+        if StrLen(query) == 0 {
+            let r = 0;
+            while r < ArraySize(this.m_recentItems) {
+                let index = this.ItemIndex(this.m_recentItems[r]);
+                if index >= 0 && this.ItemAllowed(index) {
+                    ArrayPush(this.m_pickerResults, index);
+                }
+                r += 1;
+            }
+        }
+        let i = 0;
+        while i < ArraySize(this.m_itemIds) {
+            if this.ItemAllowed(i) && (StrLen(query) == 0 || StrContains(this.m_itemSearch[i], query)) && !ArrayContains(this.m_pickerResults, i) {
+                ArrayPush(this.m_pickerResults, i);
             }
             i += 1;
         }
-        this.m_propIndex = 0;
-        APM_LogInfo("Props: " + this.PropCategoryName(category) + " " + IntToString(ArraySize(this.m_propIds)) + " items");
+        let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
+        this.m_pickerPage = Clamp(this.m_pickerPage, 0, pages - 1);
+        this.RefreshPicker();
     }
 
-    private func EnsurePropList() {
-        if this.m_propListCategory != this.m_propCategory {
-            this.BuildPropList(this.m_propCategory);
+    private func ItemIndex(id: TweakDBID) -> Int32 {
+        let i = 0;
+        while i < ArraySize(this.m_itemIds) {
+            if this.m_itemIds[i] == id {
+                return i;
+            }
+            i += 1;
         }
+        return -1;
+    }
+
+    private func RefreshPicker() {
+        let first = this.m_pickerPage * this.PickerRows();
+        let held = APM_GetHandProp(this.m_propRight);
+        let i = 0;
+        while i < ArraySize(this.m_pickerButtons) {
+            let button = this.m_pickerButtons[i];
+            let result = first + i;
+            if result < ArraySize(this.m_pickerResults) {
+                let index = this.m_pickerResults[result];
+                button.root.SetVisible(true);
+                button.label.SetText(this.m_itemNames[index]);
+                button.isSelected = TDBID.ToNumber(this.m_itemIds[index]) == held;
+                button.UpdateLook();
+            } else {
+                button.root.SetVisible(false);
+            }
+            i += 1;
+        }
+        let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
+        this.m_pickerPageText.SetText(IntToString(ArraySize(this.m_pickerResults)) + " items  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
+        this.m_pickerSearch.SetText((StrLen(this.m_pickerQuery) > 0 ? this.m_pickerQuery : "") + "_   " + (this.m_propRight ? "(right hand)" : "(left hand)"));
+    }
+
+    // While the picker is open: follow the typed text, Enter takes the first result, Esc closes.
+    private func UpdatePicker() {
+        if !this.m_pickerOpen {
+            return;
+        }
+        if !APM_IsPhotoModeActive() {
+            this.ClosePicker();
+            return;
+        }
+        let state = APM_TextEntryGetState();
+        if state == 2 {
+            if ArraySize(this.m_pickerResults) > 0 {
+                this.ChooseItem(this.m_pickerResults[0]);
+            }
+            this.ClosePicker();
+            this.Refresh();
+            return;
+        }
+        if state != 1 {
+            this.ClosePicker();
+            this.Refresh();
+            return;
+        }
+        let text = APM_TextEntryGetText();
+        if !Equals(text, this.m_pickerQuery) {
+            this.m_pickerQuery = text;
+            this.m_pickerPage = 0;
+            this.UpdatePickerResults();
+        }
+    }
+
+    private func RunPickerButton(arg: String) {
+        if Equals(arg, "close") {
+            this.ClosePicker();
+        } else if Equals(arg, "prev") {
+            this.m_pickerPage = Max(0, this.m_pickerPage - 1);
+            this.RefreshPicker();
+        } else if Equals(arg, "next") {
+            this.m_pickerPage += 1;
+            this.UpdatePickerResults();
+        } else {
+            let result = this.m_pickerPage * this.PickerRows() + StringToInt(arg);
+            if result >= 0 && result < ArraySize(this.m_pickerResults) {
+                this.ChooseItem(this.m_pickerResults[result]);
+                this.RefreshPicker();
+            }
+        }
+        this.Refresh();
+    }
+
+    private func ChooseItem(index: Int32) {
+        let id = this.m_itemIds[index];
+        APM_SetHandProp(this.m_propRight, TDBID.ToNumber(id));
+        ArrayRemove(this.m_recentItems, id);
+        ArrayInsert(this.m_recentItems, 0, id);
+        if ArraySize(this.m_recentItems) > 8 {
+            ArrayPop(this.m_recentItems);
+        }
+        this.SetStatus(this.m_itemNames[index] + " in the " + (this.m_propRight ? "right" : "left") + " hand");
     }
 
     private func RunPropButton(arg: String) {
         if Equals(arg, "hand") {
             this.m_propRight = !this.m_propRight;
-            return;
-        }
-        if Equals(arg, "category") {
-            this.m_propCategory = (this.m_propCategory + 1) % 3;
-            this.EnsurePropList();
+            if this.m_pickerOpen {
+                this.UpdatePickerResults();
+            }
             return;
         }
         if Equals(arg, "clear") {
@@ -944,64 +1262,77 @@ public class APM_PoseEditor extends IScriptable {
             this.SetStatus((this.m_propRight ? "Right" : "Left") + " hand emptied");
             return;
         }
-        this.EnsurePropList();
-        let count = ArraySize(this.m_propIds);
-        if count == 0 {
-            this.SetStatus("No items in " + this.PropCategoryName(this.m_propCategory));
-            return;
+        if Equals(arg, "open") {
+            if this.m_pickerOpen {
+                this.ClosePicker();
+            } else {
+                this.OpenPicker();
+            }
         }
-        if Equals(arg, "prev") {
-            this.m_propIndex = (this.m_propIndex + count - 1) % count;
-        } else if Equals(arg, "next") {
-            this.m_propIndex = (this.m_propIndex + 1) % count;
-        }
-        // Browsing puts the item in the hand right away.
-        APM_SetHandProp(this.m_propRight, TDBID.ToNumber(this.m_propIds[this.m_propIndex]));
-        this.SetStatus(this.m_propNames[this.m_propIndex] + " in the " + (this.m_propRight ? "right" : "left") + " hand (" + IntToString(this.m_propIndex + 1) + " / " + IntToString(count) + ")");
     }
 
     private func RefreshProps() {
         let handButton = this.FindButton("prop:hand");
         if IsDefined(handButton) {
-            handButton.label.SetText(this.m_propRight ? "Right hand" : "Left hand");
+            handButton.label.SetText(this.m_propRight ? "Right" : "Left");
         }
-        let categoryButton = this.FindButton("prop:category");
-        if IsDefined(categoryButton) {
-            categoryButton.label.SetText(this.PropCategoryName(this.m_propCategory));
-        }
-        let equipButton = this.FindButton("prop:equip");
-        if IsDefined(equipButton) {
+        let openButton = this.FindButton("prop:open");
+        if IsDefined(openButton) {
             let held = APM_GetHandProp(this.m_propRight);
-            let text = "Empty hand";
+            let text = "Nothing - click to choose";
             if held != 0ul {
                 let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(held));
                 text = IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "Item";
             }
-            equipButton.label.SetText(text);
-            equipButton.isMarked = held != 0ul;
-            equipButton.UpdateLook();
+            openButton.label.SetText(text);
+            openButton.isSelected = this.m_pickerOpen;
+            openButton.isMarked = held != 0ul;
+            openButton.UpdateLook();
         }
         this.SetButton("prop:clear", false, APM_GetHandProp(this.m_propRight) != 0ul);
     }
 
     // Puts the chosen items on the Photo Mode puppet (also after loading a pose, or when Photo Mode opens again).
-    private func SyncProps() {
+    private func SyncProps(timeDelta: Float) {
         if !APM_IsPhotoModeActive() {
             this.m_shownRight = 0ul;
             this.m_shownLeft = 0ul;
+            this.m_checkTimer = 0.0;
             return;
         }
         let right = APM_GetHandProp(true);
         let left = APM_GetHandProp(false);
-        if right != this.m_shownRight {
-            if this.PlaceProp(true, right) {
-                this.m_shownRight = right;
+        if right != this.m_shownRight && this.PlaceProp(true, right) {
+            this.m_shownRight = right;
+        }
+        if left != this.m_shownLeft && this.PlaceProp(false, left) {
+            this.m_shownLeft = left;
+        }
+        // Some items have no model that can be held: they show nothing. Take them out of the hand and the list.
+        if this.m_checkTimer > 0.0 {
+            this.m_checkTimer -= timeDelta;
+            if this.m_checkTimer <= 0.0 {
+                this.CheckPlacedItem();
             }
         }
-        if left != this.m_shownLeft {
-            if this.PlaceProp(false, left) {
-                this.m_shownLeft = left;
-            }
+    }
+
+    private func CheckPlacedItem() {
+        let puppet = APM_GizmoGetEntity() as GameObject;
+        if !IsDefined(puppet) || APM_GetHandProp(this.m_checkRight) != this.m_checkRecord {
+            return;
+        }
+        let slot = this.m_checkRight ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
+        if IsDefined(GameInstance.GetTransactionSystem(puppet.GetGame()).GetItemInSlot(puppet, slot)) {
+            return;
+        }
+        ArrayPush(this.m_noModelItems, this.m_checkRecord);
+        APM_SetHandProp(this.m_checkRight, 0ul);
+        let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(this.m_checkRecord));
+        this.SetStatus((IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "This item") + " has no model to hold");
+        APM_LogInfo("Items: no model to hold, removed from the list");
+        if this.m_pickerOpen {
+            this.UpdatePickerResults();
         }
     }
 
@@ -1027,13 +1358,19 @@ public class APM_PoseEditor extends IScriptable {
             transactions.GiveItem(puppet, itemID, 1);
         }
         let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
-        APM_LogInfo("Props: " + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed in the " : " could not be placed in the ") + (right ? "right" : "left") + " hand");
+        APM_LogInfo("Items: " + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed in the " : " could not be placed in the ") + (right ? "right" : "left") + " hand");
+        this.m_checkTimer = 3.0;
+        this.m_checkRight = right;
+        this.m_checkRecord = record;
         return true;
     }
 
     // --- Pose names ----------------------------------------------------------------------------------------------
 
     private func StartRename(name: String) {
+        if this.m_pickerOpen {
+            this.ClosePicker();
+        }
         if !APM_TextEntryBegin(name) {
             this.SetStatus("Typing is not available");
             return;
@@ -1171,10 +1508,9 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        this.m_moveTitle.SetOpacity(APM_UiIsAttributeEnabled(7705u) ? 1.0 : 0.35);
         let resetAllButton = this.FindButton("resetall");
         if IsDefined(resetAllButton) {
-            resetAllButton.label.SetText(this.m_confirmResetAll ? "Click again to reset all" : "Reset all");
+            resetAllButton.label.SetText(this.m_confirmResetAll ? "Sure?" : "Reset all");
             resetAllButton.isMarked = this.m_confirmResetAll;
             resetAllButton.UpdateLook();
             if this.m_confirmResetAll {
@@ -1217,8 +1553,12 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let base = APM_GetBasePoseName();
-        this.m_posesTitle.SetText("Poses (" + IntToString(ArraySize(this.m_poseNames)) + ")   page " + IntToString(this.m_posePage + 1) + " / " + IntToString(this.PageCount())
-            + (StrLen(base) > 0 ? "   -   using " + base : ""));
+        this.m_posesTitle.SetText("Poses " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
+            + (StrLen(base) > 0 ? "  - " + base : ""));
+        let toggle = this.FindButton("poses:toggle");
+        if IsDefined(toggle) {
+            toggle.label.SetText(this.m_posesOpen ? "-" : "+");
+        }
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
@@ -1236,6 +1576,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.SetButton("pageprev", false, this.m_posePage > 0);
         this.SetButton("pagenext", false, this.m_posePage < this.PageCount() - 1);
+        this.Layout();
     }
 
     // --- Gizmos --------------------------------------------------------------------------------------------------
@@ -1606,23 +1947,58 @@ public class APM_PoseEditor extends IScriptable {
     private func DragHint(marker: ref<APM_Marker>) -> String {
         let label = APM_UiGetOptionLabel(7701u, marker.part);
         if marker.kind == APM_MarkerKindEyeLook() {
-            return label + ": drag where the eyes look";
+            return label + ": drag where the eyes look, wheel: nearer / farther";
         }
         if marker.chain >= 0 {
-            return label + ": drag to move (IK), Shift+drag to rotate, Ctrl+drag to twist";
+            return label + ": drag to move (IK, wheel: depth), Shift+drag to rotate, Ctrl+drag to twist";
         }
         if marker.swivelChain >= 0 && APM_GizmoIsIkActive(marker.swivelChain) {
             return label + ": drag to turn the elbow / knee (IK), Ctrl+drag to twist";
         }
         if marker.canMove {
-            return label + ": drag to rotate, Shift+drag to move, Ctrl+drag to twist";
+            return label + ": drag to rotate, Shift+drag to move (wheel: depth), Ctrl+drag to twist";
         }
         return label + ": drag to rotate, Ctrl+drag to twist";
+    }
+
+    // Drags that the mouse wheel pushes away from / pulls towards the camera.
+    private func UsesWheelDepth(mode: Int32) -> Bool {
+        return mode == APM_DragIkMove() || mode == APM_DragEyeLook() || mode == APM_DragMove();
+    }
+
+    // Mouse wheel during a move: depth (the wheel is kept from the Photo Mode camera meanwhile).
+    private func UpdateDragWheel() {
+        if !IsDefined(this.m_dragMarker) || !this.UsesWheelDepth(this.m_dragMode) {
+            return;
+        }
+        let wheel = APM_ConsumeWheel();
+        if wheel == 0 {
+            return;
+        }
+        let notches = Cast<Float>(wheel) / 120.0;
+        let player = this.m_controller.GetPlayerControlledObject();
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(player) || !IsDefined(component) {
+            return;
+        }
+        let camera = GameInstance.GetCameraSystem(player.GetGame());
+        if this.m_dragMode == APM_DragMove() {
+            let joint = APM_PartWorldPosition(component.GetLocalToWorld(), this.m_dragMarker.part);
+            let jointScreen = joint.W > 0.5 ? this.ProjectToScreen(camera, joint) : APM_Vector(0.0, 0.0, 2.0, 0.0);
+            let amount = MaxF(jointScreen.Z, 0.3) * 0.04 * notches;
+            let forward = camera.GetActiveCameraForward();
+            APM_GizmoMovePart(this.m_dragMarker.part, APM_WorldToModelDirection(component.GetLocalToWorld(), APM_Vector(forward.X * amount, forward.Y * amount, forward.Z * amount, 0.0)));
+            return;
+        }
+        // IK / eyes: the point follows the cursor at a new distance.
+        this.m_dragDepth = ClampF(this.m_dragDepth * (1.0 + 0.04 * notches), 0.2, 50.0);
+        this.DragMarker(this.m_dragMarker, 0.0, 0.0);
     }
 
     private func BeginMarkerDrag(marker: ref<APM_Marker>, shift: Bool, control: Bool) {
         this.m_dragMarker = marker;
         this.m_dragMode = this.DragModeFor(marker, shift, control);
+        APM_SetWheelCapture(this.UsesWheelDepth(this.m_dragMode));
         let player = this.m_controller.GetPlayerControlledObject();
         let component = APM_GizmoGetComponent();
         if !IsDefined(player) || !IsDefined(component) {
@@ -1907,6 +2283,13 @@ public class APM_PoseEditor extends IScriptable {
             this.SetOpen(true);
             return;
         }
+        if Equals(StrBeforeFirst(id, ":"), "pick") {
+            this.RunPickerButton(StrAfterFirst(id, ":"));
+            return;
+        }
+        if this.m_pickerOpen && !Equals(id, "prop:open") {
+            this.ClosePicker();
+        }
         // Clicking anything while typing a name confirms it first ("Rename" again just confirms).
         if this.m_renaming {
             this.FinishRename(true);
@@ -1965,6 +2348,9 @@ public class APM_PoseEditor extends IScriptable {
             // Off -> world (stays where it is) -> body (moves with the shoulder / hips) -> off
             let nextPin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5) + 1;
             APM_UiSetValue(7711u, Cast<Float>(nextPin > 2 ? 0 : nextPin));
+        } else if Equals(id, "poses:toggle") {
+            this.m_posesOpen = !this.m_posesOpen;
+            APM_PrefSet("PosesOpen", this.m_posesOpen ? 1.0 : 0.0);
         } else if Equals(prefix, "prop") {
             this.RunPropButton(arg);
         } else if Equals(id, "undo") {
@@ -2226,6 +2612,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_dragRow = null;
             this.m_dragMarker = null;
             this.m_dragMode = 0;
+            APM_SetWheelCapture(false);
             if !this.m_panelHovered {
                 this.SetHover(false);
             }

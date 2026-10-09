@@ -42,6 +42,9 @@ Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
   `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
+  Below them the tools: **Undo / Redo**, **Reset part**, **Reset all** (asks twice), **Copy L > R / R > L**.
+- The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
+  chosen limb is pinned. The pose library folds with **-** / **+**.
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
@@ -78,10 +81,12 @@ closer.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
-- **Items in hand** (row above the status line): choose the hand, a category (weapons, food & drink, other items)
-  and browse with **<** / **>** - the item goes in the hand right away; **X** empties the hand. Move or rotate it with
-  the green hand prop marker. The items are saved with the pose. (An item replaces the weapon the Photo Mode pose
-  put in that hand.)
+- **In hand**: choose the hand, then click the item name to open the item list beside the panel: type to search
+  (Enter takes the first result, Esc closes), recent items come first. **X** empties the hand. Weapons go in the right
+  hand only (the game poses both hands around them); items without a model to hold are taken out of the list. Move
+  or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
+- While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
+  moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
 - **Copy L > R / Copy R > L**: copies the selected left / right tab onto the other side, mirrored (from the Torso or
   Head tab: the whole body). The copied limb takes the pose as rotations, so its IK pin is turned off.
