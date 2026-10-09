@@ -419,6 +419,20 @@ void SetMirror(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Ui::PhotoModeUi::SetMirror(mirror);
 }
 
+void SetLimits(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool limits = true;
+    RED4ext::GetParameter(aFrame, &limits);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetLimits(limits);
+}
+
+void AreLimitsOn(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::AreLimitsOn());
+}
+
 void IsMirror(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -1053,6 +1067,8 @@ void Register()
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
     ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});
     ::Register("APM_IsMirror", &IsMirror, "Bool", {});
+    ::Register("APM_SetLimits", &SetLimits, nullptr, {{"Bool", "limits"}});
+    ::Register("APM_AreLimitsOn", &AreLimitsOn, "Bool", {});
     ::Register("APM_SetNeutralPose", &SetNeutralPose, "Bool", {{"Bool", "armsDown"}});
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});

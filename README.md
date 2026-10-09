@@ -88,8 +88,10 @@ closer.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. Dragging the hips moves the whole body (**Shift+drag** rotates them); while the hips are selected a grey
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
-  position relative to that point. The eyes turn at most 30 degrees from where the pose points them, and have no twist.
-  Lines towards a point that is off screen are drawn as short pieces.
+  position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
+  third row is their **focus distance** (nearer = more converged).
+- **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
+  only, the spine, neck, wrists and fingers within human ranges). Click the lock to turn them off for full control.
 - **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: click the search box
   to type (Enter takes the first result, Esc stops typing), filter with the **All / Weapons / Food / Other** tabs; recent items
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as

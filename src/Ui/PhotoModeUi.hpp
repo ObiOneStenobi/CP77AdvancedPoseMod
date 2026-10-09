@@ -66,6 +66,10 @@ bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
 void SetMirror(bool aMirror);
 bool IsMirror();
 
+// Joint limits: rotations stay within natural ranges (on by default).
+void SetLimits(bool aLimits);
+bool AreLimitsOn();
+
 // Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
 float GetPreference(const std::string& aKey, float aDefault);
 void SetPreference(const std::string& aKey, float aValue);

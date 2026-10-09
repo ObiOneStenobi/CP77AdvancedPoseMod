@@ -446,7 +446,9 @@ bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
     {
         return false;
     }
-    aOut = skeleton.positions[index] + Math::Normalize(direction) * 0.08f;
+    // As long as the segment before it (a fingertip ends about where the nail does), at most 8 cm.
+    const float length = std::clamp(Math::Length(direction) * 0.8f, 0.01f, 0.08f);
+    aOut = skeleton.positions[index] + Math::Normalize(direction) * length;
     return true;
 }
 } // namespace APM::Pose::GizmoState

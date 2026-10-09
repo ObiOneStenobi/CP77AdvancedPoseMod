@@ -300,6 +300,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_rootDot: wref<inkRectangle>;  // V's root (where Photo Mode placed her): saved hips positions are relative to it
     private let m_rootLine: wref<inkRectangle>;
     private let m_rootLabel: wref<inkText>;
+    private let m_rootHit: wref<inkCanvas>;
+    private let m_rootHovered: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -470,6 +472,8 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
+        this.CreateIconButton(header, "limits:on", "lock", 260.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
+        this.CreateIconButton(header, "limits:off", "lock-open", 260.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -811,6 +815,23 @@ public class APM_PoseEditor extends IScriptable {
         rootLabel.SetInteractive(false);
         rootLabel.SetVisible(false);
         this.m_rootLabel = rootLabel;
+        // Hover area over the root point (the label shows while the mouse is on it)
+        let rootHit = new inkCanvas();
+        rootHit.SetName(n"APM_RootHit");
+        rootHit.SetAnchor(inkEAnchor.TopLeft);
+        rootHit.SetAnchorPoint(0.5, 0.5);
+        rootHit.SetSize(28.0 * s0, 28.0 * s0);
+        rootHit.SetInteractive(true);
+        rootHit.SetVisible(false);
+        rootHit.Reparent(this.m_gizmoLayer);
+        let hitArea = new inkRectangle();
+        hitArea.SetAnchor(inkEAnchor.Fill);
+        hitArea.SetOpacity(0.0);
+        hitArea.SetInteractive(true);
+        hitArea.Reparent(rootHit);
+        rootHit.RegisterToCallback(n"OnHoverOver", this, n"OnRootHoverOver");
+        rootHit.RegisterToCallback(n"OnHoverOut", this, n"OnRootHoverOut");
+        this.m_rootHit = rootHit;
         this.m_rightEyePart = this.PartIndex("Right eye");
 
         let s = APM_UiScale();
@@ -2009,6 +2030,26 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.m_partTitle.SetText(APM_UiGetOptionLabel(7701u, part));
 
+        // Both eyes: the third row is the focus distance instead of the twist.
+        let thirdRow = this.FindRow(7704u);
+        if IsDefined(thirdRow) {
+            if Equals(APM_UiGetOptionLabel(7701u, part), "Eyes (both)") {
+                thirdRow.label.SetText("Focus distance");
+                thirdRow.unit = " cm";
+                thirdRow.minValue = 10.0;
+                thirdRow.maxValue = 1000.0;
+                thirdRow.step = 5.0;
+                thirdRow.dragScale = 1.0;
+            } else {
+                thirdRow.label.SetText("Twist");
+                thirdRow.unit = "";
+                thirdRow.minValue = -180.0;
+                thirdRow.maxValue = 180.0;
+                thirdRow.step = 1.0;
+                thirdRow.dragScale = 0.2;
+            }
+        }
+
         // Value rows
         i = 0;
         while i < ArraySize(this.m_rows) {
@@ -2076,6 +2117,14 @@ public class APM_PoseEditor extends IScriptable {
         let base = APM_GetBasePoseName();
         this.m_posesTitle.SetText("Poses " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
             + (StrLen(base) > 0 ? "  - " + base : ""));
+        let limitsOn = this.FindButton("limits:on");
+        let limitsOff = this.FindButton("limits:off");
+        if IsDefined(limitsOn) && IsDefined(limitsOff) {
+            limitsOn.root.SetVisible(APM_AreLimitsOn());
+            limitsOff.root.SetVisible(!APM_AreLimitsOn());
+            limitsOff.isMarked = true;
+            limitsOff.UpdateLook();
+        }
         let openPoses = this.FindButton("poses:open");
         let closePoses = this.FindButton("poses:close");
         if IsDefined(openPoses) && IsDefined(closePoses) {
@@ -2360,13 +2409,13 @@ public class APM_PoseEditor extends IScriptable {
         let thickness = (strong ? 2.5 : 1.5) * s;
         let opacity = strong ? 0.9 : 0.45;
         if marker.kind == APM_MarkerKindEyeLook() {
-            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity, 240.0);
-            this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity, 240.0);
+            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity);
+            this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity);
             return 0.0;
         }
         let parentModel = APM_GizmoGetPartParent(marker.part);
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35, 240.0);
+        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35);
 
         let tipModel = APM_GizmoGetPartTip(marker.part);
         if tipModel.W < 0.5 {
@@ -2374,7 +2423,7 @@ public class APM_PoseEditor extends IScriptable {
             return 0.0;
         }
         let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
-        return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity, 240.0);
+        return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity);
     }
 
     // Line between two world points (W = 1 when valid), cut where it goes behind the camera. Returns its screen angle.
@@ -2460,6 +2509,8 @@ public class APM_PoseEditor extends IScriptable {
         if !show || hipsModel.W < 0.5 {
             this.m_rootDot.SetVisible(false);
             this.m_rootLabel.SetVisible(false);
+            this.m_rootHit.SetVisible(false);
+            this.m_rootHovered = false;
             this.m_rootLine.SetVisible(false);
             return;
         }
@@ -2468,9 +2519,11 @@ public class APM_PoseEditor extends IScriptable {
         let rootScreen = this.ProjectToScreen(camera, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0));
         // The point only when on screen; the line always.
         this.m_rootDot.SetVisible(rootScreen.W > 0.5);
-        this.m_rootLabel.SetVisible(rootScreen.W > 0.5);
+        this.m_rootHit.SetVisible(rootScreen.W > 0.5);
+        this.m_rootLabel.SetVisible(rootScreen.W > 0.5 && this.m_rootHovered);
         if rootScreen.W > 0.5 {
             this.m_rootDot.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
+            this.m_rootHit.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
             this.m_rootLabel.SetMargin(rootScreen.X + 16.0 * APM_UiScale(), rootScreen.Y - 12.0 * APM_UiScale(), 0.0, 0.0);
         }
         this.DrawWorldLine(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
@@ -3018,6 +3071,8 @@ public class APM_PoseEditor extends IScriptable {
             APM_Undo();
         } else if Equals(id, "redo") {
             APM_Redo();
+        } else if Equals(prefix, "limits") {
+            APM_SetLimits(!APM_AreLimitsOn());
         } else if Equals(id, "mirror") {
             APM_SetMirror(!APM_IsMirror());
         } else if Equals(prefix, "neutral") {
@@ -3172,6 +3227,18 @@ public class APM_PoseEditor extends IScriptable {
             this.HideTip();
         }
         this.RunButton(button);
+    }
+
+    protected cb func OnRootHoverOver(e: ref<inkPointerEvent>) -> Bool {
+        this.m_rootHovered = true;
+        this.SetHover(true);
+    }
+
+    protected cb func OnRootHoverOut(e: ref<inkPointerEvent>) -> Bool {
+        this.m_rootHovered = false;
+        if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
+            this.SetHover(false);
+        }
     }
 
     protected cb func OnMarkerHoverOver(e: ref<inkPointerEvent>) -> Bool {

@@ -19,7 +19,9 @@
 #include <atomic>
 #include <cmath>
 #include <filesystem>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -33,6 +35,10 @@ constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
 
 // Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
 std::atomic<bool> g_mirror{false};
+// Joint limits: edits keep each joint within a natural range (on by default, the panel can turn them off).
+std::atomic<bool> g_limits{true};
+// Last focus distance set for the eyes (cm), used when their lines of sight do not cross.
+float g_eyeFocus = 150.f;
 void MirrorCurrentPart();
 void MirrorCurrentChain();
 constexpr const char* ActionLabels[] = {"-", "Apply"};
@@ -114,6 +120,206 @@ Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngl
 bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, std::array<float, 3>& aOut);
 
 constexpr const char* IkChainEnds[] = {"LeftHand", "RightHand", "LeftFoot", "RightFoot"};
+
+// --- Joint limits -------------------------------------------------------------------------------------------------
+// Ranges are measured from the reference (T) pose, on the bone's own axes (see TargetRegistry::GetBoneAxes):
+// forward = bend forward / back (positive: the bone's end moves forward, model +Y), side = sideways or raise / lower,
+// twist = along the bone. Side and twist are symmetric.
+struct JointRange
+{
+    float forwardMin;
+    float forwardMax;
+    float side;
+    float twist;
+};
+
+bool FindJointRange(std::string_view aBone, JointRange& aOut)
+{
+    if (aBone.rfind("Left", 0) == 0)
+    {
+        aBone.remove_prefix(4);
+    }
+    else if (aBone.rfind("Right", 0) == 0)
+    {
+        aBone.remove_prefix(5);
+    }
+    struct Entry
+    {
+        std::string_view name;
+        JointRange range;
+    };
+    static constexpr Entry Table[] = {
+        {"Spine", {-30.f, 40.f, 30.f, 35.f}},   {"Spine1", {-30.f, 40.f, 30.f, 35.f}},
+        {"Spine2", {-30.f, 40.f, 30.f, 35.f}},  {"Spine3", {-30.f, 40.f, 30.f, 35.f}},
+        {"Neck", {-35.f, 40.f, 30.f, 45.f}},    {"Neck1", {-35.f, 40.f, 30.f, 45.f}},
+        {"Head", {-40.f, 45.f, 35.f, 70.f}},    {"Shoulder", {-20.f, 20.f, 20.f, 15.f}},
+        {"Arm", {-70.f, 130.f, 100.f, 90.f}},   {"ForeArm", {-5.f, 150.f, 15.f, 90.f}},
+        {"Hand", {-80.f, 80.f, 40.f, 30.f}},    {"UpLeg", {-35.f, 125.f, 55.f, 45.f}},
+        {"Leg", {-150.f, 5.f, 8.f, 30.f}},      {"Foot", {-50.f, 45.f, 30.f, 25.f}},
+        {"ToeBase", {-40.f, 60.f, 10.f, 10.f}},
+    };
+    for (const auto& entry : Table)
+    {
+        if (aBone == entry.name)
+        {
+            aOut = entry.range;
+            return true;
+        }
+    }
+    if (aBone.rfind("HandThumb", 0) == 0)
+    {
+        aOut = {-60.f, 60.f, 60.f, 45.f};
+        return true;
+    }
+    if (aBone.rfind("HandIndex", 0) == 0 || aBone.rfind("HandMiddle", 0) == 0 || aBone.rfind("HandRing", 0) == 0 ||
+        aBone.rfind("HandPinky", 0) == 0)
+    {
+        aOut = {-110.f, 110.f, 30.f, 20.f};
+        return true;
+    }
+    return false;
+}
+
+struct JointFrame
+{
+    Math::Quat referenceLocal{};
+    float forwardSign = 1.f; // +1 when a positive bend1 moves the bone's end forward (model +Y) in the T pose
+};
+
+// Reference local rotation and bend direction of a bone, worked out once from the reference pose.
+bool GetJointFrame(uint64_t aHash, bool aSwapBends, JointFrame& aOut)
+{
+    static std::unordered_map<uint64_t, JointFrame> cache[2];
+    auto& frames = cache[aSwapBends ? 1 : 0];
+    if (const auto it = frames.find(aHash); it != frames.end())
+    {
+        aOut = it->second;
+        return true;
+    }
+    Pose::TargetRegistry::ReferencePose reference;
+    if (!Pose::TargetRegistry::GetReferencePose(reference))
+    {
+        return false;
+    }
+    const size_t count = reference.boneNames.size();
+    std::vector<Math::Vec3> positions(count);
+    for (size_t i = 0; i < count; ++i)
+    {
+        const int16_t parent = reference.parents[i];
+        positions[i] = parent >= 0 ? positions[parent] + Math::Rotate(reference.modelRotations[parent], reference.localTranslations[i])
+                                   : reference.localTranslations[i];
+    }
+    const auto found = std::find(reference.boneNames.begin(), reference.boneNames.end(), aHash);
+    if (found == reference.boneNames.end())
+    {
+        return false;
+    }
+    const auto index = static_cast<size_t>(std::distance(reference.boneNames.begin(), found));
+    JointFrame frame;
+    frame.referenceLocal = reference.localRotations[index];
+    Math::Vec3 tip{};
+    int32_t children = 0;
+    for (size_t i = index + 1; i < count; ++i)
+    {
+        if (reference.parents[i] == static_cast<int16_t>(index) && Math::Length(positions[i] - positions[index]) > 0.01f)
+        {
+            tip = tip + positions[i];
+            ++children;
+        }
+    }
+    Math::Vec3 bend1;
+    Math::Vec3 bend2;
+    Math::Vec3 twist;
+    if (children > 0 && Pose::TargetRegistry::GetBoneAxes(aHash, bend1, bend2, twist))
+    {
+        if (aSwapBends)
+        {
+            std::swap(bend1, bend2);
+        }
+        const Math::Vec3 direction = tip * (1.f / static_cast<float>(children)) - positions[index];
+        const Math::Vec3 axis = Math::Rotate(reference.modelRotations[index], bend1);
+        frame.forwardSign = Math::Cross(axis, direction).y >= 0.f ? 1.f : -1.f;
+    }
+    frames[aHash] = frame;
+    aOut = frame;
+    return true;
+}
+
+bool IsPinnedChainEnd(std::string_view aBone)
+{
+    for (size_t c = 0; c < 4; ++c)
+    {
+        if (aBone == IkChainEnds[c] && Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(c)).enabled)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The edit (anim * edit = final local rotation) kept within the bone's natural range. Ranges grow to include where
+// the Photo Mode animation already has the joint, so editing never makes it jump.
+Math::Quat LimitEdit(const char* aBone, const Math::Quat& aEdit, bool aSwapBends)
+{
+    JointRange range{};
+    if (!g_limits || !FindJointRange(aBone, range) || IsPinnedChainEnd(aBone))
+    {
+        return aEdit;
+    }
+    const uint64_t hash = RED4ext::CName(aBone).hash;
+    JointFrame frame;
+    Math::Quat animated{};
+    Math::Vec3 unused{};
+    if (!GetJointFrame(hash, aSwapBends, frame) || !Pose::GizmoState::GetAnimatedLocal(hash, animated, unused))
+    {
+        return aEdit;
+    }
+    const Math::Quat toReference = Math::Conjugate(frame.referenceLocal);
+    std::array<float, 3> wanted{};
+    std::array<float, 3> fromAnimation{};
+    if (!RotationToAngles(aBone, Math::Mul(toReference, Math::Mul(animated, aEdit)), aSwapBends, wanted) ||
+        !RotationToAngles(aBone, Math::Mul(toReference, animated), aSwapBends, fromAnimation))
+    {
+        return aEdit;
+    }
+    const float animForward = fromAnimation[0] * frame.forwardSign;
+    const float forwardMin = std::min(range.forwardMin, animForward);
+    const float forwardMax = std::max(range.forwardMax, animForward);
+    const float side = std::max(range.side, std::abs(fromAnimation[1]));
+    const float twist = std::max(range.twist, std::abs(fromAnimation[2]));
+    std::array<float, 3> limited = wanted;
+    limited[0] = std::clamp(wanted[0] * frame.forwardSign, forwardMin, forwardMax) * frame.forwardSign;
+    limited[1] = std::clamp(wanted[1], -side, side);
+    limited[2] = std::clamp(wanted[2], -twist, twist);
+    if (limited == wanted)
+    {
+        return aEdit;
+    }
+    const Math::Quat finalLocal = Math::Mul(frame.referenceLocal, AnglesToRotation(aBone, limited, aSwapBends));
+    return Math::Normalize(Math::Mul(Math::Conjugate(animated), finalLocal));
+}
+
+// Stores an edit given as UI angles, within the joint limits (the stored angles follow the limited rotation).
+void StoreEdit(const char* aBone, std::array<float, 3> aAngles, bool aSwapBends)
+{
+    const Math::Quat wanted = AnglesToRotation(aBone, aAngles, aSwapBends);
+    const Math::Quat limited = LimitEdit(aBone, wanted, aSwapBends);
+    const float dot = limited.i * wanted.i + limited.j * wanted.j + limited.k * wanted.k + limited.r * wanted.r;
+    if (std::abs(dot) < 0.999999f)
+    {
+        std::array<float, 3> angles{};
+        if (RotationToAngles(aBone, limited, aSwapBends, angles))
+        {
+            for (auto& angle : angles)
+            {
+                angle = std::clamp(angle, -180.f, 180.f);
+            }
+            aAngles = angles;
+        }
+    }
+    Pose::PoseOverrides::SetRotationQuat(aBone, limited, aAngles);
+}
+
 
 // The pin of the current chain switches between world and body: convert its offset and the hand / foot rotation so
 // that nothing moves on screen.
@@ -240,8 +446,7 @@ void ApplyAngles(const std::array<float, 3>& aAngles)
             angles[0] = std::clamp(segment[0] + curlChange, -180.f, 180.f);
         }
         const bool isFinger = UsesFingerAxes(entry);
-        Pose::PoseOverrides::SetRotationQuat(entry.bones[i], AnglesToRotation(entry.bones[i], angles, isFinger),
-                                             angles);
+        StoreEdit(entry.bones[i], angles, isFinger);
     }
 }
 
@@ -297,6 +502,93 @@ bool IsEyeEntry(const APM::Ui::CatalogEntry& aEntry)
 {
     const std::string label = aEntry.label;
     return label == "Eyes (both)" || label == "Left eye" || label == "Right eye";
+}
+
+// "Eyes (both)": the third row is the focus distance (how far the eyes look; nearer = more converged).
+bool IsBothEyes()
+{
+    return std::string(CurrentEntry().label) == "Eyes (both)";
+}
+
+constexpr float EyeFocusMin = 10.f;   // cm
+constexpr float EyeFocusMax = 1000.f; // cm
+
+// Point between the eyes, the direction they look and how far their lines of sight meet (cm).
+bool GetEyeFocus(Math::Vec3& aMiddle, Math::Vec3& aDirection, float& aDistance)
+{
+    const uint64_t leftHash = RED4ext::CName("LeftEye").hash;
+    const uint64_t rightHash = RED4ext::CName("RightEye").hash;
+    Math::Vec3 left{};
+    Math::Vec3 right{};
+    Math::Quat leftRotation{};
+    Math::Quat rightRotation{};
+    Math::Vec3 leftForward{};
+    Math::Vec3 rightForward{};
+    if (!Pose::GizmoState::GetBoneModelPosition(leftHash, left) || !Pose::GizmoState::GetBoneModelPosition(rightHash, right) ||
+        !Pose::GizmoState::GetBoneModelRotation(leftHash, leftRotation) ||
+        !Pose::GizmoState::GetBoneModelRotation(rightHash, rightRotation) ||
+        !Pose::TargetRegistry::GetBoneReferenceForward(leftHash, leftForward) ||
+        !Pose::TargetRegistry::GetBoneReferenceForward(rightHash, rightForward))
+    {
+        return false;
+    }
+    const Math::Vec3 gl = Math::Normalize(Math::Rotate(leftRotation, leftForward));
+    const Math::Vec3 gr = Math::Normalize(Math::Rotate(rightRotation, rightForward));
+    aMiddle = (left + right) * 0.5f;
+    aDirection = Math::Normalize(gl + gr);
+    aDistance = g_eyeFocus;
+    const Math::Vec3 w = left - right;
+    const float b = Math::Dot(gl, gr);
+    const float d = Math::Dot(gl, w);
+    const float e = Math::Dot(gr, w);
+    const float denom = 1.f - b * b;
+    if (denom > 1e-6f)
+    {
+        const float sl = (b * e - d) / denom;
+        const float sr = (e - b * d) / denom;
+        if (sl > 0.05f && sr > 0.05f)
+        {
+            const Math::Vec3 meet = (left + gl * sl + right + gr * sr) * 0.5f;
+            aDistance = std::clamp(Math::Length(meet - aMiddle) * CentimetersPerMeter, EyeFocusMin, EyeFocusMax);
+        }
+    }
+    return true;
+}
+
+int32_t CatalogIndexOf(std::string_view aLabel)
+{
+    const auto& catalog = Ui::GetBoneCatalog();
+    for (size_t i = 0; i < catalog.size(); ++i)
+    {
+        if (aLabel == catalog[i].label)
+        {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+// Both eyes look at the point that far along their current direction.
+void SetEyeFocus(float aCentimeters)
+{
+    Math::Vec3 middle{};
+    Math::Vec3 direction{};
+    float current = 0.f;
+    if (!GetEyeFocus(middle, direction, current))
+    {
+        return;
+    }
+    g_eyeFocus = std::clamp(aCentimeters, EyeFocusMin, EyeFocusMax);
+    const Math::Vec3 target = middle + direction * (g_eyeFocus / CentimetersPerMeter);
+    const int32_t selected = g_bodyPart;
+    const int32_t leftEye = CatalogIndexOf("Left eye");
+    const int32_t rightEye = CatalogIndexOf("Right eye");
+    if (leftEye >= 0 && rightEye >= 0)
+    {
+        APM::Ui::PhotoModeUi::AimPart(leftEye, target);
+        APM::Ui::PhotoModeUi::AimPart(rightEye, target);
+    }
+    g_bodyPart = selected; // AimPart selects the eye it turns
 }
 
 void ResetCurrentPart()
@@ -386,7 +678,17 @@ float GetValue(uint32_t aAttribute)
     case Attr::Bend1:
     case Attr::Bend2:
     case Attr::Twist:
+    {
+        if (aAttribute == Attr::Twist && IsBothEyes())
+        {
+            Math::Vec3 middle{};
+            Math::Vec3 direction{};
+            float distance = g_eyeFocus;
+            GetEyeFocus(middle, direction, distance);
+            return distance;
+        }
         return CurrentAngles()[aAttribute - Attr::Bend1];
+    }
     case Attr::MoveX:
     case Attr::MoveY:
     case Attr::MoveZ:
@@ -441,6 +743,12 @@ void SetValue(uint32_t aAttribute, float aValue)
     case Attr::Bend2:
     case Attr::Twist:
     {
+        if (aAttribute == Attr::Twist && IsBothEyes())
+        {
+            SetEyeFocus(aValue);
+            RequestRefresh();
+            break;
+        }
         auto angles = CurrentAngles();
         auto& angle = angles[aAttribute - Attr::Bend1];
         float value = aValue;
@@ -565,7 +873,7 @@ bool IsAttributeEnabled(uint32_t aAttribute)
     case Attr::IkSwivel:
         return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled;
     case Attr::Twist:
-        return !IsEyeEntry(CurrentEntry());
+        return !IsEyeEntry(CurrentEntry()) || IsBothEyes(); // both eyes: focus distance
     default:
         return true;
     }
@@ -763,7 +1071,7 @@ bool SetBoneLocal(const char* aBone, const Math::Quat& aWanted, bool aFingerAxes
     {
         angle = std::clamp(angle, -180.f, 180.f);
     }
-    Pose::PoseOverrides::SetRotationQuat(aBone, AnglesToRotation(aBone, angles, aFingerAxes), angles);
+    StoreEdit(aBone, angles, aFingerAxes);
     return true;
 }
 } // namespace
@@ -974,7 +1282,7 @@ void SetLocalRotation(const char* aBone, const Math::Quat& aAnimated, const Math
         {
             angle = std::clamp(angle, -180.f, 180.f);
         }
-        Pose::PoseOverrides::SetRotationQuat(aBone, AnglesToRotation(aBone, angles, aFingerAxes), angles);
+        StoreEdit(aBone, angles, aFingerAxes);
     }
 }
 
@@ -1203,5 +1511,15 @@ void SetMirror(bool aMirror)
 bool IsMirror()
 {
     return g_mirror;
+}
+
+void SetLimits(bool aLimits)
+{
+    g_limits = aLimits;
+}
+
+bool AreLimitsOn()
+{
+    return g_limits;
 }
 } // namespace APM::Ui::PhotoModeUi
