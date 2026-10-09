@@ -99,6 +99,9 @@ public native func APM_LogInfo(text: String) -> Bool
 // Panel preferences (panel.ini)
 public native func APM_PrefGet(key: String, fallback: Float) -> Float
 public native func APM_PrefSet(key: String, value: Float) -> Bool
+// Values kept until the game closes (not written to panel.ini)
+public native func APM_SessionGet(key: String, fallback: Float) -> Float
+public native func APM_SessionSet(key: String, value: Float)
 
 // Gizmos
 // Model-space position (relative to V: X right, Y forward, Z up) of the main bone of a body part; w = 1 when valid

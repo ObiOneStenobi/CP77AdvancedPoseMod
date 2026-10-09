@@ -41,13 +41,14 @@ This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
-**Hide**. These settings are remembered in `panel.ini`.
+**X** hides the panel. These settings are remembered in `panel.ini`.
   Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
   where the pose puts it), **Reset all** (click
-  twice), **Mirror**, and **?** which opens the list of the mouse and keyboard shortcuts. Messages after an action (saved, loaded,
+  twice), **Mirror**, and **?** which opens the controls (marker legend and shortcuts). The IK limb buttons get an orange frame,
+  and the hand / foot marker an orange glow, while that limb is pinned. Messages after an action (saved, loaded,
   click again...) appear for a moment above the button that was clicked.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
-  chosen limb is pinned. The pose library folds with **-** / **+**.
+  chosen limb is pinned. The pose library folds with the arrow on its right (closed when the game starts, then remembered until it closes).
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
@@ -76,7 +77,7 @@ closer.
   camera's vertical axis, up / down around its horizontal axis (as the head always does).
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
   automatically). **Shift+drag** it to rotate the hand / foot instead.
-- The **Pin** row (under the limb buttons) sets **Off / World / Body**: *world* keeps the hand / foot where it is whatever the body does;
+- The pin row (**Off / World / Body**, under the limb buttons) sets the pin: *world* keeps the hand / foot where it is whatever the body does;
   *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
   Turning the pin on, or switching between world and body, leaves the hand / foot where it is.
 - While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the

@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <new>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Global native functions exposed to redscript (and to CET through the RTTI).
@@ -509,6 +510,34 @@ void PrefSet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     aFrame->code++;
     APM::Ui::PhotoModeUi::SetPreference(key.c_str(), value);
     Return(aOut, true);
+}
+
+// Panel values kept for this game session only.
+std::unordered_map<std::string, float>& SessionValues()
+{
+    static std::unordered_map<std::string, float> values;
+    return values;
+}
+
+void SessionGet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString key;
+    float fallback = 0.f;
+    RED4ext::GetParameter(aFrame, &key);
+    RED4ext::GetParameter(aFrame, &fallback);
+    aFrame->code++;
+    const auto it = SessionValues().find(key.c_str());
+    Return(aOut, it == SessionValues().end() ? fallback : it->second);
+}
+
+void SessionSet(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    CString key;
+    float value = 0.f;
+    RED4ext::GetParameter(aFrame, &key);
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    SessionValues()[key.c_str()] = value;
 }
 
 // Writes a line from the scripts to the plugin log (diagnostics).
@@ -1018,6 +1047,8 @@ void Register()
     ::Register("APM_CanUndo", &HistoryCanUndo, "Bool", {});
     ::Register("APM_CanRedo", &HistoryCanRedo, "Bool", {});
     ::Register("APM_PollHotkey", &PollHotkey, "Int32", {});
+    ::Register("APM_SessionGet", &SessionGet, "Float", {{"String", "key"}, {"Float", "fallback"}});
+    ::Register("APM_SessionSet", &SessionSet, nullptr, {{"String", "key"}, {"Float", "value"}});
     ::Register("APM_IsAltDown", &IsAltDown, "Bool", {});
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
     ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});

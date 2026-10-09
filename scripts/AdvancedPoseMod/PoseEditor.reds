@@ -118,8 +118,10 @@ public class APM_Button extends IScriptable {
     public let parent: wref<inkCompoundWidget>; // where the button sits, and its place there (panel units)
     public let x: Float;
     public let y: Float;
+    public let w: Float;
     public let h: Float;
     public let icon: array<wref<inkRectangle>>; // drawn icon (instead of a label)
+    public let outline: array<wref<inkRectangle>>; // glowing frame (IK limb buttons: that limb is pinned)
 
     public func UpdateLook() {
         if !IsDefined(this.root) {
@@ -167,6 +169,7 @@ public class APM_Marker extends IScriptable {
     public let group: String;
     public let root: wref<inkCanvas>;
     public let dot: wref<inkRectangle>;
+    public let halo: wref<inkRectangle>; // pinned hand / foot (IK on)
     public let line: wref<inkRectangle>;  // towards the point the bone points at (the eye look marker: from the left eye)
     public let line2: wref<inkRectangle>; // the eye look marker only: from the right eye
     public let parentLine: wref<inkRectangle>; // from the closest parent part with a gizmo (hips -> thighs)
@@ -341,7 +344,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_opacityStep = Cast<Int32>(APM_PrefGet("OpacityStep", 1.0));
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
         this.m_propRight = true;
-        this.m_posesOpen = APM_PrefGet("PosesOpen", 1.0) > 0.5;
+        this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
 
         let layer = new inkCanvas();
         layer.SetName(n"APM_PoseEditorLayer");
@@ -448,16 +451,19 @@ public class APM_PoseEditor extends IScriptable {
         let header = this.CreateSection(n"APM_Header");
         this.m_sectionHeader = header;
         this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
-        this.CreateButton(header, "enabled", "Pose off", 190.0, 8.0, 92.0, 32.0);
-        this.CreateButton(header, "gizmos", "Gizmos", 286.0, 8.0, 92.0, 32.0);
-        this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
-        this.CreateButton(header, "hide", "Hide", 450.0, 8.0, 174.0, 32.0);
+        let enabledButton = this.CreateButton(header, "enabled", "Pose off", 190.0, 8.0, 92.0, 32.0);
+        enabledButton.tooltip = "Turn your edits on V on / off";
+        let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 286.0, 8.0, 92.0, 32.0);
+        gizmosButton.tooltip = "Show / hide the markers on V";
+        let opacityButton = this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
+        opacityButton.tooltip = "Panel opacity";
+        this.CreateIconButton(header, "hide", "x", 584.0, 10.0, "Hide the panel");
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
-        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Mouse and keyboard shortcuts");
+        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Controls: markers and shortcuts");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -514,16 +520,17 @@ public class APM_PoseEditor extends IScriptable {
         let limbs = APM_UiGetOptionCount(7710u);
         i = 0;
         while i < limbs {
-            this.CreateButton(ik, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 60.0 + Cast<Float>(i) * 142.0, 8.0, 138.0, 30.0);
+            let limbButton = this.CreateButton(ik, "ik:" + IntToString(i), APM_UiGetOptionLabel(7710u, i), 60.0 + Cast<Float>(i) * 142.0, 8.0, 138.0, 30.0);
+            limbButton.tooltip = "IK limb: the frame lights up while it is pinned";
+            this.AddOutline(limbButton, APM_ColorIk());
             i += 1;
         }
         // Pin of the selected limb, on its own row
-        this.CreateText(ik, "Pin", 30.0, 44.0, 80.0, 28.0, 17, APM_ColorAccent());
-        let pinOff = this.CreateSmallButton(ik, "pin:0", "Off", 116.0, 44.0, 166.0, 28.0);
+        let pinOff = this.CreateSmallButton(ik, "pin:0", "Off", 60.0, 44.0, 180.0, 28.0);
         pinOff.tooltip = "Pin off: the hand / foot follows the arm / leg rotations";
-        let pinWorld = this.CreateSmallButton(ik, "pin:1", "World", 288.0, 44.0, 166.0, 28.0);
+        let pinWorld = this.CreateSmallButton(ik, "pin:1", "World", 246.0, 44.0, 180.0, 28.0);
         pinWorld.tooltip = "Pin world: the hand / foot stays in its place in the scene, whatever the body does";
-        let pinBody = this.CreateSmallButton(ik, "pin:2", "Body", 460.0, 44.0, 164.0, 28.0);
+        let pinBody = this.CreateSmallButton(ik, "pin:2", "Body", 432.0, 44.0, 180.0, 28.0);
         pinBody.tooltip = "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them";
         let ikRows = new inkCanvas();
         ikRows.SetName(n"APM_IkRows");
@@ -544,7 +551,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_posesTitle = this.CreateText(poses, "Poses", 16.0, 6.0, 340.0, 28.0, 16, APM_ColorAccent());
         this.CreateSmallButton(poses, "neutral:t", "T pose", 360.0, 6.0, 100.0, 28.0);
         this.CreateSmallButton(poses, "neutral:a", "A pose", 464.0, 6.0, 100.0, 28.0);
-        this.CreateSmallButton(poses, "poses:toggle", "-", 572.0, 6.0, 52.0, 28.0);
+        this.CreateIconButton(poses, "poses:open", "chevron-down", 584.0, 6.0, "Show the saved poses");
+        this.CreateIconButton(poses, "poses:close", "chevron-up", 584.0, 6.0, "Hide the saved poses");
         let posesBody = new inkCanvas();
         posesBody.SetName(n"APM_PosesBody");
         posesBody.SetAnchor(inkEAnchor.TopLeft);
@@ -581,9 +589,9 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, "Give back the item of the Photo Mode pose");
         this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, "Empty the left hand");
 
-        this.BuildTooltip();
         this.BuildPicker();
         this.BuildHelp();
+        this.BuildTooltip(); // last: drawn above the panel, the item list and the help
         this.ReloadPoses();
         this.Layout();
     }
@@ -692,18 +700,46 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(help);
 
-        this.CreateText(help, "Shortcuts", 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
-        this.CreateSmallButton(help, "help", "Close", width - 110.0, 14.0, 90.0, 30.0);
+        this.CreateText(help, "Controls", 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
+        this.CreateSmallButton(help, "helpclose", "Close", width - 110.0, 14.0, 90.0, 30.0);
+        // Marker legend: the shape shows what dragging it does right now (it changes with Shift / Ctrl / Alt).
         let y = 60.0;
-        y = this.AddHelpLine(help, "Drag a marker", "rotate", y);
+        y = this.AddHelpShape(help, 0, APM_ColorText(), "rotate", y);
+        y = this.AddHelpShape(help, 1, APM_ColorText(), "move", y);
+        y = this.AddHelpShape(help, 2, APM_ColorText(), "twist", y);
+        y = this.AddHelpShape(help, 1, APM_ColorIk(), "IK: moves the hand / foot, the arm / leg follows", y);
+        y += 10.0;
         y = this.AddHelpLine(help, "Alt + drag", "rotate freely", y);
         y = this.AddHelpLine(help, "Ctrl + drag", "twist", y);
         y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or rotate (hands / feet with IK)", y);
         y = this.AddHelpLine(help, "Mouse wheel", "while moving: nearer / farther", y);
-        y = this.AddHelpLine(help, "Drag a number", "left / right to change it", y);
         y = this.AddHelpLine(help, "Ctrl + Z  /  Ctrl + Y", "undo / redo", y);
-        y = this.AddHelpLine(help, "Enter  /  Esc", "confirm / cancel typing", y);
         help.SetSize(width * s, (y + 16.0) * s);
+    }
+
+    // shape: 0 diamond, 1 square, 2 bar (as the markers on V)
+    private func AddHelpShape(parent: wref<inkCompoundWidget>, shape: Int32, color: HDRColor, text: String, y: Float) -> Float {
+        let s = APM_UiScale();
+        let dot = new inkRectangle();
+        dot.SetAnchor(inkEAnchor.TopLeft);
+        dot.SetAnchorPoint(0.5, 0.5);
+        dot.SetTintColor(color);
+        dot.SetInteractive(false);
+        if shape == 2 {
+            dot.SetSize(25.0 * s, 6.0 * s);
+            dot.SetRotation(0.0);
+        } else if shape == 1 {
+            dot.SetSize(12.0 * s, 12.0 * s);
+            dot.SetRotation(0.0);
+        } else {
+            dot.SetSize(14.0 * s, 14.0 * s);
+            dot.SetRotation(45.0);
+        }
+        dot.SetMargin(44.0 * s, (y + 16.0) * s, 0.0, 0.0);
+        dot.Reparent(parent);
+        let label = this.CreateText(parent, text, 90.0, y, 560.0, 32.0, 18, APM_ColorDimText());
+        label.SetLetterCase(textLetterCase.OriginalCase);
+        return y + 36.0;
     }
 
     private func AddHelpLine(parent: wref<inkCompoundWidget>, key: String, text: String, y: Float) -> Float {
@@ -749,6 +785,17 @@ public class APM_PoseEditor extends IScriptable {
                 root.SetInteractive(true);
                 root.Reparent(this.m_gizmoLayer);
 
+                // Soft square behind the hand / foot marker while its limb is pinned
+                let halo = new inkRectangle();
+                halo.SetAnchor(inkEAnchor.Centered);
+                halo.SetAnchorPoint(0.5, 0.5);
+                halo.SetSize(26.0 * s, 26.0 * s);
+                halo.SetTintColor(APM_ColorIk());
+                halo.SetOpacity(0.35);
+                halo.SetInteractive(false);
+                halo.SetVisible(false);
+                halo.Reparent(root);
+
                 let dot = new inkRectangle();
                 dot.SetAnchor(inkEAnchor.Centered);
                 dot.SetAnchorPoint(0.5, 0.5);
@@ -777,6 +824,7 @@ public class APM_PoseEditor extends IScriptable {
                 }
                 marker.root = root;
                 marker.dot = dot;
+                marker.halo = halo;
                 marker.line = this.CreateLine();
                 if marker.kind == APM_MarkerKindEyeLook() {
                     marker.line2 = this.CreateLine();
@@ -875,6 +923,46 @@ public class APM_PoseEditor extends IScriptable {
         return button;
     }
 
+    // Frame around a button, hidden until SetOutline.
+    private func AddOutline(button: ref<APM_Button>, color: HDRColor) {
+        let s = APM_UiScale();
+        let side = 0;
+        while side < 4 {
+            let rect = new inkRectangle();
+            rect.SetTintColor(color);
+            rect.SetInteractive(false);
+            rect.SetVisible(false);
+            if side == 0 {
+                rect.SetAnchor(inkEAnchor.TopFillHorizontaly);
+                rect.SetSize(10.0 * s, 2.0 * s);
+            } else if side == 1 {
+                rect.SetAnchor(inkEAnchor.BottomFillHorizontaly);
+                rect.SetSize(10.0 * s, 2.0 * s);
+            } else if side == 2 {
+                rect.SetAnchor(inkEAnchor.LeftFillVerticaly);
+                rect.SetSize(2.0 * s, 10.0 * s);
+            } else {
+                rect.SetAnchor(inkEAnchor.RightFillVerticaly);
+                rect.SetSize(2.0 * s, 10.0 * s);
+            }
+            rect.Reparent(button.root);
+            ArrayPush(button.outline, rect);
+            side += 1;
+        }
+    }
+
+    private func SetOutline(id: String, on: Bool) {
+        let button = this.FindButton(id);
+        if !IsDefined(button) {
+            return;
+        }
+        let i = 0;
+        while i < ArraySize(button.outline) {
+            button.outline[i].SetVisible(on);
+            i += 1;
+        }
+    }
+
     private func CreateSection(name: CName) -> ref<inkCanvas> {
         let s = APM_UiScale();
         let section = new inkCanvas();
@@ -936,6 +1024,7 @@ public class APM_PoseEditor extends IScriptable {
         button.parent = parent;
         button.x = x;
         button.y = y;
+        button.w = w;
         button.h = h;
         button.UpdateLook();
         ArrayPush(this.m_buttons, button);
@@ -954,6 +1043,11 @@ public class APM_PoseEditor extends IScriptable {
         row.label = this.CreateText(parent, text, 16.0, y, 240.0, 32.0, 16, APM_ColorText());
         ArrayPush(row.buttons, this.CreateButton(parent, "dec:" + key, "-", 262.0, y, 48.0, 32.0));
         row.value = this.CreateButton(parent, "drag:" + key, "0", 314.0, y, 200.0, 32.0);
+        // Arrows: drag the value left / right to change it
+        let left = this.CreateText(row.value.root, "<", 10.0, 0.0, 20.0, 32.0, 17, APM_ColorDimText());
+        left.SetInteractive(false);
+        let right = this.CreateText(row.value.root, ">", 178.0, 0.0, 20.0, 32.0, 17, APM_ColorDimText());
+        right.SetInteractive(false);
         ArrayPush(row.buttons, this.CreateButton(parent, "inc:" + key, "+", 518.0, y, 48.0, 32.0));
         ArrayPush(row.buttons, this.CreateButton(parent, "zero:" + key, "0", 572.0, y, 52.0, 32.0));
         ArrayPush(this.m_rows, row);
@@ -1137,8 +1231,8 @@ public class APM_PoseEditor extends IScriptable {
         tip.SetVisible(false);
         let bg = new inkRectangle();
         bg.SetAnchor(inkEAnchor.Fill);
-        bg.SetTintColor(APM_ColorDark());
-        bg.SetOpacity(0.97);
+        bg.SetTintColor(APM_Color(0.03, 0.05, 0.07, 1.0));
+        bg.SetOpacity(1.0);
         bg.SetInteractive(false);
         bg.Reparent(tip);
         let line = new inkRectangle();
@@ -1158,8 +1252,32 @@ public class APM_PoseEditor extends IScriptable {
         text.SetVerticalAlignment(textVerticalAlignment.Center);
         text.SetInteractive(false);
         text.Reparent(tip);
+        tip.Reparent(this.m_layer); // above the panel and not faded with it
         this.m_tip = tip;
         this.m_tipText = text;
+    }
+
+    // Top-left corner of a button's container on the screen layer (panel units).
+    private func ContainerOrigin(container: wref<inkCompoundWidget>) -> Vector2 {
+        let s = APM_UiScale();
+        let own = container.GetMargin();
+        let name = container.GetName();
+        if Equals(name, n"APM_ItemPicker") || Equals(name, n"APM_Help") {
+            return new Vector2(own.left / s, own.top / s);
+        }
+        let panel = this.m_panel.GetMargin();
+        let x = (panel.left + own.left) / s;
+        let y = (panel.top + own.top) / s;
+        if Equals(name, n"APM_IkRows") {
+            let section = this.m_sectionIk.GetMargin();
+            x += section.left / s;
+            y += section.top / s;
+        } else if Equals(name, n"APM_PosesBody") {
+            let section = this.m_sectionPoses.GetMargin();
+            x += section.left / s;
+            y += section.top / s;
+        }
+        return new Vector2(x, y);
     }
 
     // Shows the box just above a button (below it when there is no room), inside the button's own container.
@@ -1168,13 +1286,13 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let s = APM_UiScale();
+        let origin = this.ContainerOrigin(button.parent);
         let width = MinF(600.0, 24.0 + Cast<Float>(StrLen(text)) * 7.6);
-        let x = ClampF(button.x, 0.0, MaxF(0.0, APM_PanelWidth() - width));
-        let y = button.y - 36.0;
-        if y < 0.0 {
-            y = button.y + button.h + 4.0;
+        let x = MaxF(4.0, origin.X + button.x + button.w * 0.5 - width * 0.5);
+        let y = origin.Y + button.y - 38.0;
+        if y < 4.0 {
+            y = origin.Y + button.y + button.h + 6.0;
         }
-        this.m_tip.Reparent(button.parent);
         this.m_tip.SetMargin(x * s, y * s, 0.0, 0.0);
         this.m_tip.SetSize(width * s, 32.0 * s);
         this.m_tipText.SetText(text);
@@ -1195,6 +1313,12 @@ public class APM_PoseEditor extends IScriptable {
             this.m_messageTimer -= timeDelta;
             if this.m_messageTimer <= 0.0 {
                 this.HideTip();
+                // "Click again" for Reset all / Delete lasts as long as its message.
+                if this.m_confirmResetAll || this.m_confirmDelete {
+                    this.m_confirmResetAll = false;
+                    this.m_confirmDelete = false;
+                    this.Refresh();
+                }
             }
             return;
         }
@@ -1850,6 +1974,7 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < limbs {
             this.SetButton("ik:" + IntToString(i), i == limb, true);
+            this.SetOutline("ik:" + IntToString(i), APM_GizmoIsIkActive(i));
             i += 1;
         }
         let pin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5);
@@ -1880,9 +2005,11 @@ public class APM_PoseEditor extends IScriptable {
         let base = APM_GetBasePoseName();
         this.m_posesTitle.SetText("Poses " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
             + (StrLen(base) > 0 ? "  - " + base : ""));
-        let toggle = this.FindButton("poses:toggle");
-        if IsDefined(toggle) {
-            toggle.label.SetText(this.m_posesOpen ? "-" : "+");
+        let openPoses = this.FindButton("poses:open");
+        let closePoses = this.FindButton("poses:close");
+        if IsDefined(openPoses) && IsDefined(closePoses) {
+            openPoses.root.SetVisible(!this.m_posesOpen);
+            closePoses.root.SetVisible(this.m_posesOpen);
         }
         let hasSelection = StrLen(this.m_selectedPose) > 0;
         this.SetButton("overwrite", false, hasSelection);
@@ -2032,6 +2159,9 @@ public class APM_PoseEditor extends IScriptable {
                     color = APM_ColorProp();
                 }
                 marker.dot.SetTintColor(color);
+                if IsDefined(marker.halo) {
+                    marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
+                }
                 marker.root.SetOpacity(isSelected || marker.isHovered ? 1.0 : 0.75);
                 let boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, screen, color, isSelected || marker.isHovered);
                 if mode == APM_DragTwist() {
@@ -2635,8 +2765,8 @@ public class APM_PoseEditor extends IScriptable {
             this.SetOpen(false);
             return;
         }
-        if Equals(id, "help") {
-            this.SetHelpOpen(!this.m_helpOpen);
+        if Equals(id, "help") || Equals(id, "helpclose") {
+            this.SetHelpOpen(Equals(id, "help") && !this.m_helpOpen);
             return;
         }
         if Equals(id, "opacity") {
@@ -2677,9 +2807,9 @@ public class APM_PoseEditor extends IScriptable {
             APM_HistoryCheckpoint();
             // World keeps the hand / foot where it is now; body makes it follow the shoulder / hips.
             APM_UiSetValue(7711u, Cast<Float>(StringToInt(arg)));
-        } else if Equals(id, "poses:toggle") {
-            this.m_posesOpen = !this.m_posesOpen;
-            APM_PrefSet("PosesOpen", this.m_posesOpen ? 1.0 : 0.0);
+        } else if Equals(id, "poses:open") || Equals(id, "poses:close") {
+            this.m_posesOpen = Equals(id, "poses:open");
+            APM_SessionSet("PosesOpen", this.m_posesOpen ? 1.0 : 0.0);
         } else if Equals(prefix, "prop") {
             this.RunPropButton(arg);
         } else if Equals(id, "undo") {
