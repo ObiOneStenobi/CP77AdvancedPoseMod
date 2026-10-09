@@ -44,7 +44,7 @@ Open Photo Mode and click **Pose editor** (top left).
 **X** hides the panel. These settings are remembered in `panel.ini`.
   Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
   where the pose puts it), **Reset all** (click
-  twice), **Mirror**, and **?** which opens the controls (marker legend and shortcuts). The IK limb buttons get an orange frame,
+  twice), **Mirror**, and **?** which opens the info window (marker legend and shortcuts). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
   and the hand / foot marker an orange glow, while that limb is pinned. Messages after an action (saved, loaded,
   click again...) appear for a moment above the button that was clicked.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
@@ -86,7 +86,9 @@ closer.
 - Shift / Ctrl / Alt can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
-  **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
+  **Shift+drag** to move it. Dragging the hips moves the whole body (**Shift+drag** rotates them); while the hips are selected a grey
+  diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
+  position relative to that point.
 - **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: type to search
   (Enter takes the first result, Esc closes), filter with the **All / Weapons / Food / Other** tabs; recent items
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as

@@ -295,6 +295,9 @@ public class APM_PoseEditor extends IScriptable {
 
     private let m_markers: array<ref<APM_Marker>>;
     private let m_lineLayer: wref<inkCanvas>;
+    private let m_hipsPart: Int32;
+    private let m_rootDot: wref<inkRectangle>;  // V's root (where Photo Mode placed her): saved hips positions are relative to it
+    private let m_rootLine: wref<inkRectangle>;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -402,10 +405,10 @@ public class APM_PoseEditor extends IScriptable {
         if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerOpen {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
-                this.SetStatus(APM_Undo() ? "Undone (Ctrl+Z)" : "Nothing to undo");
+                APM_Undo();
                 this.Refresh();
             } else if hotkey == 2 {
-                this.SetStatus(APM_Redo() ? "Redone (Ctrl+Y)" : "Nothing to redo");
+                APM_Redo();
                 this.Refresh();
             }
         }
@@ -463,7 +466,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
-        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Controls: markers and shortcuts");
+        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Info: markers and shortcuts");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -653,7 +656,8 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(picker);
 
-        let search = this.CreateText(picker, "Type to search", 16.0, 8.0, 428.0, 30.0, 17, APM_ColorAccent());
+        let search = this.CreateText(picker, "Type to search", 16.0, 8.0, 380.0, 30.0, 17, APM_ColorAccent());
+        this.CreateIconButton(picker, "pick:close", "x", 404.0, 9.0, "");
         search.SetLetterCase(textLetterCase.OriginalCase);
         this.m_pickerSearch = search;
         this.CreateSmallButton(picker, "pick:tab0", "All", 16.0, 44.0, 104.0, 28.0);
@@ -671,7 +675,6 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateSmallButton(picker, "pick:prev", "<", 16.0, footer, 60.0, 28.0);
         this.m_pickerPageText = this.CreateText(picker, "", 84.0, footer, 200.0, 28.0, 13, APM_ColorDimText());
         this.CreateSmallButton(picker, "pick:next", ">", 290.0, footer, 60.0, 28.0);
-        this.CreateSmallButton(picker, "pick:close", "Close", 354.0, footer, 90.0, 28.0);
         picker.SetSize(460.0 * s, (footer + 40.0) * s);
     }
 
@@ -700,15 +703,22 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(help);
 
-        this.CreateText(help, "Controls", 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
-        this.CreateSmallButton(help, "helpclose", "Close", width - 110.0, 14.0, 90.0, 30.0);
+        this.CreateText(help, "Info", 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
+        this.CreateIconButton(help, "helpclose", "x", width - 56.0, 14.0, "");
         // Marker legend: the shape shows what dragging it does right now (it changes with Shift / Ctrl / Alt).
         let y = 60.0;
         y = this.AddHelpShape(help, 0, APM_ColorText(), "rotate", y);
         y = this.AddHelpShape(help, 1, APM_ColorText(), "move", y);
         y = this.AddHelpShape(help, 2, APM_ColorText(), "twist", y);
         y = this.AddHelpShape(help, 1, APM_ColorIk(), "IK: moves the hand / foot, the arm / leg follows", y);
-        y += 10.0;
+        let divider = new inkRectangle();
+        divider.SetAnchor(inkEAnchor.TopLeft);
+        divider.SetMargin(20.0 * s, (y + 8.0) * s, 0.0, 0.0);
+        divider.SetSize((width - 40.0) * s, 1.0 * s);
+        divider.SetTintColor(APM_ColorDimText());
+        divider.SetOpacity(0.5);
+        divider.Reparent(help);
+        y += 20.0;
         y = this.AddHelpLine(help, "Alt + drag", "rotate freely", y);
         y = this.AddHelpLine(help, "Ctrl + drag", "twist", y);
         y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or rotate (hands / feet with IK)", y);
@@ -768,6 +778,20 @@ public class APM_PoseEditor extends IScriptable {
         lineLayer.Reparent(this.m_gizmoLayer);
         this.m_lineLayer = lineLayer;
         this.m_leftEyePart = this.PartIndex("Left eye");
+        this.m_hipsPart = this.PartIndex("Body (hips)");
+        let s0 = APM_UiScale();
+        this.m_rootLine = this.CreateLine();
+        let rootDot = new inkRectangle();
+        rootDot.SetAnchor(inkEAnchor.TopLeft);
+        rootDot.SetAnchorPoint(0.5, 0.5);
+        rootDot.SetSize(12.0 * s0, 12.0 * s0);
+        rootDot.SetRotation(45.0);
+        rootDot.SetTintColor(APM_ColorDimText());
+        rootDot.SetOpacity(0.8);
+        rootDot.SetInteractive(false);
+        rootDot.SetVisible(false);
+        rootDot.Reparent(this.m_lineLayer);
+        this.m_rootDot = rootDot;
         this.m_rightEyePart = this.PartIndex("Right eye");
 
         let s = APM_UiScale();
@@ -2185,6 +2209,7 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
+        this.UpdateRootMarker(camera, toWorld, selected);
         this.UpdateHint();
     }
 
@@ -2209,6 +2234,8 @@ public class APM_PoseEditor extends IScriptable {
         let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
         if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
+                text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
+            } else if marker.part == this.m_hipsPart {
                 text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
             } else if marker.canMove {
                 text += "   (Shift: move, Alt: free, Ctrl: twist)";
@@ -2276,6 +2303,30 @@ public class APM_PoseEditor extends IScriptable {
         marker.line.SetOpacity(opacity);
         marker.line.SetVisible(true);
         return Rad2Deg(AtanF(tipScreen.Y - screen.Y, tipScreen.X - screen.X));
+    }
+
+    // While the hips are selected, hovered or dragged: V's root point and a line from it to the hips.
+    private func UpdateRootMarker(camera: ref<CameraSystem>, toWorld: Matrix, selected: Int32) {
+        let hips: ref<APM_Marker>;
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            if this.m_markers[i].part == this.m_hipsPart {
+                hips = this.m_markers[i];
+            }
+            i += 1;
+        }
+        let dragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == this.m_hipsPart;
+        let show = IsDefined(hips) && hips.root.IsVisible() && (selected == this.m_hipsPart || hips.isHovered || dragged);
+        let rootWorld = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
+        let rootScreen = show ? this.ProjectToScreen(camera, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        show = show && rootScreen.W > 0.5;
+        this.m_rootDot.SetVisible(show);
+        if !show {
+            this.m_rootLine.SetVisible(false);
+            return;
+        }
+        this.m_rootDot.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
+        this.UpdateLineFrom(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hips.screenX, hips.screenY, 0.0, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
     }
 
     private func UpdateLineFrom(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float) {
@@ -2391,7 +2442,12 @@ public class APM_PoseEditor extends IScriptable {
         if control {
             return APM_DragTwist();
         }
-        if shift && marker.canMove {
+        // Hips (V's root): move by default, Shift rotates. Held items: Shift moves.
+        let isHips = marker.part == this.m_hipsPart;
+        if isHips && !shift {
+            return APM_DragMove();
+        }
+        if shift && marker.canMove && !isHips {
             return APM_DragMove();
         }
         if marker.chain >= 0 {
@@ -2802,7 +2858,13 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
         } else if Equals(prefix, "ik") {
-            APM_UiSetValue(7710u, Cast<Float>(StringToInt(arg)));
+            let limb = StringToInt(arg);
+            APM_UiSetValue(7710u, Cast<Float>(limb));
+            // Also select that hand / foot above, so its rotation rows are at hand.
+            let limbPart = this.PartIndex(APM_UiGetOptionLabel(7710u, limb));
+            if limbPart >= 0 {
+                APM_UiSetValue(7701u, Cast<Float>(limbPart));
+            }
         } else if Equals(prefix, "pin") {
             APM_HistoryCheckpoint();
             // World keeps the hand / foot where it is now; body makes it follow the shoulder / hips.
