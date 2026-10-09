@@ -49,6 +49,8 @@ void PublishAnimatedPose(const Target& aTarget, const RED4ext::QsTransform* aBon
 // Local rotation / translation of a bone: as shown now (edits and IK included), and before the edits.
 bool GetFinalLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTranslation);
 bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTranslation);
+// Model-space position / rotation of a bone before the edits.
+bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRotation);
 
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();

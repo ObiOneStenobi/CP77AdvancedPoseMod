@@ -156,6 +156,62 @@ void KeepPinnedEndInPlace(Pose::IkChainSettings& aSettings)
     }
 }
 
+constexpr const char* IkChainParents[] = {"LeftShoulder", "RightShoulder", "Hips", "Hips"};
+
+// The pin of the current chain is turned on: pin the hand / foot where it is shown now (after the edits above it),
+// instead of where the animation had it.
+void PinAtCurrentPlace(Pose::IkChainSettings& aSettings)
+{
+    const auto chain = static_cast<size_t>(CurrentChain());
+    const char* end = IkChainEnds[chain];
+    const uint64_t endHash = RED4ext::CName(end).hash;
+    const uint64_t parentHash = RED4ext::CName(IkChainParents[chain]).hash;
+    Math::Vec3 currentEnd{};
+    Math::Quat currentEndRotation{};
+    Math::Vec3 originalEnd{};
+    Math::Quat originalEndRotation{};
+    Math::Vec3 currentParent{};
+    Math::Quat currentParentRotation{};
+    Math::Vec3 originalParent{};
+    Math::Quat originalParentRotation{};
+    if (!Pose::GizmoState::GetBoneModelPosition(endHash, currentEnd) ||
+        !Pose::GizmoState::GetBoneModelRotation(endHash, currentEndRotation) ||
+        !Pose::GizmoState::GetAnimatedModel(endHash, originalEnd, originalEndRotation) ||
+        !Pose::GizmoState::GetBoneModelPosition(parentHash, currentParent) ||
+        !Pose::GizmoState::GetBoneModelRotation(parentHash, currentParentRotation) ||
+        !Pose::GizmoState::GetAnimatedModel(parentHash, originalParent, originalParentRotation))
+    {
+        return;
+    }
+    // Same frame the solver uses (see PoseProcessor: target and hand rotation, world or body).
+    const Math::Quat body = Math::Normalize(Math::Mul(currentParentRotation, Math::Conjugate(originalParentRotation)));
+    Math::Vec3 offset;
+    Math::Quat handWorld = currentEndRotation;
+    if (aSettings.followBody)
+    {
+        offset = Math::Rotate(Math::Conjugate(body), currentEnd - currentParent) - originalEnd + originalParent;
+        handWorld = Math::Mul(Math::Conjugate(body), currentEndRotation);
+    }
+    else
+    {
+        offset = currentEnd - originalEnd;
+    }
+    aSettings.offset = {offset.x, offset.y, offset.z};
+    aSettings.swivel = 0.f; // the solver keeps the elbow / knee where the pose has it
+
+    // Hand / foot edit O: pinned world rotation = (body) * original * O.
+    const Math::Quat edit = Math::Normalize(Math::Mul(Math::Conjugate(originalEndRotation), handWorld));
+    std::array<float, 3> angles{};
+    if (RotationToAngles(end, edit, false, angles))
+    {
+        for (auto& angle : angles)
+        {
+            angle = std::clamp(angle, -180.f, 180.f);
+        }
+        Pose::PoseOverrides::SetRotationQuat(end, AnglesToRotation(end, angles, false), angles);
+    }
+}
+
 bool UsesFingerAxes(const Ui::CatalogEntry& aEntry)
 {
     return aEntry.mode == Ui::EntryMode::Curl || aEntry.mode == Ui::EntryMode::FingerSegment;
@@ -394,6 +450,10 @@ void SetValue(uint32_t aAttribute, float aValue)
             if (settings.enabled && updated.enabled && settings.followBody != updated.followBody)
             {
                 KeepPinnedEndInPlace(updated);
+            }
+            else if (!settings.enabled && updated.enabled)
+            {
+                PinAtCurrentPlace(updated);
             }
         }
         else if (aAttribute == Attr::IkSwivel)

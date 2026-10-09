@@ -70,7 +70,7 @@ closer.
   automatically). **Shift+drag** it to rotate the hand / foot instead.
 - The **Pin** button cycles **off / world / body**: *world* keeps the hand / foot where it is whatever the body does;
   *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
-  Switching between world and body leaves the hand / foot where it is.
+  Turning the pin on, or switching between world and body, leaves the hand / foot where it is.
 - While a limb is pinned, dragging its upper arm / forearm (thigh / shin) marker turns the elbow (knee) around the
   shoulder -> hand line.
 - The orange marker in front of the face is the point both eyes look at: drag it and the eyes converge on it.

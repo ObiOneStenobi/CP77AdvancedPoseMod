@@ -284,6 +284,43 @@ bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTr
     return GetFinalLocal(aBoneHash, aRotation, aTranslation);
 }
 
+bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRotation)
+{
+    std::scoped_lock lock(g_mutex);
+    const Skeleton& skeleton = g_main;
+    const auto index = IndexOf(skeleton, aBoneHash);
+    if (index < 0 || GetTickCount64() - skeleton.lastUpdate > 1000)
+    {
+        return false;
+    }
+    const bool fresh = g_animated.boneNames == skeleton.boneNames && GetTickCount64() - g_animated.lastUpdate <= 1000 &&
+                       g_animated.rotations.size() >= skeleton.positions.size();
+    if (!fresh)
+    {
+        // No custom pose applied: what is shown is the animation.
+        aPosition = skeleton.positions[index];
+        aRotation = skeleton.rotations[index];
+        return true;
+    }
+    // Chain from the root down to the bone.
+    std::vector<int32_t> chain;
+    for (int32_t i = index; i >= 0 && chain.size() < 256;
+         i = static_cast<size_t>(i) < skeleton.parents.size() ? skeleton.parents[i] : -1)
+    {
+        chain.push_back(i);
+    }
+    Vec3 position{};
+    Quat rotation{0.f, 0.f, 0.f, 1.f};
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+    {
+        position = position + Math::Rotate(rotation, g_animated.translations[*it]);
+        rotation = Math::Normalize(Math::Mul(rotation, g_animated.rotations[*it]));
+    }
+    aPosition = position;
+    aRotation = rotation;
+    return true;
+}
+
 bool CaptureLocalPose(std::vector<CapturedBone>& aOut)
 {
     std::scoped_lock lock(g_mutex);
