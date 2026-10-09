@@ -89,8 +89,8 @@ closer.
   **Shift+drag** to move it. Dragging the hips moves the whole body (**Shift+drag** rotates them); while the hips are selected a grey
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
   position relative to that point.
-- **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: type to search
-  (Enter takes the first result, Esc closes), filter with the **All / Weapons / Food / Other** tabs; recent items
+- **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: click the search box
+  to type (Enter takes the first result, Esc stops typing), filter with the **All / Weapons / Food / Other** tabs; recent items
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
   "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move

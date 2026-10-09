@@ -266,6 +266,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_help: wref<inkCanvas>; // shortcuts window
     private let m_helpOpen: Bool;
     private let m_pickerSearch: wref<inkText>;
+    private let m_pickerTyping: Bool; // the search box has the keyboard (after a click on it)
     private let m_pickerPageText: wref<inkText>;
     private let m_pickerButtons: array<ref<APM_Button>>;
     private let m_pickerOpen: Bool;
@@ -378,10 +379,11 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Uninitialize() {
         APM_SetWheelCapture(false);
-        if this.m_pickerOpen {
+        if this.m_pickerTyping {
             APM_TextEntryEnd();
-            this.m_pickerOpen = false;
+            this.m_pickerTyping = false;
         }
+        this.m_pickerOpen = false;
         if this.m_renaming {
             APM_TextEntryEnd();
             this.m_renaming = false;
@@ -402,7 +404,7 @@ public class APM_PoseEditor extends IScriptable {
         this.SyncProps(timeDelta);
         this.UpdatePicker();
         this.UpdateDragWheel();
-        if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerOpen {
+        if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerTyping {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
                 APM_Undo();
@@ -454,19 +456,19 @@ public class APM_PoseEditor extends IScriptable {
         let header = this.CreateSection(n"APM_Header");
         this.m_sectionHeader = header;
         this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
-        let enabledButton = this.CreateButton(header, "enabled", "Pose off", 190.0, 8.0, 92.0, 32.0);
+        let enabledButton = this.CreateButton(header, "enabled", "Pose off", 252.0, 8.0, 92.0, 32.0);
         enabledButton.tooltip = "Turn your edits on V on / off";
-        let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 286.0, 8.0, 92.0, 32.0);
+        let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 348.0, 8.0, 92.0, 32.0);
         gizmosButton.tooltip = "Show / hide the markers on V";
-        let opacityButton = this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
+        let opacityButton = this.CreateButton(header, "opacity", "100%", 444.0, 8.0, 64.0, 32.0);
         opacityButton.tooltip = "Panel opacity";
+        this.CreateIconButton(header, "help", "circle-help", 538.0, 10.0, "Info: markers and shortcuts");
         this.CreateIconButton(header, "hide", "x", 584.0, 10.0, "Hide the panel");
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
-        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Info: markers and shortcuts");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -656,10 +658,19 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(picker);
 
-        let search = this.CreateText(picker, "Type to search", 16.0, 8.0, 380.0, 30.0, 17, APM_ColorAccent());
-        this.CreateIconButton(picker, "pick:close", "x", 404.0, 9.0, "");
+        // Search box: click it to type. The button's own background is the frame, a dark inset is the field.
+        let box = this.CreateButton(picker, "pick:search", "", 16.0, 8.0, 380.0, 32.0);
+        let field = new inkRectangle();
+        field.SetAnchor(inkEAnchor.Fill);
+        field.SetMargin(2.0 * s, 2.0 * s, 2.0 * s, 2.0 * s);
+        field.SetTintColor(APM_Color(0.02, 0.03, 0.05, 1.0));
+        field.SetInteractive(false);
+        field.Reparent(box.root);
+        let search = this.CreateText(box.root, "", 12.0, 0.0, 356.0, 32.0, 17, APM_ColorDimText());
         search.SetLetterCase(textLetterCase.OriginalCase);
+        search.SetInteractive(false);
         this.m_pickerSearch = search;
+        this.CreateIconButton(picker, "pick:close", "x", 404.0, 10.0, "");
         this.CreateSmallButton(picker, "pick:tab0", "All", 16.0, 44.0, 104.0, 28.0);
         this.CreateSmallButton(picker, "pick:tab1", "Weapons", 124.0, 44.0, 104.0, 28.0);
         this.CreateSmallButton(picker, "pick:tab2", "Food", 232.0, 44.0, 104.0, 28.0);
@@ -672,10 +683,12 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
-        this.CreateSmallButton(picker, "pick:prev", "<", 16.0, footer, 60.0, 28.0);
-        this.m_pickerPageText = this.CreateText(picker, "", 84.0, footer, 200.0, 28.0, 13, APM_ColorDimText());
-        this.CreateSmallButton(picker, "pick:next", ">", 290.0, footer, 60.0, 28.0);
-        picker.SetSize(460.0 * s, (footer + 40.0) * s);
+        this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
+        let pageText = this.CreateText(picker, "", 120.0, footer, 220.0, 34.0, 14, APM_ColorDimText());
+        pageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
+        this.m_pickerPageText = pageText;
+        this.CreateButton(picker, "pick:next", ">", 344.0, footer, 100.0, 34.0);
+        picker.SetSize(460.0 * s, (footer + 48.0) * s);
     }
 
     // Window listing the mouse and keyboard shortcuts, shown beside the panel by the "?" button.
@@ -1216,9 +1229,9 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func FormatValue(row: ref<APM_ValueRow>, value: Float) -> String {
-        let text = FloatToStringPrec(value, 1);
-        if Equals(text, "-0.0") {
-            text = "0.0";
+        let text = FloatToStringPrec(value, 2);
+        if Equals(text, "-0.00") {
+            text = "0.00";
         }
         return text + row.unit;
     }
@@ -1488,23 +1501,40 @@ public class APM_PoseEditor extends IScriptable {
             this.SetHelpOpen(false);
         }
         this.BuildItemList();
-        if !APM_TextEntryBegin("") {
-            this.SetStatus("Typing is not available");
-        }
         this.m_pickerOpen = true;
+        this.m_pickerTyping = false;
         this.m_pickerQuery = "";
         this.m_pickerPage = 0;
         this.UpdatePickerResults();
         this.m_picker.SetVisible(true);
-        this.SetStatus("Type to search, Enter takes the first item, Esc closes");
     }
 
     private func ClosePicker() {
-        if this.m_pickerOpen {
-            APM_TextEntryEnd();
-        }
+        this.StopPickerTyping();
         this.m_pickerOpen = false;
         this.m_picker.SetVisible(false);
+    }
+
+    private func StartPickerTyping() {
+        if this.m_pickerTyping {
+            return;
+        }
+        if this.m_renaming {
+            this.FinishRename(true);
+        }
+        if !APM_TextEntryBegin(this.m_pickerQuery) {
+            this.SetStatus("Typing is not available");
+            return;
+        }
+        this.m_pickerTyping = true;
+        this.RefreshPicker();
+    }
+
+    private func StopPickerTyping() {
+        if this.m_pickerTyping {
+            APM_TextEntryEnd();
+        }
+        this.m_pickerTyping = false;
     }
 
     // Results for the current text: recently used items first when nothing is typed.
@@ -1573,7 +1603,18 @@ public class APM_PoseEditor extends IScriptable {
         }
         let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
         this.m_pickerPageText.SetText(IntToString(ArraySize(this.m_pickerResults)) + " items  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
-        this.m_pickerSearch.SetText((StrLen(this.m_pickerQuery) > 0 ? this.m_pickerQuery : "") + "_   " + (this.m_propRight ? "(right hand)" : "(left hand)"));
+        if this.m_pickerTyping {
+            this.m_pickerSearch.SetText(this.m_pickerQuery + "_");
+            this.m_pickerSearch.SetTintColor(APM_ColorText());
+        } else {
+            this.m_pickerSearch.SetText(StrLen(this.m_pickerQuery) > 0 ? this.m_pickerQuery : "Click to search");
+            this.m_pickerSearch.SetTintColor(StrLen(this.m_pickerQuery) > 0 ? APM_ColorText() : APM_ColorDimText());
+        }
+        let searchBox = this.FindButton("pick:search");
+        if IsDefined(searchBox) {
+            searchBox.isSelected = this.m_pickerTyping;
+            searchBox.UpdateLook();
+        }
     }
 
     // While the picker is open: follow the typed text, Enter takes the first result, Esc closes.
@@ -1585,6 +1626,10 @@ public class APM_PoseEditor extends IScriptable {
             this.ClosePicker();
             return;
         }
+        if !this.m_pickerTyping {
+            return;
+        }
+        // Enter takes the first result and closes the list; Esc just stops typing.
         let state = APM_TextEntryGetState();
         if state == 2 {
             if ArraySize(this.m_pickerResults) > 0 {
@@ -1595,8 +1640,8 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         if state != 1 {
-            this.ClosePicker();
-            this.Refresh();
+            this.StopPickerTyping();
+            this.RefreshPicker();
             return;
         }
         let text = APM_TextEntryGetText();
@@ -1610,6 +1655,8 @@ public class APM_PoseEditor extends IScriptable {
     private func RunPickerButton(arg: String) {
         if Equals(arg, "close") {
             this.ClosePicker();
+        } else if Equals(arg, "search") {
+            this.StartPickerTyping();
         } else if StrBeginsWith(arg, "tab") {
             this.m_pickerCategory = StringToInt(StrAfterFirst(arg, "tab"));
             this.m_pickerPage = 0;
@@ -1638,7 +1685,6 @@ public class APM_PoseEditor extends IScriptable {
         if ArraySize(this.m_recentItems) > 8 {
             ArrayPop(this.m_recentItems);
         }
-        this.SetStatus(this.m_itemNames[index] + " in the " + (this.m_propRight ? "right" : "left") + " hand");
     }
 
     // arg: "open:r", "clear:l", "restore:r"...
@@ -2145,49 +2191,61 @@ public class APM_PoseEditor extends IScriptable {
                 world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
                 world.W = markerModel.W;
             }
-            let show = world.W > 0.5;
-            let screen: Vector4;
-            if show {
-                screen = this.ProjectToScreen(camera, world);
-                show = screen.W > 0.5;
-            }
+            // In use: has a position, and (fingers) the camera is close enough. Its lines are drawn even when the
+            // marker itself is off screen.
+            let inUse = world.W > 0.5;
+            let anywhere = inUse ? this.ProjectPoint(camera, world, false) : APM_Vector(0.0, 0.0, 0.0, 0.0);
             // Fingers only up close (or while their hand is being edited), their segments even closer.
-            if show && marker.kind == APM_MarkerKindFinger() {
-                show = screen.Z < this.FingerDistance() || Equals(marker.group, selectedGroup);
+            if inUse && marker.kind == APM_MarkerKindFinger() {
+                inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDistance() || Equals(marker.group, selectedGroup));
             }
-            if show && marker.kind == APM_MarkerKindFingerDetail() {
-                show = screen.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && screen.Z < this.FingerDistance());
+            if inUse && marker.kind == APM_MarkerKindFingerDetail() {
+                inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && anywhere.Z < this.FingerDistance()));
             }
-            show = show || (isDragged && screen.W > 0.5);
+            inUse = inUse || (isDragged && world.W > 0.5);
+            let screen = inUse ? this.ProjectToScreen(camera, world) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+            let show = inUse && screen.W > 0.5;
+
+            let isSelected = marker.part == selected;
+            // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
+            // flat bar across the bone = twist. Orange = IK.
+            let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
+            let color = APM_ColorText();
+            if isSelected {
+                color = APM_ColorAccent();
+            } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
+                color = APM_ColorIk();
+            } else if marker.isProp {
+                color = APM_ColorProp();
+            }
+            let boneAngle = 0.0;
+            if inUse {
+                boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, world, color, isSelected || marker.isHovered);
+            } else {
+                marker.line.SetVisible(false);
+                if IsDefined(marker.line2) {
+                    marker.line2.SetVisible(false);
+                }
+                if IsDefined(marker.parentLine) {
+                    marker.parentLine.SetVisible(false);
+                }
+            }
 
             marker.root.SetVisible(show);
             if show {
                 marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
                 marker.screenX = screen.X;
                 marker.screenY = screen.Y;
-                let isSelected = marker.part == selected;
                 let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
                 let size = isDetail ? 7.0 : 10.0;
                 if isSelected || marker.isHovered {
                     size += 4.0;
-                }
-                // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
-                // flat bar across the bone = twist. Orange = IK.
-                let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
-                let color = APM_ColorText();
-                if isSelected {
-                    color = APM_ColorAccent();
-                } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
-                    color = APM_ColorIk();
-                } else if marker.isProp {
-                    color = APM_ColorProp();
                 }
                 marker.dot.SetTintColor(color);
                 if IsDefined(marker.halo) {
                     marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
                 }
                 marker.root.SetOpacity(isSelected || marker.isHovered ? 1.0 : 0.75);
-                let boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, screen, color, isSelected || marker.isHovered);
                 if mode == APM_DragTwist() {
                     marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
                     marker.dot.SetRotation(boneAngle + 90.0);
@@ -2197,14 +2255,6 @@ public class APM_PoseEditor extends IScriptable {
                 } else {
                     marker.dot.SetSize(size * s, size * s);
                     marker.dot.SetRotation(45.0);
-                }
-            } else {
-                marker.line.SetVisible(false);
-                if IsDefined(marker.line2) {
-                    marker.line2.SetVisible(false);
-                }
-                if IsDefined(marker.parentLine) {
-                    marker.parentLine.SetVisible(false);
                 }
             }
             i += 1;
@@ -2274,18 +2324,20 @@ public class APM_PoseEditor extends IScriptable {
 
     // Bone lines: from the joint towards the point the bone points at, and from the parent part's joint; for the
     // eyes, from each eye to the point they look at. Returns the on-screen angle of the bone (degrees).
-    private func UpdateMarkerLines(camera: ref<CameraSystem>, toWorld: Matrix, marker: ref<APM_Marker>, screen: Vector4, color: HDRColor, strong: Bool) -> Float {
+    // Lines of a marker, from world points (they stay visible when one end is off screen). Returns the bone's
+    // angle on screen, for the twist bar.
+    private func UpdateMarkerLines(camera: ref<CameraSystem>, toWorld: Matrix, marker: ref<APM_Marker>, world: Vector4, color: HDRColor, strong: Bool) -> Float {
         let s = APM_UiScale();
         let thickness = (strong ? 2.5 : 1.5) * s;
         let opacity = strong ? 0.9 : 0.45;
         if marker.kind == APM_MarkerKindEyeLook() {
-            this.UpdateLineFrom(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), screen, color, thickness, opacity);
-            this.UpdateLineFrom(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), screen, color, thickness, opacity);
+            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity);
+            this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity);
             return 0.0;
         }
         let parentModel = APM_GizmoGetPartParent(marker.part);
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        this.UpdateLineFrom(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), screen, APM_ColorText(), 1.5 * s, 0.35);
+        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35);
 
         let tipModel = APM_GizmoGetPartTip(marker.part);
         if tipModel.W < 0.5 {
@@ -2293,16 +2345,47 @@ public class APM_PoseEditor extends IScriptable {
             return 0.0;
         }
         let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
-        let tipScreen = this.ProjectToScreen(camera, APM_Vector(tip.X, tip.Y, tip.Z, 1.0));
-        if tipScreen.W < 0.5 {
-            marker.line.SetVisible(false);
+        return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity);
+    }
+
+    // Line between two world points (W = 1 when valid), cut where it goes behind the camera. Returns its screen angle.
+    private func DrawWorldLine(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float) -> Float {
+        if !IsDefined(line) {
             return 0.0;
         }
-        this.PlaceLine(marker.line, screen.X, screen.Y, tipScreen.X, tipScreen.Y, thickness);
-        marker.line.SetTintColor(color);
-        marker.line.SetOpacity(opacity);
-        marker.line.SetVisible(true);
-        return Rad2Deg(AtanF(tipScreen.Y - screen.Y, tipScreen.X - screen.X));
+        let cameraTransform: Transform;
+        if from.W < 0.5 || to.W < 0.5 || !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            line.SetVisible(false);
+            return 0.0;
+        }
+        let forward = camera.GetActiveCameraForward();
+        let near = 0.2;
+        let depthA = (from.X - cameraTransform.position.X) * forward.X + (from.Y - cameraTransform.position.Y) * forward.Y + (from.Z - cameraTransform.position.Z) * forward.Z;
+        let depthB = (to.X - cameraTransform.position.X) * forward.X + (to.Y - cameraTransform.position.Y) * forward.Y + (to.Z - cameraTransform.position.Z) * forward.Z;
+        if depthA < near && depthB < near {
+            line.SetVisible(false);
+            return 0.0;
+        }
+        let a = from;
+        let b = to;
+        if depthA < near {
+            let t = (near - depthA) / (depthB - depthA);
+            a = APM_Vector(from.X + (to.X - from.X) * t, from.Y + (to.Y - from.Y) * t, from.Z + (to.Z - from.Z) * t, 1.0);
+        } else if depthB < near {
+            let t = (near - depthB) / (depthA - depthB);
+            b = APM_Vector(to.X + (from.X - to.X) * t, to.Y + (from.Y - to.Y) * t, to.Z + (from.Z - to.Z) * t, 1.0);
+        }
+        let screenA = this.ProjectPoint(camera, a, false);
+        let screenB = this.ProjectPoint(camera, b, false);
+        if screenA.W < 0.5 || screenB.W < 0.5 {
+            line.SetVisible(false);
+            return 0.0;
+        }
+        this.PlaceLine(line, screenA.X, screenA.Y, screenB.X, screenB.Y, thickness);
+        line.SetTintColor(color);
+        line.SetOpacity(opacity);
+        line.SetVisible(true);
+        return Rad2Deg(AtanF(screenB.Y - screenA.Y, screenB.X - screenA.X));
     }
 
     // While the hips are selected, hovered or dragged: V's root point and a line from it to the hips.
@@ -2316,35 +2399,33 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let dragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == this.m_hipsPart;
-        let show = IsDefined(hips) && hips.root.IsVisible() && (selected == this.m_hipsPart || hips.isHovered || dragged);
-        let rootWorld = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
-        let rootScreen = show ? this.ProjectToScreen(camera, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        show = show && rootScreen.W > 0.5;
-        this.m_rootDot.SetVisible(show);
-        if !show {
+        let show = IsDefined(hips) && (selected == this.m_hipsPart || hips.isHovered || dragged);
+        let hipsModel = APM_GizmoGetPartMarker(this.m_hipsPart);
+        if !show || hipsModel.W < 0.5 {
+            this.m_rootDot.SetVisible(false);
             this.m_rootLine.SetVisible(false);
             return;
         }
-        this.m_rootDot.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
-        this.UpdateLineFrom(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hips.screenX, hips.screenY, 0.0, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
-    }
-
-    private func UpdateLineFrom(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float) {
-        let fromScreen = from.W > 0.5 ? this.ProjectToScreen(camera, from) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        if fromScreen.W < 0.5 {
-            line.SetVisible(false);
-            return;
+        let hipsWorld = Vector4.Transform(toWorld, APM_Vector(hipsModel.X, hipsModel.Y, hipsModel.Z, 1.0));
+        let rootWorld = Vector4.Transform(toWorld, APM_Vector(0.0, 0.0, 0.0, 1.0));
+        let rootScreen = this.ProjectToScreen(camera, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0));
+        // The point only when on screen; the line always.
+        this.m_rootDot.SetVisible(rootScreen.W > 0.5);
+        if rootScreen.W > 0.5 {
+            this.m_rootDot.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
         }
-        this.PlaceLine(line, fromScreen.X, fromScreen.Y, to.X, to.Y, thickness);
-        line.SetTintColor(color);
-        line.SetOpacity(opacity);
-        line.SetVisible(true);
+        this.DrawWorldLine(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
     }
 
     // Perspective projection of a world point to the 3840x2160 ink canvas (X, Y); W = 1 when on screen.
     // Done by hand from the camera axes and field of view (CameraSystem.ProjectPoint did not give screen
     // coordinates). Assumes a vertical field of view.
     private func ProjectToScreen(camera: ref<CameraSystem>, world: Vector4) -> Vector4 {
+        return this.ProjectPoint(camera, world, true);
+    }
+
+    // onScreenOnly = false: also points outside the screen (still in front of the camera), for lines.
+    private func ProjectPoint(camera: ref<CameraSystem>, world: Vector4, onScreenOnly: Bool) -> Vector4 {
         let cameraTransform: Transform;
         if !camera.GetActiveCameraWorldTransform(cameraTransform) {
             return APM_Vector(0.0, 0.0, 0.0, 0.0);
@@ -2373,7 +2454,7 @@ public class APM_PoseEditor extends IScriptable {
         let tanHalf = TanF(Deg2Rad(fov) * 0.5);
         let ndcX = side / (depth * tanHalf * aspect);
         let ndcY = height / (depth * tanHalf);
-        if AbsF(ndcX) > 1.05 || AbsF(ndcY) > 1.05 {
+        if onScreenOnly && (AbsF(ndcX) > 1.05 || AbsF(ndcY) > 1.05) {
             return APM_Vector(0.0, 0.0, 0.0, 0.0);
         }
         return APM_Vector((ndcX + 1.0) * 0.5 * APM_ScreenWidth(), (1.0 - ndcY) * 0.5 * APM_ScreenHeight(), depth, 1.0);
