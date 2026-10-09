@@ -227,7 +227,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_panelBg: wref<inkRectangle>;
     private let m_openButton: ref<APM_Button>;
     private let m_isOpen: Bool;
-    private let m_dockRight: Bool;
     private let m_opacityStep: Int32; // 0..3
     private let m_gizmosOn: Bool;
     private let m_panelHovered: Bool;
@@ -258,6 +257,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_posesOpen: Bool;
     // Item picker (search list next to the panel)
     private let m_picker: wref<inkCanvas>;
+    private let m_help: wref<inkCanvas>; // shortcuts window
+    private let m_helpOpen: Bool;
     private let m_pickerSearch: wref<inkText>;
     private let m_pickerPageText: wref<inkText>;
     private let m_pickerButtons: array<ref<APM_Button>>;
@@ -310,6 +311,12 @@ public class APM_PoseEditor extends IScriptable {
     private let m_propRight: Bool;            // the hand the picker works on
     private let m_shownRight: Uint64;         // items actually placed on the puppet
     private let m_shownLeft: Uint64;
+    // Item the Photo Mode pose itself put in each hand (hand prop 0 = keep it, 1 = hand emptied on purpose)
+    private let m_poseItemRight: ItemID;
+    private let m_poseItemLeft: ItemID;
+    private let m_hasPoseItemRight: Bool;
+    private let m_hasPoseItemLeft: Bool;
+    private let m_poseItemDelay: Float; // wait after placing before reading the slots again
     private let m_renaming: Bool;     // typing a pose name
     private let m_renameFrom: String; // pose being renamed
     private let m_refreshTimer: Float;
@@ -321,7 +328,6 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
 
-        this.m_dockRight = APM_PrefGet("DockRight", 0.0) > 0.5;
         this.m_opacityStep = Cast<Int32>(APM_PrefGet("OpacityStep", 1.0));
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
         this.m_propRight = true;
@@ -434,13 +440,13 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(header, "enabled", "Pose off", 190.0, 8.0, 92.0, 32.0);
         this.CreateButton(header, "gizmos", "Gizmos", 286.0, 8.0, 92.0, 32.0);
         this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
-        this.CreateButton(header, "dock", "<  >", 450.0, 8.0, 56.0, 32.0);
-        this.CreateButton(header, "hide", "Hide", 510.0, 8.0, 114.0, 32.0);
+        this.CreateButton(header, "hide", "Hide", 450.0, 8.0, 174.0, 32.0);
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
         this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
+        this.CreateIconButton(header, "help", "circle-help", 584.0, 46.0, "Mouse and keyboard shortcuts");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -555,9 +561,14 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionItems = items;
         this.AddSeparator(items);
         this.CreateText(items, "In hand", 16.0, 8.0, 100.0, 30.0, 16, APM_ColorAccent());
-        this.CreateButton(items, "prop:hand", "Right", 116.0, 8.0, 90.0, 30.0);
-        this.CreateButton(items, "prop:open", "", 210.0, 8.0, 368.0, 30.0);
-        this.CreateIconButton(items, "prop:clear", "x", 584.0, 9.0, "Empty the hand");
+        this.CreateText(items, "Right", 116.0, 8.0, 60.0, 30.0, 14, APM_ColorDimText());
+        this.CreateButton(items, "prop:open:r", "", 176.0, 8.0, 356.0, 30.0);
+        this.CreateIconButton(items, "prop:restore:r", "rotate-ccw", 538.0, 9.0, "Give back the item of the Photo Mode pose");
+        this.CreateIconButton(items, "prop:clear:r", "x", 584.0, 9.0, "Empty the right hand");
+        this.CreateText(items, "Left", 116.0, 44.0, 60.0, 30.0, 14, APM_ColorDimText());
+        this.CreateButton(items, "prop:open:l", "", 176.0, 44.0, 356.0, 30.0);
+        this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, "Give back the item of the Photo Mode pose");
+        this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, "Empty the left hand");
 
         // Status line
         let status = this.CreateSection(n"APM_Status");
@@ -565,6 +576,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_status = this.CreateText(status, "Drag a value or a gizmo with the mouse", 16.0, 2.0, 608.0, 26.0, 12, APM_ColorDimText());
 
         this.BuildPicker();
+        this.BuildHelp();
         this.ReloadPoses();
         this.Layout();
     }
@@ -585,7 +597,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionIk, y, pinned ? 230.0 : 82.0, true);
         this.m_posesBody.SetVisible(this.m_posesOpen);
         y = this.PlaceSection(this.m_sectionPoses, y, this.m_posesOpen ? 218.0 : 40.0, true);
-        y = this.PlaceSection(this.m_sectionItems, y, 46.0, true);
+        y = this.PlaceSection(this.m_sectionItems, y, 82.0, true);
         y = this.PlaceSection(this.m_sectionStatus, y, 32.0, true);
         this.m_panel.SetSize(APM_PanelWidth() * s, y * s);
     }
@@ -646,6 +658,82 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateSmallButton(picker, "pick:next", ">", 290.0, footer, 60.0, 28.0);
         this.CreateSmallButton(picker, "pick:close", "Close", 354.0, footer, 90.0, 28.0);
         picker.SetSize(460.0 * s, (footer + 40.0) * s);
+    }
+
+    // Window listing the mouse and keyboard shortcuts, shown beside the panel by the "?" button.
+    private func BuildHelp() {
+        let s = APM_UiScale();
+        let width = 640.0;
+        let help = new inkCanvas();
+        help.SetName(n"APM_Help");
+        help.SetInteractive(true);
+        help.SetVisible(false);
+        help.Reparent(this.m_layer);
+        help.RegisterToCallback(n"OnHoverOver", this, n"OnPanelHoverOver");
+        help.RegisterToCallback(n"OnHoverOut", this, n"OnPanelHoverOut");
+        this.m_help = help;
+
+        let bg = new inkRectangle();
+        bg.SetAnchor(inkEAnchor.Fill);
+        bg.SetTintColor(APM_ColorDark());
+        bg.SetOpacity(0.94);
+        bg.SetInteractive(true);
+        bg.Reparent(help);
+        let accent = new inkRectangle();
+        accent.SetAnchor(inkEAnchor.TopFillHorizontaly);
+        accent.SetSize(width * s, 3.0 * s);
+        accent.SetTintColor(APM_ColorAccent());
+        accent.Reparent(help);
+
+        this.CreateText(help, "Shortcuts", 16.0, 8.0, 400.0, 32.0, 20, APM_ColorAccent());
+        this.CreateSmallButton(help, "help", "Close", width - 106.0, 10.0, 90.0, 28.0);
+        let y = 48.0;
+        y = this.AddHelpTitle(help, "Gizmos (markers on V)", y);
+        y = this.AddHelpLine(help, "Drag", "rotate: the tip of the bone follows the cursor, as seen from the camera", y);
+        y = this.AddHelpLine(help, "Alt + drag", "rotate freely, like a ball under the cursor", y);
+        y = this.AddHelpLine(help, "Ctrl + drag", "twist around the bone", y);
+        y = this.AddHelpLine(help, "Shift + drag", "move the hips or a held item - rotate a hand / foot that uses IK", y);
+        y = this.AddHelpLine(help, "Hand / foot", "orange marker: drag moves it with IK and pins it there", y);
+        y = this.AddHelpLine(help, "Elbow / knee", "with the limb pinned: drag turns it around the limb", y);
+        y = this.AddHelpLine(help, "Eyes", "drag the marker in front of the face to where the eyes look", y);
+        y = this.AddHelpLine(help, "Mouse wheel", "while moving something: nearer / farther from the camera", y);
+        y = this.AddHelpLine(help, "Close-up", "finger and palm markers appear with the camera near the hands", y);
+        y = this.AddHelpLine(help, "Shapes", "diamond = rotate, square = move, bar = twist, orange = IK", y);
+        y = this.AddHelpLine(help, "", "Shift, Ctrl and Alt can be pressed or released during a drag", y);
+        y += 8.0;
+        y = this.AddHelpTitle(help, "Panel", y);
+        y = this.AddHelpLine(help, "Values", "drag left / right on a number, - / + for steps, 0 resets it", y);
+        y = this.AddHelpLine(help, "Ctrl+Z / Ctrl+Y", "undo / redo", y);
+        y = this.AddHelpLine(help, "Eraser", "reset the selected part (and its IK pin place)", y);
+        y = this.AddHelpLine(help, "Trash", "reset everything (click twice) - items in hand stay", y);
+        y = this.AddHelpLine(help, "Mirror", "while on, the limb you edit is copied to the other side", y);
+        y = this.AddHelpLine(help, "Pin", "off / world (stays in the scene) / body (follows shoulder or hips)", y);
+        y = this.AddHelpLine(help, "T pose / A pose", "start from a neutral pose; Reset all goes back", y);
+        y = this.AddHelpLine(help, "Poses", "save new, overwrite, load, rename, delete", y);
+        y = this.AddHelpLine(help, "In hand", "click a hand's item to choose: type to search, Enter takes the first", y);
+        y = this.AddHelpLine(help, "", "X empties the hand, the arrow gives back the item of the Photo Mode pose", y);
+        help.SetSize(width * s, (y + 12.0) * s);
+    }
+
+    private func AddHelpTitle(parent: wref<inkCompoundWidget>, text: String, y: Float) -> Float {
+        this.CreateText(parent, text, 16.0, y, 600.0, 26.0, 15, APM_ColorAccent());
+        return y + 28.0;
+    }
+
+    private func AddHelpLine(parent: wref<inkCompoundWidget>, key: String, text: String, y: Float) -> Float {
+        this.CreateText(parent, key, 16.0, y, 150.0, 22.0, 13, APM_ColorText());
+        let label = this.CreateText(parent, text, 170.0, y, 460.0, 22.0, 13, APM_ColorDimText());
+        label.SetLetterCase(textLetterCase.OriginalCase);
+        return y + 23.0;
+    }
+
+    private func SetHelpOpen(open: Bool) {
+        if open && this.m_pickerOpen {
+            this.ClosePicker();
+        }
+        this.m_helpOpen = open;
+        this.m_help.SetVisible(open);
+        this.SetButton("help", open, true);
     }
 
     private func BuildMarkers() {
@@ -897,32 +985,30 @@ public class APM_PoseEditor extends IScriptable {
             }
             this.m_panelHovered = false;
             this.SetHover(false);
+            if this.m_pickerOpen {
+                this.ClosePicker();
+            }
+            if this.m_helpOpen {
+                this.SetHelpOpen(false);
+            }
         }
     }
 
+    // The panel sits on the left (the Photo Mode menu is on the right); the item list and the help open beside it.
     private func ApplyDock() {
         let s = APM_UiScale();
-        if this.m_dockRight {
-            this.m_panel.SetAnchor(inkEAnchor.TopRight);
-            this.m_panel.SetAnchorPoint(1.0, 0.0);
-            this.m_panel.SetMargin(0.0, 60.0 * s, 24.0 * s, 0.0);
-            this.m_openButton.root.SetAnchor(inkEAnchor.TopRight);
-            this.m_openButton.root.SetAnchorPoint(1.0, 0.0);
-            this.m_openButton.root.SetMargin(0.0, 60.0 * s, 24.0 * s, 0.0);
-            this.m_picker.SetAnchor(inkEAnchor.TopRight);
-            this.m_picker.SetAnchorPoint(1.0, 0.0);
-            this.m_picker.SetMargin(0.0, 60.0 * s, (24.0 + APM_PanelWidth() + 8.0) * s, 0.0);
-        } else {
-            this.m_panel.SetAnchor(inkEAnchor.TopLeft);
-            this.m_panel.SetAnchorPoint(0.0, 0.0);
-            this.m_panel.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
-            this.m_openButton.root.SetAnchor(inkEAnchor.TopLeft);
-            this.m_openButton.root.SetAnchorPoint(0.0, 0.0);
-            this.m_openButton.root.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
-            this.m_picker.SetAnchor(inkEAnchor.TopLeft);
-            this.m_picker.SetAnchorPoint(0.0, 0.0);
-            this.m_picker.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
-        }
+        this.m_panel.SetAnchor(inkEAnchor.TopLeft);
+        this.m_panel.SetAnchorPoint(0.0, 0.0);
+        this.m_panel.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
+        this.m_openButton.root.SetAnchor(inkEAnchor.TopLeft);
+        this.m_openButton.root.SetAnchorPoint(0.0, 0.0);
+        this.m_openButton.root.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
+        this.m_picker.SetAnchor(inkEAnchor.TopLeft);
+        this.m_picker.SetAnchorPoint(0.0, 0.0);
+        this.m_picker.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
+        this.m_help.SetAnchor(inkEAnchor.TopLeft);
+        this.m_help.SetAnchorPoint(0.0, 0.0);
+        this.m_help.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
     }
 
     // Panel transparency: background 85/60/35/15 %, controls slightly faded at the lowest steps.
@@ -1174,6 +1260,9 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_renaming {
             this.FinishRename(true);
         }
+        if this.m_helpOpen {
+            this.SetHelpOpen(false);
+        }
         this.BuildItemList();
         if !APM_TextEntryBegin("") {
             this.SetStatus("Typing is not available");
@@ -1328,47 +1417,93 @@ public class APM_PoseEditor extends IScriptable {
         this.SetStatus(this.m_itemNames[index] + " in the " + (this.m_propRight ? "right" : "left") + " hand");
     }
 
+    // arg: "open:r", "clear:l", "restore:r"...
     private func RunPropButton(arg: String) {
-        if Equals(arg, "hand") {
-            this.m_propRight = !this.m_propRight;
-            if this.m_pickerOpen {
-                this.UpdatePickerResults();
-            }
+        let action = StrBeforeFirst(arg, ":");
+        let right = Equals(StrAfterFirst(arg, ":"), "r");
+        let hand = right ? "right" : "left";
+        let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
+        if Equals(action, "clear") {
+            APM_SetHandProp(right, hasPose ? 1ul : 0ul);
+            this.SetStatus("The " + hand + " hand is empty");
             return;
         }
-        if Equals(arg, "clear") {
-            APM_SetHandProp(this.m_propRight, 0ul);
-            this.SetStatus((this.m_propRight ? "Right" : "Left") + " hand emptied");
+        if Equals(action, "restore") {
+            APM_SetHandProp(right, 0ul);
+            this.SetStatus("The " + hand + " hand holds the item of the Photo Mode pose again");
             return;
         }
-        if Equals(arg, "open") {
-            if this.m_pickerOpen {
+        if Equals(action, "open") {
+            if this.m_pickerOpen && Equals(this.m_propRight, right) {
                 this.ClosePicker();
             } else {
-                this.OpenPicker();
+                this.m_propRight = right;
+                if this.m_pickerOpen {
+                    this.m_pickerPage = 0;
+                    this.UpdatePickerResults();
+                } else {
+                    this.OpenPicker();
+                }
             }
         }
     }
 
+    private func ItemName(record: Uint64) -> String {
+        let itemRecord = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(record));
+        return IsDefined(itemRecord) ? GetLocalizedItemNameByCName(itemRecord.DisplayName()) : "Item";
+    }
+
     private func RefreshProps() {
-        let handButton = this.FindButton("prop:hand");
-        if IsDefined(handButton) {
-            handButton.label.SetText(this.m_propRight ? "Right" : "Left");
-        }
-        let openButton = this.FindButton("prop:open");
+        this.RefreshHand(true);
+        this.RefreshHand(false);
+    }
+
+    private func RefreshHand(right: Bool) {
+        let suffix = right ? "r" : "l";
+        let held = APM_GetHandProp(right);
+        let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
+        let shows = held > 1ul || (held == 0ul && hasPose);
+        let openButton = this.FindButton("prop:open:" + suffix);
         if IsDefined(openButton) {
-            let held = APM_GetHandProp(this.m_propRight);
             let text = "Nothing - click to choose";
-            if held != 0ul {
-                let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(held));
-                text = IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "Item";
+            if held > 1ul {
+                text = this.ItemName(held);
+            } else if held == 0ul && hasPose {
+                let poseItem = right ? this.m_poseItemRight : this.m_poseItemLeft;
+                text = this.ItemName(TDBID.ToNumber(ItemID.GetTDBID(poseItem))) + " (pose)";
             }
             openButton.label.SetText(text);
-            openButton.isSelected = this.m_pickerOpen;
-            openButton.isMarked = held != 0ul;
+            openButton.isSelected = this.m_pickerOpen && Equals(this.m_propRight, right);
+            openButton.isMarked = held > 1ul;
             openButton.UpdateLook();
         }
-        this.SetButton("prop:clear", false, APM_GetHandProp(this.m_propRight) != 0ul);
+        this.SetButton("prop:clear:" + suffix, false, shows);
+        let restoreButton = this.FindButton("prop:restore:" + suffix);
+        if IsDefined(restoreButton) {
+            restoreButton.root.SetVisible(hasPose && held != 0ul);
+        }
+    }
+
+    // While a hand keeps the Photo Mode pose's own item, remember what that item is.
+    private func ReadPoseItem(puppet: ref<GameObject>, right: Bool) -> Bool {
+        let slot = right ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
+        let item = GameInstance.GetTransactionSystem(puppet.GetGame()).GetItemInSlot(puppet, slot);
+        let has = IsDefined(item) && ItemID.IsValid(item.GetItemID());
+        let changed = false;
+        if right {
+            changed = !Equals(has, this.m_hasPoseItemRight) || (has && !Equals(item.GetItemID(), this.m_poseItemRight));
+            this.m_hasPoseItemRight = has;
+            if has {
+                this.m_poseItemRight = item.GetItemID();
+            }
+        } else {
+            changed = !Equals(has, this.m_hasPoseItemLeft) || (has && !Equals(item.GetItemID(), this.m_poseItemLeft));
+            this.m_hasPoseItemLeft = has;
+            if has {
+                this.m_poseItemLeft = item.GetItemID();
+            }
+        }
+        return changed;
     }
 
     // Puts the chosen items on the Photo Mode puppet (also after loading a pose, or when Photo Mode opens again).
@@ -1377,15 +1512,37 @@ public class APM_PoseEditor extends IScriptable {
             this.m_shownRight = 0ul;
             this.m_shownLeft = 0ul;
             this.m_checkTimer = 0.0;
+            this.m_hasPoseItemRight = false;
+            this.m_hasPoseItemLeft = false;
             return;
         }
         let right = APM_GetHandProp(true);
         let left = APM_GetHandProp(false);
         if right != this.m_shownRight && this.PlaceProp(true, right) {
             this.m_shownRight = right;
+            this.m_poseItemDelay = 0.5;
         }
         if left != this.m_shownLeft && this.PlaceProp(false, left) {
             this.m_shownLeft = left;
+            this.m_poseItemDelay = 0.5;
+        }
+        // The pose's own item (e.g. the gun of an "Action" pose), read while that hand keeps it.
+        if this.m_poseItemDelay > 0.0 {
+            this.m_poseItemDelay -= timeDelta;
+        } else {
+            let puppet = APM_GizmoGetEntity() as GameObject;
+            if IsDefined(puppet) {
+                let changed = false;
+                if right == 0ul && this.ReadPoseItem(puppet, true) {
+                    changed = true;
+                }
+                if left == 0ul && this.ReadPoseItem(puppet, false) {
+                    changed = true;
+                }
+                if changed {
+                    this.RefreshProps();
+                }
+            }
         }
         // Some items have no model that can be held: they show nothing. Take them out of the hand and the list.
         if this.m_checkTimer > 0.0 {
@@ -1422,9 +1579,23 @@ public class APM_PoseEditor extends IScriptable {
         }
         let transactions = GameInstance.GetTransactionSystem(puppet.GetGame());
         let slot = right ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
-        transactions.RemoveItemFromSlot(puppet, slot, true);
+        let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
+        let poseItem = right ? this.m_poseItemRight : this.m_poseItemLeft;
+        // The pose's own item stays in the inventory, so that it can be given back.
+        let current = transactions.GetItemInSlot(puppet, slot);
+        let isPoseItem = hasPose && IsDefined(current) && Equals(current.GetItemID(), poseItem);
+        transactions.RemoveItemFromSlot(puppet, slot, !isPoseItem);
         if record == 0ul {
+            if hasPose {
+                if !transactions.HasItem(puppet, poseItem) {
+                    transactions.GiveItem(puppet, poseItem, 1);
+                }
+                transactions.AddItemToSlot(puppet, slot, poseItem, true, null, ERenderingPlane.RPl_Scene, false, true);
+            }
             return true;
+        }
+        if record == 1ul {
+            return true; // emptied on purpose
         }
         let id = APM_RecordFromNumber(record);
         let itemRecord = TweakDBInterface.GetItemRecord(id);
@@ -2372,7 +2543,7 @@ public class APM_PoseEditor extends IScriptable {
             this.RunPickerButton(StrAfterFirst(id, ":"));
             return;
         }
-        if this.m_pickerOpen && !Equals(id, "prop:open") {
+        if this.m_pickerOpen && !StrBeginsWith(id, "prop:open") {
             this.ClosePicker();
         }
         // Clicking anything while typing a name confirms it first ("Rename" again just confirms).
@@ -2388,10 +2559,8 @@ public class APM_PoseEditor extends IScriptable {
             this.SetOpen(false);
             return;
         }
-        if Equals(id, "dock") {
-            this.m_dockRight = !this.m_dockRight;
-            APM_PrefSet("DockRight", this.m_dockRight ? 1.0 : 0.0);
-            this.ApplyDock();
+        if Equals(id, "help") {
+            this.SetHelpOpen(!this.m_helpOpen);
             return;
         }
         if Equals(id, "opacity") {

@@ -41,10 +41,10 @@ This copies `AdvancedPoseMod.dll` (and `config.ini` the first time) into
 Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
-  `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
+**Hide**. These settings are remembered in `panel.ini`.
   Below them icon buttons (hover one to see what it does): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
   where the pose puts it), **Reset all** (click
-  twice), **Mirror**.
+  twice), **Mirror**, and **?** which opens the list of all mouse and keyboard shortcuts.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
   chosen limb is pinned. The pose library folds with **-** / **+**.
 - Tabs pick a body region, the buttons below pick the part.
@@ -85,9 +85,10 @@ closer.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
-- **In hand**: choose the hand, then click the item name to open the item list beside the panel: type to search
+- **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: type to search
   (Enter takes the first result, Esc closes), filter with the **All / Weapons / Food / Other** tabs; recent items
-  come first. **X** empties the hand. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
+  come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
+  "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
   or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**

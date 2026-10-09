@@ -436,13 +436,15 @@ bool Save(const std::string& aName)
     if (g_propRight != 0 || g_propLeft != 0)
     {
         auto& props = root["props"] = nlohmann::json::object();
+        // 1 = the hand was emptied on purpose (the Photo Mode pose's own item removed)
+        const auto text = [](uint64_t aRecord) { return aRecord == 1 ? std::string("empty") : std::to_string(aRecord); };
         if (g_propRight != 0)
         {
-            props["right"] = std::to_string(g_propRight.load());
+            props["right"] = text(g_propRight.load());
         }
         if (g_propLeft != 0)
         {
-            props["left"] = std::to_string(g_propLeft.load());
+            props["left"] = text(g_propLeft.load());
         }
     }
 
@@ -579,7 +581,8 @@ bool Load(const std::string& aName)
             }
             try
             {
-                return std::stoull(root["props"][aKey].get<std::string>());
+                const auto value = root["props"][aKey].get<std::string>();
+                return value == "empty" ? 1 : std::stoull(value);
             }
             catch (...)
             {
