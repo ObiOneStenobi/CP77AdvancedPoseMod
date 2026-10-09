@@ -114,7 +114,11 @@ public class APM_Button extends IScriptable {
     public let isEnabled: Bool;
     public let isHovered: Bool;
     public let isMarked: Bool; // secondary highlight
-    public let tooltip: String; // shown in the status line on hover
+    public let tooltip: String; // shown above the button after a short hover
+    public let parent: wref<inkCompoundWidget>; // where the button sits, and its place there (panel units)
+    public let x: Float;
+    public let y: Float;
+    public let h: Float;
     public let icon: array<wref<inkRectangle>>; // drawn icon (instead of a label)
 
     public func UpdateLook() {
@@ -253,7 +257,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_sectionPoses: wref<inkCanvas>;
     private let m_posesBody: wref<inkCanvas>;
     private let m_sectionItems: wref<inkCanvas>;
-    private let m_sectionStatus: wref<inkCanvas>;
     private let m_posesOpen: Bool;
     // Item picker (search list next to the panel)
     private let m_picker: wref<inkCanvas>;
@@ -278,7 +281,14 @@ public class APM_PoseEditor extends IScriptable {
     private let m_checkTimer: Float;           // time left before checking that a placed item shows up
     private let m_checkRight: Bool;
     private let m_checkRecord: Uint64;
-    private let m_status: wref<inkText>;
+    // Tooltip: above the hovered button after a short wait, or a message above the last clicked button
+    private let m_tip: ref<inkCanvas>;
+    private let m_tipText: wref<inkText>;
+    private let m_tipButton: wref<APM_Button>; // hovered button with a tooltip
+    private let m_tipTimer: Float;
+    private let m_tipShown: Bool;
+    private let m_messageTimer: Float;
+    private let m_lastButton: wref<APM_Button>;
 
     private let m_markers: array<ref<APM_Marker>>;
     private let m_lineLayer: wref<inkCanvas>;
@@ -380,6 +390,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     public func Update(timeDelta: Float) {
+        this.UpdateTooltip(timeDelta);
         this.UpdateMarkers();
         this.UpdateRename();
         this.SyncProps(timeDelta);
@@ -507,7 +518,7 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         // Pin of the selected limb, on its own row
-        this.CreateText(ik, "Pin", 30.0, 44.0, 80.0, 28.0, 14, APM_ColorDimText());
+        this.CreateText(ik, "Pin", 30.0, 44.0, 80.0, 28.0, 17, APM_ColorAccent());
         let pinOff = this.CreateSmallButton(ik, "pin:0", "Off", 116.0, 44.0, 166.0, 28.0);
         pinOff.tooltip = "Pin off: the hand / foot follows the arm / leg rotations";
         let pinWorld = this.CreateSmallButton(ik, "pin:1", "World", 288.0, 44.0, 166.0, 28.0);
@@ -570,11 +581,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, "Give back the item of the Photo Mode pose");
         this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, "Empty the left hand");
 
-        // Status line
-        let status = this.CreateSection(n"APM_Status");
-        this.m_sectionStatus = status;
-        this.m_status = this.CreateText(status, "Drag a value or a gizmo with the mouse", 16.0, 2.0, 608.0, 26.0, 12, APM_ColorDimText());
-
+        this.BuildTooltip();
         this.BuildPicker();
         this.BuildHelp();
         this.ReloadPoses();
@@ -598,7 +605,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_posesBody.SetVisible(this.m_posesOpen);
         y = this.PlaceSection(this.m_sectionPoses, y, this.m_posesOpen ? 218.0 : 40.0, true);
         y = this.PlaceSection(this.m_sectionItems, y, 82.0, true);
-        y = this.PlaceSection(this.m_sectionStatus, y, 32.0, true);
+        y += 8.0;
         this.m_panel.SetSize(APM_PanelWidth() * s, y * s);
     }
 
@@ -663,7 +670,7 @@ public class APM_PoseEditor extends IScriptable {
     // Window listing the mouse and keyboard shortcuts, shown beside the panel by the "?" button.
     private func BuildHelp() {
         let s = APM_UiScale();
-        let width = 640.0;
+        let width = 680.0;
         let help = new inkCanvas();
         help.SetName(n"APM_Help");
         help.SetInteractive(true);
@@ -685,46 +692,25 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(help);
 
-        this.CreateText(help, "Shortcuts", 16.0, 8.0, 400.0, 32.0, 20, APM_ColorAccent());
-        this.CreateSmallButton(help, "help", "Close", width - 106.0, 10.0, 90.0, 28.0);
-        let y = 48.0;
-        y = this.AddHelpTitle(help, "Gizmos (markers on V)", y);
-        y = this.AddHelpLine(help, "Drag", "rotate: the tip of the bone follows the cursor, as seen from the camera", y);
-        y = this.AddHelpLine(help, "Alt + drag", "rotate freely, like a ball under the cursor", y);
-        y = this.AddHelpLine(help, "Ctrl + drag", "twist around the bone", y);
-        y = this.AddHelpLine(help, "Shift + drag", "move the hips or a held item - rotate a hand / foot that uses IK", y);
-        y = this.AddHelpLine(help, "Hand / foot", "orange marker: drag moves it with IK and pins it there", y);
-        y = this.AddHelpLine(help, "Elbow / knee", "with the limb pinned: drag turns it around the limb", y);
-        y = this.AddHelpLine(help, "Eyes", "drag the marker in front of the face to where the eyes look", y);
-        y = this.AddHelpLine(help, "Mouse wheel", "while moving something: nearer / farther from the camera", y);
-        y = this.AddHelpLine(help, "Close-up", "finger and palm markers appear with the camera near the hands", y);
-        y = this.AddHelpLine(help, "Shapes", "diamond = rotate, square = move, bar = twist, orange = IK", y);
-        y = this.AddHelpLine(help, "", "Shift, Ctrl and Alt can be pressed or released during a drag", y);
-        y += 8.0;
-        y = this.AddHelpTitle(help, "Panel", y);
-        y = this.AddHelpLine(help, "Values", "drag left / right on a number, - / + for steps, 0 resets it", y);
-        y = this.AddHelpLine(help, "Ctrl+Z / Ctrl+Y", "undo / redo", y);
-        y = this.AddHelpLine(help, "Eraser", "reset the selected part (and its IK pin place)", y);
-        y = this.AddHelpLine(help, "Trash", "reset everything (click twice) - items in hand stay", y);
-        y = this.AddHelpLine(help, "Mirror", "while on, the limb you edit is copied to the other side", y);
-        y = this.AddHelpLine(help, "Pin", "off / world (stays in the scene) / body (follows shoulder or hips)", y);
-        y = this.AddHelpLine(help, "T pose / A pose", "start from a neutral pose; Reset all goes back", y);
-        y = this.AddHelpLine(help, "Poses", "save new, overwrite, load, rename, delete", y);
-        y = this.AddHelpLine(help, "In hand", "click a hand's item to choose: type to search, Enter takes the first", y);
-        y = this.AddHelpLine(help, "", "X empties the hand, the arrow gives back the item of the Photo Mode pose", y);
-        help.SetSize(width * s, (y + 12.0) * s);
-    }
-
-    private func AddHelpTitle(parent: wref<inkCompoundWidget>, text: String, y: Float) -> Float {
-        this.CreateText(parent, text, 16.0, y, 600.0, 26.0, 15, APM_ColorAccent());
-        return y + 28.0;
+        this.CreateText(help, "Shortcuts", 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
+        this.CreateSmallButton(help, "help", "Close", width - 110.0, 14.0, 90.0, 30.0);
+        let y = 60.0;
+        y = this.AddHelpLine(help, "Drag a marker", "rotate", y);
+        y = this.AddHelpLine(help, "Alt + drag", "rotate freely", y);
+        y = this.AddHelpLine(help, "Ctrl + drag", "twist", y);
+        y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or rotate (hands / feet with IK)", y);
+        y = this.AddHelpLine(help, "Mouse wheel", "while moving: nearer / farther", y);
+        y = this.AddHelpLine(help, "Drag a number", "left / right to change it", y);
+        y = this.AddHelpLine(help, "Ctrl + Z  /  Ctrl + Y", "undo / redo", y);
+        y = this.AddHelpLine(help, "Enter  /  Esc", "confirm / cancel typing", y);
+        help.SetSize(width * s, (y + 16.0) * s);
     }
 
     private func AddHelpLine(parent: wref<inkCompoundWidget>, key: String, text: String, y: Float) -> Float {
-        this.CreateText(parent, key, 16.0, y, 150.0, 22.0, 13, APM_ColorText());
-        let label = this.CreateText(parent, text, 170.0, y, 460.0, 22.0, 13, APM_ColorDimText());
+        this.CreateText(parent, key, 20.0, y, 230.0, 32.0, 18, APM_ColorText());
+        let label = this.CreateText(parent, text, 250.0, y, 420.0, 32.0, 18, APM_ColorDimText());
         label.SetLetterCase(textLetterCase.OriginalCase);
-        return y + 23.0;
+        return y + 36.0;
     }
 
     private func SetHelpOpen(open: Bool) {
@@ -947,6 +933,10 @@ public class APM_PoseEditor extends IScriptable {
         button.bg = bg;
         button.label = label;
         button.isEnabled = true;
+        button.parent = parent;
+        button.x = x;
+        button.y = y;
+        button.h = h;
         button.UpdateLook();
         ArrayPush(this.m_buttons, button);
         return button;
@@ -991,6 +981,9 @@ public class APM_PoseEditor extends IScriptable {
             if this.m_helpOpen {
                 this.SetHelpOpen(false);
             }
+            this.m_messageTimer = 0.0;
+            this.m_tipButton = null;
+            this.HideTip();
         }
     }
 
@@ -1135,10 +1128,93 @@ public class APM_PoseEditor extends IScriptable {
         return 0;
     }
 
-    private func SetStatus(text: String) {
-        if IsDefined(this.m_status) {
-            this.m_status.SetText(text);
+    private func BuildTooltip() {
+        let s = APM_UiScale();
+        let tip = new inkCanvas();
+        tip.SetName(n"APM_Tooltip");
+        tip.SetAnchor(inkEAnchor.TopLeft);
+        tip.SetInteractive(false);
+        tip.SetVisible(false);
+        let bg = new inkRectangle();
+        bg.SetAnchor(inkEAnchor.Fill);
+        bg.SetTintColor(APM_ColorDark());
+        bg.SetOpacity(0.97);
+        bg.SetInteractive(false);
+        bg.Reparent(tip);
+        let line = new inkRectangle();
+        line.SetAnchor(inkEAnchor.TopFillHorizontaly);
+        line.SetSize(100.0 * s, 2.0 * s);
+        line.SetTintColor(APM_ColorAccent());
+        line.SetInteractive(false);
+        line.Reparent(tip);
+        let text = new inkText();
+        text.SetFontFamily("base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily");
+        text.SetFontStyle(n"Medium");
+        text.SetFontSize(Cast<Int32>(16.0 * s));
+        text.SetLetterCase(textLetterCase.OriginalCase);
+        text.SetTintColor(APM_ColorText());
+        text.SetAnchor(inkEAnchor.Fill);
+        text.SetMargin(10.0 * s, 0.0, 10.0 * s, 0.0);
+        text.SetVerticalAlignment(textVerticalAlignment.Center);
+        text.SetInteractive(false);
+        text.Reparent(tip);
+        this.m_tip = tip;
+        this.m_tipText = text;
+    }
+
+    // Shows the box just above a button (below it when there is no room), inside the button's own container.
+    private func ShowTip(button: ref<APM_Button>, text: String) {
+        if !IsDefined(button) || !IsDefined(button.parent) || StrLen(text) == 0 {
+            return;
         }
+        let s = APM_UiScale();
+        let width = MinF(600.0, 24.0 + Cast<Float>(StrLen(text)) * 7.6);
+        let x = ClampF(button.x, 0.0, MaxF(0.0, APM_PanelWidth() - width));
+        let y = button.y - 36.0;
+        if y < 0.0 {
+            y = button.y + button.h + 4.0;
+        }
+        this.m_tip.Reparent(button.parent);
+        this.m_tip.SetMargin(x * s, y * s, 0.0, 0.0);
+        this.m_tip.SetSize(width * s, 32.0 * s);
+        this.m_tipText.SetText(text);
+        this.m_tip.SetVisible(true);
+        this.m_tipShown = true;
+    }
+
+    private func HideTip() {
+        if IsDefined(this.m_tip) {
+            this.m_tip.SetVisible(false);
+        }
+        this.m_tipShown = false;
+    }
+
+    // Hover tooltips appear after a short wait; messages stay a few seconds.
+    private func UpdateTooltip(timeDelta: Float) {
+        if this.m_messageTimer > 0.0 {
+            this.m_messageTimer -= timeDelta;
+            if this.m_messageTimer <= 0.0 {
+                this.HideTip();
+            }
+            return;
+        }
+        if !IsDefined(this.m_tipButton) || this.m_tipShown {
+            return;
+        }
+        this.m_tipTimer += timeDelta;
+        if this.m_tipTimer >= 0.6 {
+            this.ShowTip(this.m_tipButton, this.m_tipButton.tooltip);
+        }
+    }
+
+    // Feedback after an action, shown above the button that started it.
+    private func SetStatus(text: String) {
+        let button = this.m_lastButton;
+        if !IsDefined(button) {
+            button = this.FindButton("undo");
+        }
+        this.ShowTip(button, text);
+        this.m_messageTimer = 2.5;
     }
 
     // --- Pose library --------------------------------------------------------------------------------------------
@@ -2709,7 +2785,8 @@ public class APM_PoseEditor extends IScriptable {
             button.isHovered = true;
             button.UpdateLook();
             if StrLen(button.tooltip) > 0 {
-                this.SetStatus(button.tooltip);
+                this.m_tipButton = button;
+                this.m_tipTimer = 0.0;
             }
         }
         this.SetHover(true);
@@ -2720,6 +2797,12 @@ public class APM_PoseEditor extends IScriptable {
         if IsDefined(button) {
             button.isHovered = false;
             button.UpdateLook();
+            if IsDefined(this.m_tipButton) && Equals(this.m_tipButton.id, button.id) {
+                this.m_tipButton = null;
+                if this.m_messageTimer <= 0.0 {
+                    this.HideTip();
+                }
+            }
             if Equals(button.id, "open") {
                 this.SetHover(false); // the open button lives outside the panel
             }
@@ -2756,6 +2839,12 @@ public class APM_PoseEditor extends IScriptable {
         if Equals(StrBeforeFirst(button.id, ":"), "drag") {
             return false; // handled by the drag logic
         }
+        // A click ends the hover tooltip; its feedback (if any) shows above this button.
+        this.m_lastButton = button;
+        this.m_tipTimer = -1000.0;
+        if this.m_messageTimer <= 0.0 {
+            this.HideTip();
+        }
         this.RunButton(button);
     }
 
@@ -2763,7 +2852,6 @@ public class APM_PoseEditor extends IScriptable {
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
         if IsDefined(marker) {
             marker.isHovered = true;
-            this.SetStatus(this.DragHint(marker));
         }
         this.SetHover(true);
     }

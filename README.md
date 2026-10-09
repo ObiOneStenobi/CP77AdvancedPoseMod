@@ -42,9 +42,10 @@ Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
 **Hide**. These settings are remembered in `panel.ini`.
-  Below them icon buttons (hover one to see what it does): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
+  Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
   where the pose puts it), **Reset all** (click
-  twice), **Mirror**, and **?** which opens the list of all mouse and keyboard shortcuts.
+  twice), **Mirror**, and **?** which opens the list of the mouse and keyboard shortcuts. Messages after an action (saved, loaded,
+  click again...) appear for a moment above the button that was clicked.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
   chosen limb is pinned. The pose library folds with **-** / **+**.
 - Tabs pick a body region, the buttons below pick the part.
