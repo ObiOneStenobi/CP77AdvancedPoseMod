@@ -290,6 +290,15 @@ bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, s
     return true;
 }
 
+// Eyes: no twist, and they turn at most this far from where the animation points them (like the game's own look-at).
+constexpr float EyeMaxDegrees = 30.f;
+
+bool IsEyeEntry(const APM::Ui::CatalogEntry& aEntry)
+{
+    const std::string label = aEntry.label;
+    return label == "Eyes (both)" || label == "Left eye" || label == "Right eye";
+}
+
 void ResetCurrentPart()
 {
     // IK chains: upper bone, middle bone, end bone.
@@ -434,9 +443,14 @@ void SetValue(uint32_t aAttribute, float aValue)
     {
         auto angles = CurrentAngles();
         auto& angle = angles[aAttribute - Attr::Bend1];
-        if (!Same(angle, aValue))
+        float value = aValue;
+        if (IsEyeEntry(CurrentEntry()))
         {
-            angle = aValue;
+            value = aAttribute == Attr::Twist ? 0.f : std::clamp(value, -EyeMaxDegrees, EyeMaxDegrees);
+        }
+        if (!Same(angle, value))
+        {
+            angle = value;
             ApplyAngles(angles);
             MirrorCurrentPart();
         }
@@ -550,6 +564,8 @@ bool IsAttributeEnabled(uint32_t aAttribute)
     case Attr::IkZ:
     case Attr::IkSwivel:
         return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled;
+    case Attr::Twist:
+        return !IsEyeEntry(CurrentEntry());
     default:
         return true;
     }
@@ -880,7 +896,20 @@ bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget)
     {
         return false;
     }
-    const Math::Vec3 wanted = Math::Normalize(aModelTarget - position);
+    Math::Vec3 wanted = Math::Normalize(aModelTarget - position);
+    // Eyes: keep the direction within a cone around where the animation (under the current head) points them.
+    Math::Quat animatedLocal{};
+    Math::Vec3 animatedTranslation{};
+    if (IsEyeEntry(catalog[aPart]) && Pose::GizmoState::GetAnimatedLocal(hash, animatedLocal, animatedTranslation))
+    {
+        const Math::Vec3 neutral = Math::Normalize(Math::Rotate(Math::Mul(parent, animatedLocal), forwardLocal));
+        const float maxAngle = EyeMaxDegrees * 3.14159265f / 180.f;
+        const Math::Vec3 side = Math::Cross(neutral, wanted);
+        if (Math::AngleBetween(neutral, wanted) > maxAngle && Math::Length(side) > 1e-6f)
+        {
+            wanted = Math::Normalize(Math::Rotate(Math::FromAxisAngle(side, maxAngle), neutral));
+        }
+    }
     const Math::Vec3 current = Math::Normalize(Math::Rotate(model, forwardLocal));
     Math::Quat turned = model;
     const Math::Vec3 axis = Math::Cross(current, wanted);

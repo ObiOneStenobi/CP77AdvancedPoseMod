@@ -299,6 +299,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_hipsPart: Int32;
     private let m_rootDot: wref<inkRectangle>;  // V's root (where Photo Mode placed her): saved hips positions are relative to it
     private let m_rootLine: wref<inkRectangle>;
+    private let m_rootLabel: wref<inkText>;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -456,14 +457,14 @@ public class APM_PoseEditor extends IScriptable {
         let header = this.CreateSection(n"APM_Header");
         this.m_sectionHeader = header;
         this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
-        let enabledButton = this.CreateButton(header, "enabled", "Pose off", 252.0, 8.0, 92.0, 32.0);
+        let enabledButton = this.CreateButton(header, "enabled", "Pose off", 280.0, 8.0, 92.0, 32.0);
         enabledButton.tooltip = "Turn your edits on V on / off";
-        let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 348.0, 8.0, 92.0, 32.0);
+        let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 376.0, 8.0, 92.0, 32.0);
         gizmosButton.tooltip = "Show / hide the markers on V";
-        let opacityButton = this.CreateButton(header, "opacity", "100%", 444.0, 8.0, 64.0, 32.0);
+        let opacityButton = this.CreateButton(header, "opacity", "100%", 472.0, 8.0, 64.0, 32.0);
         opacityButton.tooltip = "Panel opacity";
-        this.CreateIconButton(header, "help", "circle-help", 538.0, 10.0, "Info: markers and shortcuts");
-        this.CreateIconButton(header, "hide", "x", 584.0, 10.0, "Hide the panel");
+        this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, "Info: markers and shortcuts", 32.0);
+        this.CreateIconButton(header, "hide", "x", 584.0, 8.0, "Hide the panel", 32.0);
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
         this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
@@ -805,6 +806,11 @@ public class APM_PoseEditor extends IScriptable {
         rootDot.SetVisible(false);
         rootDot.Reparent(this.m_lineLayer);
         this.m_rootDot = rootDot;
+        let rootLabel = this.CreateText(this.m_lineLayer, "V's root (Photo Mode position)", 0.0, 0.0, 400.0, 24.0, 13, APM_ColorDimText());
+        rootLabel.SetLetterCase(textLetterCase.OriginalCase);
+        rootLabel.SetInteractive(false);
+        rootLabel.SetVisible(false);
+        this.m_rootLabel = rootLabel;
         this.m_rightEyePart = this.PartIndex("Right eye");
 
         let s = APM_UiScale();
@@ -935,14 +941,15 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Small square button with an icon (see Icons.reds).
-    private func CreateIconButton(parent: wref<inkCompoundWidget>, id: String, icon: String, x: Float, y: Float, tooltip: String) -> ref<APM_Button> {
+    private func CreateIconButton(parent: wref<inkCompoundWidget>, id: String, icon: String, x: Float, y: Float, tooltip: String, opt height: Float) -> ref<APM_Button> {
         let s = APM_UiScale();
-        let button = this.CreateButton(parent, id, "", x, y, 40.0, 28.0);
+        let h = height > 0.0 ? height : 28.0;
+        let button = this.CreateButton(parent, id, "", x, y, 40.0, h);
         button.tooltip = tooltip;
         // 24 x 24 grid drawn 22 x 22 units, centered.
         let cell = 22.0 / 24.0;
         let left = 9.0;
-        let top = 3.0;
+        let top = (h - 22.0) * 0.5;
         let spans = APM_IconSpans(icon);
         let i = 0;
         while i + 3 < ArraySize(spans) {
@@ -1691,16 +1698,13 @@ public class APM_PoseEditor extends IScriptable {
     private func RunPropButton(arg: String) {
         let action = StrBeforeFirst(arg, ":");
         let right = Equals(StrAfterFirst(arg, ":"), "r");
-        let hand = right ? "right" : "left";
         let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
         if Equals(action, "clear") {
             APM_SetHandProp(right, hasPose ? 1ul : 0ul);
-            this.SetStatus("The " + hand + " hand is empty");
             return;
         }
         if Equals(action, "restore") {
             APM_SetHandProp(right, 0ul);
-            this.SetStatus("The " + hand + " hand holds the item of the Photo Mode pose again");
             return;
         }
         if Equals(action, "open") {
@@ -1899,7 +1903,6 @@ public class APM_PoseEditor extends IScriptable {
         this.m_renameFrom = name;
         this.m_selectedPose = name;
         this.ShowPose(name);
-        this.SetStatus("Type a name: Enter to confirm, Esc to cancel");
     }
 
     private func FinishRename(confirm: Bool) {
@@ -1907,13 +1910,11 @@ public class APM_PoseEditor extends IScriptable {
         APM_TextEntryEnd();
         this.m_renaming = false;
         if !confirm || Equals(text, this.m_renameFrom) {
-            this.SetStatus(confirm ? "Name kept: " + this.m_renameFrom : "Rename cancelled");
             return;
         }
         let renamed = APM_RenamePose(this.m_renameFrom, text);
         if StrLen(renamed) > 0 {
             this.m_selectedPose = renamed;
-            this.SetStatus("Renamed to " + renamed);
         } else {
             this.SetStatus("Could not rename " + this.m_renameFrom);
         }
@@ -2120,6 +2121,34 @@ public class APM_PoseEditor extends IScriptable {
 
     // World point both eyes look at: where their lines of sight meet (or LookDistance() ahead when they do not
     // meet); w = 1 when valid.
+    // While dragging the eyes: the point they really look at (they stop at their limit), as far as the cursor's point.
+    private func EyeDirectionPoint(toWorld: Matrix, target: Vector4) -> Vector4 {
+        let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
+        let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
+        let leftModel = APM_GizmoGetPartForward(this.m_leftEyePart);
+        let rightModel = APM_GizmoGetPartForward(this.m_rightEyePart);
+        if left.W < 0.5 || right.W < 0.5 || leftModel.W < 0.5 || rightModel.W < 0.5 {
+            return target;
+        }
+        let gl = Vector4.TransformDir(toWorld, APM_Vector(leftModel.X, leftModel.Y, leftModel.Z, 0.0));
+        let gr = Vector4.TransformDir(toWorld, APM_Vector(rightModel.X, rightModel.Y, rightModel.Z, 0.0));
+        let dx = gl.X + gr.X;
+        let dy = gl.Y + gr.Y;
+        let dz = gl.Z + gr.Z;
+        let length = SqrtF(dx * dx + dy * dy + dz * dz);
+        if length < 0.0001 {
+            return target;
+        }
+        let mx = (left.X + right.X) * 0.5;
+        let my = (left.Y + right.Y) * 0.5;
+        let mz = (left.Z + right.Z) * 0.5;
+        let tx = target.X - mx;
+        let ty = target.Y - my;
+        let tz = target.Z - mz;
+        let distance = SqrtF(tx * tx + ty * ty + tz * tz);
+        return APM_Vector(mx + dx / length * distance, my + dy / length * distance, mz + dz / length * distance, 1.0);
+    }
+
     private func EyeLookPoint(toWorld: Matrix) -> Vector4 {
         let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
         let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
@@ -2185,7 +2214,7 @@ public class APM_PoseEditor extends IScriptable {
             let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
             let world: Vector4;
             if marker.kind == APM_MarkerKindEyeLook() {
-                world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.m_lookTarget : this.EyeLookPoint(toWorld);
+                world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.EyeDirectionPoint(toWorld, this.m_lookTarget) : this.EyeLookPoint(toWorld);
             } else {
                 let markerModel = APM_GizmoGetPartMarker(marker.part);
                 world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
@@ -2331,13 +2360,13 @@ public class APM_PoseEditor extends IScriptable {
         let thickness = (strong ? 2.5 : 1.5) * s;
         let opacity = strong ? 0.9 : 0.45;
         if marker.kind == APM_MarkerKindEyeLook() {
-            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity);
-            this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity);
+            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity, 240.0);
+            this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity, 240.0);
             return 0.0;
         }
         let parentModel = APM_GizmoGetPartParent(marker.part);
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35);
+        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35, 240.0);
 
         let tipModel = APM_GizmoGetPartTip(marker.part);
         if tipModel.W < 0.5 {
@@ -2345,11 +2374,12 @@ public class APM_PoseEditor extends IScriptable {
             return 0.0;
         }
         let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
-        return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity);
+        return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity, 240.0);
     }
 
     // Line between two world points (W = 1 when valid), cut where it goes behind the camera. Returns its screen angle.
-    private func DrawWorldLine(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float) -> Float {
+    // maxOffscreen > 0: when one end is off screen only a short piece pointing at it is drawn (none if both are).
+    private func DrawWorldLine(camera: ref<CameraSystem>, line: wref<inkRectangle>, from: Vector4, to: Vector4, color: HDRColor, thickness: Float, opacity: Float, opt maxOffscreen: Float) -> Float {
         if !IsDefined(line) {
             return 0.0;
         }
@@ -2381,11 +2411,37 @@ public class APM_PoseEditor extends IScriptable {
             line.SetVisible(false);
             return 0.0;
         }
+        let angle = Rad2Deg(AtanF(screenB.Y - screenA.Y, screenB.X - screenA.X));
+        let alpha = opacity;
+        if maxOffscreen > 0.0 {
+            let onA = depthA >= near && this.IsOnCanvas(screenA);
+            let onB = depthB >= near && this.IsOnCanvas(screenB);
+            if !onA && !onB {
+                line.SetVisible(false);
+                return angle;
+            }
+            let dx = screenB.X - screenA.X;
+            let dy = screenB.Y - screenA.Y;
+            let length = SqrtF(dx * dx + dy * dy);
+            if (!onA || !onB) && length > maxOffscreen {
+                let k = maxOffscreen / length;
+                if onA {
+                    screenB = APM_Vector(screenA.X + dx * k, screenA.Y + dy * k, 0.0, 1.0);
+                } else {
+                    screenA = APM_Vector(screenB.X - dx * k, screenB.Y - dy * k, 0.0, 1.0);
+                }
+                alpha = opacity * 0.6;
+            }
+        }
         this.PlaceLine(line, screenA.X, screenA.Y, screenB.X, screenB.Y, thickness);
         line.SetTintColor(color);
-        line.SetOpacity(opacity);
+        line.SetOpacity(alpha);
         line.SetVisible(true);
-        return Rad2Deg(AtanF(screenB.Y - screenA.Y, screenB.X - screenA.X));
+        return angle;
+    }
+
+    private func IsOnCanvas(point: Vector4) -> Bool {
+        return point.X >= 0.0 && point.Y >= 0.0 && point.X <= APM_ScreenWidth() && point.Y <= APM_ScreenHeight();
     }
 
     // While the hips are selected, hovered or dragged: V's root point and a line from it to the hips.
@@ -2403,6 +2459,7 @@ public class APM_PoseEditor extends IScriptable {
         let hipsModel = APM_GizmoGetPartMarker(this.m_hipsPart);
         if !show || hipsModel.W < 0.5 {
             this.m_rootDot.SetVisible(false);
+            this.m_rootLabel.SetVisible(false);
             this.m_rootLine.SetVisible(false);
             return;
         }
@@ -2411,8 +2468,10 @@ public class APM_PoseEditor extends IScriptable {
         let rootScreen = this.ProjectToScreen(camera, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0));
         // The point only when on screen; the line always.
         this.m_rootDot.SetVisible(rootScreen.W > 0.5);
+        this.m_rootLabel.SetVisible(rootScreen.W > 0.5);
         if rootScreen.W > 0.5 {
             this.m_rootDot.SetMargin(rootScreen.X, rootScreen.Y, 0.0, 0.0);
+            this.m_rootLabel.SetMargin(rootScreen.X + 16.0 * APM_UiScale(), rootScreen.Y - 12.0 * APM_UiScale(), 0.0, 0.0);
         }
         this.DrawWorldLine(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
     }
@@ -2956,22 +3015,22 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(prefix, "prop") {
             this.RunPropButton(arg);
         } else if Equals(id, "undo") {
-            this.SetStatus(APM_Undo() ? "Undone" : "Nothing to undo");
+            APM_Undo();
         } else if Equals(id, "redo") {
-            this.SetStatus(APM_Redo() ? "Redone" : "Nothing to redo");
+            APM_Redo();
         } else if Equals(id, "mirror") {
             APM_SetMirror(!APM_IsMirror());
-            this.SetStatus(APM_IsMirror() ? "Mirror on: the next left / right part you edit is copied to the other side and followed" : "Mirror off");
         } else if Equals(prefix, "neutral") {
             let armsDown = Equals(arg, "a");
-            this.SetStatus(APM_SetNeutralPose(armsDown) ? (armsDown ? "A pose: edits start from it, Reset all goes back" : "T pose: edits start from it, Reset all goes back") : "Neutral pose not available");
+            if !APM_SetNeutralPose(armsDown) {
+                this.SetStatus("Neutral pose not available");
+            }
         } else if Equals(id, "resetpart") {
             APM_HistoryCheckpoint();
             APM_UiSetValue(7721u, 1.0);
         } else if Equals(id, "resetall") {
             if this.m_confirmResetAll {
                 APM_UiSetValue(7722u, 1.0);
-                this.SetStatus("All edits removed");
             } else {
                 keepResetConfirm = true;
                 this.SetStatus("Click again to reset everything (items in hand stay)");
@@ -2994,7 +3053,6 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "overwrite") {
             if StrLen(this.m_selectedPose) > 0 {
                 APM_SavePose(this.m_selectedPose);
-                this.SetStatus("Saved over " + this.m_selectedPose);
             }
         } else if Equals(id, "rename") {
             if StrLen(this.m_selectedPose) > 0 {
@@ -3005,17 +3063,12 @@ public class APM_PoseEditor extends IScriptable {
                 let loaded = APM_LoadPose(this.m_selectedPose);
                 if !loaded {
                     this.SetStatus("Could not load " + this.m_selectedPose);
-                } else if StrLen(APM_GetBasePoseName()) > 0 {
-                    this.SetStatus("Loaded " + this.m_selectedPose + ": it replaces the Photo Mode pose, Reset all goes back");
-                } else {
-                    this.SetStatus("Loaded " + this.m_selectedPose + " (edits on top of the Photo Mode pose)");
                 }
             }
         } else if Equals(id, "delete") {
             if StrLen(this.m_selectedPose) > 0 {
                 if this.m_confirmDelete {
                     APM_DeletePose(this.m_selectedPose);
-                    this.SetStatus("Deleted " + this.m_selectedPose);
                     this.m_selectedPose = "";
                     this.ReloadPoses();
                 } else {
