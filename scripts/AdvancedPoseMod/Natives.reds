@@ -74,6 +74,9 @@ public native func APM_CanRedo() -> Bool
 public native func APM_PollHotkey() -> Int32
 // Copies one side onto the other, mirrored; group "Left arm" etc. or "" for the whole body. Returns parts copied.
 public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
+// Mirror mode: edits of a left / right part are copied, mirrored, to the other side
+public native func APM_SetMirror(mirror: Bool)
+public native func APM_IsMirror() -> Bool
 // Replaces the Photo Mode pose with a T pose (or an A pose), clearing the edits
 public native func APM_SetNeutralPose(armsDown: Bool) -> Bool
 // Turns a part (an eye) to look at a model-space point

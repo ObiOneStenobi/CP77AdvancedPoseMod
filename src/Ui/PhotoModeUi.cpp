@@ -28,6 +28,11 @@ constexpr int32_t SlotCount = 10;
 constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
 constexpr const char* OnOffLabels[] = {"Off", "On"};
 constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
+
+// Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
+std::atomic<bool> g_mirror{false};
+void MirrorCurrentPart();
+void MirrorCurrentChain();
 constexpr const char* ActionLabels[] = {"-", "Apply"};
 
 // Distances are shown in centimeters: the game's sliders only update live with whole-number steps.
@@ -297,6 +302,7 @@ void RunAction(uint32_t aAttribute)
     {
     case Attr::ResetPart:
         ResetCurrentPart();
+        MirrorCurrentPart();
         break;
     case Attr::ResetAll:
         Pose::PoseOverrides::ResetAll();
@@ -403,6 +409,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         {
             angle = aValue;
             ApplyAngles(angles);
+            MirrorCurrentPart();
         }
         break;
     }
@@ -422,6 +429,7 @@ void SetValue(uint32_t aAttribute, float aValue)
             component = meters;
             Pose::PoseOverrides::SetTranslation(CurrentEntry().bones.front(), translation[0], translation[1],
                                                 translation[2]);
+            MirrorCurrentPart();
         }
         break;
     }
@@ -473,6 +481,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         if (changed)
         {
             Pose::PoseOverrides::SetIkChain(CurrentChain(), updated);
+            MirrorCurrentChain();
             if (aAttribute == Attr::IkPin)
             {
                 RequestRefresh(); // offset sliders become (un)available
@@ -646,6 +655,7 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
         angle = std::clamp(angle, -180.f, 180.f);
     }
     ApplyAngles(result);
+    MirrorCurrentPart();
     RequestRefresh();
     return true;
 }
@@ -676,6 +686,7 @@ bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
     translation[1] = std::clamp(translation[1] + local.y, -1.f, 1.f);
     translation[2] = std::clamp(translation[2] + local.z, -1.f, 1.f);
     Pose::PoseOverrides::SetTranslation(bone, translation[0], translation[1], translation[2]);
+    MirrorCurrentPart();
     RequestRefresh();
     return true;
 }
@@ -853,5 +864,135 @@ bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget)
     const bool done = SetBoneLocal(bone, Math::Normalize(Math::Mul(Math::Conjugate(parent), turned)), false);
     RequestRefresh();
     return done;
+}
+} // namespace APM::Ui::PhotoModeUi
+
+namespace
+{
+using namespace APM;
+using APM::Ui::CatalogEntry;
+using APM::Ui::GetBoneCatalog;
+
+// Counterpart of a left / right entry ("Left forearm" <-> "Right forearm"), or nullptr. Head parts (eyes) are left
+// out: mirrored eyes would look apart.
+const CatalogEntry* OtherSide(const CatalogEntry& aEntry)
+{
+    const std::string label = aEntry.label;
+    std::string other;
+    if (label.rfind("Left ", 0) == 0)
+    {
+        other = "Right " + label.substr(5);
+    }
+    else if (label.rfind("Right ", 0) == 0)
+    {
+        other = "Left " + label.substr(6);
+    }
+    if (other.empty() || std::string(aEntry.group) == "Head")
+    {
+        return nullptr;
+    }
+    for (const auto& entry : GetBoneCatalog())
+    {
+        if (other == entry.label)
+        {
+            return entry.bones.size() == aEntry.bones.size() ? &entry : nullptr;
+        }
+    }
+    return nullptr;
+}
+
+void MirrorCurrentPart()
+{
+    if (!g_mirror)
+    {
+        return;
+    }
+    const auto& source = CurrentEntry();
+    const auto* target = OtherSide(source);
+    Pose::TargetRegistry::ReferencePose reference;
+    if (!target || !Pose::TargetRegistry::GetReferencePose(reference))
+    {
+        return;
+    }
+    const auto refIndex = [&](const char* aBone) -> int32_t
+    {
+        const auto it = std::find(reference.boneNames.begin(), reference.boneNames.end(), RED4ext::CName(aBone).hash);
+        return it == reference.boneNames.end() ? -1 : static_cast<int32_t>(std::distance(reference.boneNames.begin(), it));
+    };
+    const bool sourceFinger = UsesFingerAxes(source);
+    const bool targetFinger = UsesFingerAxes(*target);
+    for (size_t b = 0; b < source.bones.size(); ++b)
+    {
+        const int32_t is = refIndex(source.bones[b]);
+        const int32_t it = refIndex(target->bones[b]);
+        if (is < 0 || it < 0)
+        {
+            continue;
+        }
+        std::array<float, 3> angles{};
+        if (!Pose::PoseOverrides::GetUiAngles(source.bones[b], angles))
+        {
+            Pose::PoseOverrides::ResetBone(target->bones[b]);
+            continue;
+        }
+        // The edit, seen in model space at the (symmetric) reference pose, mirrored, then given to the other bone.
+        const Math::Quat edit = AnglesToRotation(source.bones[b], angles, sourceFinger);
+        const Math::Quat model = Math::Mul(Math::Mul(reference.modelRotations[is], edit), Math::Conjugate(reference.modelRotations[is]));
+        const Math::Quat mirrored{model.i, -model.j, -model.k, model.r};
+        const Math::Quat targetEdit =
+            Math::Normalize(Math::Mul(Math::Mul(Math::Conjugate(reference.modelRotations[it]), mirrored), reference.modelRotations[it]));
+        std::array<float, 3> targetAngles{};
+        if (RotationToAngles(target->bones[b], targetEdit, targetFinger, targetAngles))
+        {
+            for (auto& angle : targetAngles)
+            {
+                angle = std::clamp(angle, -180.f, 180.f);
+            }
+            Pose::PoseOverrides::SetRotationQuat(target->bones[b], AnglesToRotation(target->bones[b], targetAngles, targetFinger),
+                                                 targetAngles);
+        }
+    }
+    if (source.allowsTranslation && target->allowsTranslation)
+    {
+        std::array<float, 3> offset{};
+        Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
+        const int32_t is = refIndex(source.bones.front());
+        const int32_t it = refIndex(target->bones.front());
+        if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+        {
+            const Math::Vec3 model =
+                Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
+            const Math::Vec3 local =
+                Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]), Math::Vec3{-model.x, model.y, model.z});
+            Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
+        }
+    }
+}
+
+// IK of the current limb copied to the other side: pin, mirrored offset (model X is left / right), mirrored swivel.
+void MirrorCurrentChain()
+{
+    if (!g_mirror)
+    {
+        return;
+    }
+    const auto chain = static_cast<size_t>(CurrentChain());
+    auto settings = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(chain));
+    settings.offset[0] = -settings.offset[0];
+    settings.swivel = -settings.swivel;
+    Pose::PoseOverrides::SetIkChain(static_cast<Pose::IkChain>(chain ^ 1u), settings);
+}
+} // namespace
+
+namespace APM::Ui::PhotoModeUi
+{
+void SetMirror(bool aMirror)
+{
+    g_mirror = aMirror;
+}
+
+bool IsMirror()
+{
+    return g_mirror;
 }
 } // namespace APM::Ui::PhotoModeUi

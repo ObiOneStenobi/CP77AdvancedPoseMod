@@ -114,6 +114,8 @@ public class APM_Button extends IScriptable {
     public let isEnabled: Bool;
     public let isHovered: Bool;
     public let isMarked: Bool; // secondary highlight
+    public let tooltip: String; // shown in the status line on hover
+    public let icon: array<wref<inkRectangle>>; // drawn icon (instead of a label)
 
     public func UpdateLook() {
         if !IsDefined(this.root) {
@@ -126,6 +128,11 @@ public class APM_Button extends IScriptable {
         } else {
             this.bg.SetTintColor(this.isHovered && this.isEnabled ? APM_ColorButtonHover() : APM_ColorButton());
             this.label.SetTintColor(this.isMarked ? APM_ColorAccent() : APM_ColorText());
+        }
+        let i = 0;
+        while i < ArraySize(this.icon) {
+            this.icon[i].SetTintColor(this.isSelected ? APM_ColorDark() : (this.isMarked ? APM_ColorWarning() : APM_ColorText()));
+            i += 1;
         }
     }
 }
@@ -427,12 +434,11 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(header, "opacity", "100%", 382.0, 8.0, 64.0, 32.0);
         this.CreateButton(header, "dock", "<  >", 450.0, 8.0, 56.0, 32.0);
         this.CreateButton(header, "hide", "Hide", 510.0, 8.0, 114.0, 32.0);
-        this.CreateSmallButton(header, "undo", "Undo", 16.0, 46.0, 80.0, 28.0);
-        this.CreateSmallButton(header, "redo", "Redo", 100.0, 46.0, 80.0, 28.0);
-        this.CreateSmallButton(header, "resetpart", "Reset part", 196.0, 46.0, 106.0, 28.0);
-        this.CreateSmallButton(header, "resetall", "Reset all", 306.0, 46.0, 118.0, 28.0);
-        this.CreateSmallButton(header, "mirror:l", "Copy L > R", 440.0, 46.0, 90.0, 28.0);
-        this.CreateSmallButton(header, "mirror:r", "Copy R > L", 534.0, 46.0, 90.0, 28.0);
+        this.CreateIconButton(header, "undo", "undo", 16.0, "Undo (Ctrl+Z)");
+        this.CreateIconButton(header, "redo", "redo", 60.0, "Redo (Ctrl+Y)");
+        this.CreateIconButton(header, "resetpart", "reset", 116.0, "Reset the selected part");
+        this.CreateIconButton(header, "resetall", "resetall", 160.0, "Reset everything (click twice) - items in hand stay");
+        this.CreateIconButton(header, "mirror", "mirror", 216.0, "Mirror: edits of a left / right part are copied to the other side");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -756,6 +762,66 @@ public class APM_PoseEditor extends IScriptable {
         return button;
     }
 
+    // Small square button with a drawn icon: undo, redo, reset, resetall, mirror.
+    private func CreateIconButton(parent: wref<inkCompoundWidget>, id: String, icon: String, x: Float, tooltip: String) -> ref<APM_Button> {
+        let button = this.CreateButton(parent, id, "", x, 46.0, 40.0, 28.0);
+        button.tooltip = tooltip;
+        if Equals(icon, "undo") || Equals(icon, "redo") {
+            // Hook arrow; redo is the mirror image.
+            let flip = Equals(icon, "redo");
+            this.AddIconLine(button, 26.0, 21.0, 26.0, 11.0, flip);
+            this.AddIconLine(button, 26.0, 11.0, 12.0, 11.0, flip);
+            this.AddIconLine(button, 12.0, 11.0, 17.0, 6.0, flip);
+            this.AddIconLine(button, 12.0, 11.0, 17.0, 16.0, flip);
+        } else if Equals(icon, "reset") || Equals(icon, "resetall") {
+            // Circular arrow (open octagon with a head).
+            this.AddIconLine(button, 27.0, 14.0, 24.0, 21.0, false);
+            this.AddIconLine(button, 24.0, 21.0, 17.0, 24.0, false);
+            this.AddIconLine(button, 17.0, 24.0, 10.0, 21.0, false);
+            this.AddIconLine(button, 10.0, 21.0, 7.0, 14.0, false);
+            this.AddIconLine(button, 7.0, 14.0, 10.0, 7.0, false);
+            this.AddIconLine(button, 10.0, 7.0, 17.0, 4.0, false);
+            this.AddIconLine(button, 17.0, 4.0, 21.0, 1.5, false);
+            this.AddIconLine(button, 17.0, 4.0, 21.0, 7.5, false);
+            if Equals(icon, "resetall") {
+                this.AddIconLine(button, 31.0, 4.0, 31.0, 24.0, false);
+                button.isMarked = true;
+            }
+        } else if Equals(icon, "mirror") {
+            // Two triangles facing a center line.
+            this.AddIconLine(button, 20.0, 3.0, 20.0, 25.0, false);
+            this.AddIconLine(button, 16.0, 8.0, 8.0, 14.0, false);
+            this.AddIconLine(button, 8.0, 14.0, 16.0, 20.0, false);
+            this.AddIconLine(button, 16.0, 20.0, 16.0, 8.0, false);
+            this.AddIconLine(button, 24.0, 8.0, 32.0, 14.0, false);
+            this.AddIconLine(button, 32.0, 14.0, 24.0, 20.0, false);
+            this.AddIconLine(button, 24.0, 20.0, 24.0, 8.0, false);
+        }
+        button.UpdateLook();
+        return button;
+    }
+
+    // One stroke of an icon, in button units (40 x 28); flip mirrors it left / right.
+    private func AddIconLine(button: ref<APM_Button>, x1: Float, y1: Float, x2: Float, y2: Float, flip: Bool) {
+        let s = APM_UiScale();
+        if flip {
+            x1 = 40.0 - x1;
+            x2 = 40.0 - x2;
+        }
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let line = new inkRectangle();
+        line.SetAnchor(inkEAnchor.TopLeft);
+        line.SetAnchorPoint(0.0, 0.5);
+        line.SetRenderTransformPivot(0.0, 0.5);
+        line.SetMargin(x1 * s, y1 * s, 0.0, 0.0);
+        line.SetSize((SqrtF(dx * dx + dy * dy) + 1.0) * s, 2.0 * s);
+        line.SetRotation(Rad2Deg(AtanF(dy, dx)));
+        line.SetInteractive(false);
+        line.Reparent(button.root);
+        ArrayPush(button.icon, line);
+    }
+
     private func CreateSection(name: CName) -> ref<inkCanvas> {
         let s = APM_UiScale();
         let section = new inkCanvas();
@@ -1047,6 +1113,10 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         let typeName = EnumValueToString("gamedataItemType", Cast<Int64>(EnumInt(itemType.Type())));
+        // Items without a model to show (no entity) cannot be held.
+        if !IsNameValid(record.EntityName()) {
+            return false;
+        }
         if StrBeginsWith(typeName, "Wea_") {
             return !Equals(typeName, "Wea_Fists") && !Equals(typeName, "Wea_VehicleMissileLauncher") && !Equals(typeName, "Wea_VehiclePowerWeapon");
         }
@@ -1510,7 +1580,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         let resetAllButton = this.FindButton("resetall");
         if IsDefined(resetAllButton) {
-            resetAllButton.label.SetText(this.m_confirmResetAll ? "Sure?" : "Reset all");
+            resetAllButton.tooltip = this.m_confirmResetAll ? "Click again to reset everything" : "Reset everything (click twice) - items in hand stay";
             resetAllButton.isMarked = this.m_confirmResetAll;
             resetAllButton.UpdateLook();
             if this.m_confirmResetAll {
@@ -1563,6 +1633,7 @@ public class APM_PoseEditor extends IScriptable {
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
         this.RefreshProps();
+        this.SetButton("mirror", APM_IsMirror(), true);
         this.SetButton("undo", false, APM_CanUndo());
         this.SetButton("redo", false, APM_CanRedo());
         this.SetButton("rename", this.m_renaming, hasSelection);
@@ -1985,13 +2056,13 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_dragMode == APM_DragMove() {
             let joint = APM_PartWorldPosition(component.GetLocalToWorld(), this.m_dragMarker.part);
             let jointScreen = joint.W > 0.5 ? this.ProjectToScreen(camera, joint) : APM_Vector(0.0, 0.0, 2.0, 0.0);
-            let amount = MaxF(jointScreen.Z, 0.3) * 0.04 * notches;
+            let amount = MaxF(jointScreen.Z, 0.3) * 0.015 * notches;
             let forward = camera.GetActiveCameraForward();
             APM_GizmoMovePart(this.m_dragMarker.part, APM_WorldToModelDirection(component.GetLocalToWorld(), APM_Vector(forward.X * amount, forward.Y * amount, forward.Z * amount, 0.0)));
             return;
         }
         // IK / eyes: the point follows the cursor at a new distance.
-        this.m_dragDepth = ClampF(this.m_dragDepth * (1.0 + 0.04 * notches), 0.2, 50.0);
+        this.m_dragDepth = ClampF(this.m_dragDepth * (1.0 + 0.015 * notches), 0.2, 50.0);
         this.DragMarker(this.m_dragMarker, 0.0, 0.0);
     }
 
@@ -2357,15 +2428,9 @@ public class APM_PoseEditor extends IScriptable {
             this.SetStatus(APM_Undo() ? "Undone" : "Nothing to undo");
         } else if Equals(id, "redo") {
             this.SetStatus(APM_Redo() ? "Redone" : "Nothing to redo");
-        } else if Equals(prefix, "mirror") {
-            let fromLeft = Equals(arg, "l");
-            let part = Cast<Int32>(APM_UiGetValue(7701u));
-            let group = APM_UiGetOptionGroup(7701u, part);
-            // A left / right tab copies that tab; any other tab copies the whole body.
-            let sided = StrBeginsWith(group, fromLeft ? "Left " : "Right ") || StrBeginsWith(group, fromLeft ? "Right " : "Left ");
-            let scope = sided ? (fromLeft ? "Left " : "Right ") + StrAfterFirst(group, " ") : "";
-            let copied = APM_MirrorParts(fromLeft, scope);
-            this.SetStatus(copied > 0 ? "Copied " + (sided ? scope : (fromLeft ? "left side" : "right side")) + " to the other side" : "Nothing to copy");
+        } else if Equals(id, "mirror") {
+            APM_SetMirror(!APM_IsMirror());
+            this.SetStatus(APM_IsMirror() ? "Mirror on: the next edit of a left / right part is copied to the other side" : "Mirror off");
         } else if Equals(prefix, "neutral") {
             let armsDown = Equals(arg, "a");
             this.SetStatus(APM_SetNeutralPose(armsDown) ? (armsDown ? "A pose: edits start from it, Reset all goes back" : "T pose: edits start from it, Reset all goes back") : "Neutral pose not available");
@@ -2378,6 +2443,7 @@ public class APM_PoseEditor extends IScriptable {
                 this.SetStatus("All edits removed");
             } else {
                 keepResetConfirm = true;
+                this.SetStatus("Click again to reset everything (items in hand stay)");
             }
         } else if Equals(prefix, "pose") {
             let index = this.m_posePage * APM_PosesPerPage() + StringToInt(arg);
@@ -2460,6 +2526,9 @@ public class APM_PoseEditor extends IScriptable {
         if IsDefined(button) {
             button.isHovered = true;
             button.UpdateLook();
+            if StrLen(button.tooltip) > 0 {
+                this.SetStatus(button.tooltip);
+            }
         }
         this.SetHover(true);
     }

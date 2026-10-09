@@ -402,6 +402,20 @@ void MirrorParts(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Ui::PhotoModeUi::MirrorParts(fromLeft, group.c_str()));
 }
 
+void SetMirror(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool mirror = false;
+    RED4ext::GetParameter(aFrame, &mirror);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetMirror(mirror);
+}
+
+void IsMirror(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsMirror());
+}
+
 void SetNeutralPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     bool armsDown = false;
@@ -997,6 +1011,8 @@ void Register()
     ::Register("APM_CanRedo", &HistoryCanRedo, "Bool", {});
     ::Register("APM_PollHotkey", &PollHotkey, "Int32", {});
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
+    ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});
+    ::Register("APM_IsMirror", &IsMirror, "Bool", {});
     ::Register("APM_SetNeutralPose", &SetNeutralPose, "Bool", {{"Bool", "armsDown"}});
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});

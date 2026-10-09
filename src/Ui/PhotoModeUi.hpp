@@ -62,6 +62,9 @@ bool CanMovePart(int32_t aPart);
 int32_t MirrorParts(bool aFromLeft, const std::string& aGroup);
 // Turns a part (an eye) so that its forward direction points at a model-space point.
 bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
+// Mirror mode: edits of a left / right part are copied, mirrored, to the other side.
+void SetMirror(bool aMirror);
+bool IsMirror();
 
 // Small persistent UI preferences (panel side, opacity, gizmos...), stored in panel.ini next to the plugin.
 float GetPreference(const std::string& aKey, float aDefault);

@@ -42,7 +42,8 @@ Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
   `<  >` moves the panel to the other side, **Hide**. These settings are remembered in `panel.ini`.
-  Below them the tools: **Undo / Redo**, **Reset part**, **Reset all** (asks twice), **Copy L > R / R > L**.
+  Below them icon buttons (hover one to see what it does): **Undo**, **Redo**, **Reset part**, **Reset all** (click
+  twice), **Mirror**.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
   chosen limb is pinned. The pose library folds with **-** / **+**.
 - Tabs pick a body region, the buttons below pick the part.
@@ -83,13 +84,13 @@ closer.
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
 - **In hand**: choose the hand, then click the item name to open the item list beside the panel: type to search
   (Enter takes the first result, Esc closes), recent items come first. **X** empties the hand. Weapons go in the right
-  hand only (the game poses both hands around them); items without a model to hold are taken out of the list. Move
+  hand only (the game poses both hands around them); items without a model to hold are not listed. Move
   or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
-- **Copy L > R / Copy R > L**: copies the selected left / right tab onto the other side, mirrored (from the Torso or
-  Head tab: the whole body). The copied limb takes the pose as rotations, so its IK pin is turned off.
+- **Mirror** (toggle): while it is on, every edit of a left / right part (rotation, fingers, held item, IK pin) is
+  copied, mirrored, to the same part on the other side, as soon as that part is touched. Eyes are not mirrored.
 - **T pose / A pose**: replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
   keep their edits); **Reset all** goes back.
 - Moving a whole finger keeps the extra bend of its segments.
