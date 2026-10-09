@@ -1,6 +1,7 @@
 #include "Scripting/ScriptApi.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/Runtime.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
@@ -16,6 +17,8 @@
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
 #include <algorithm>
+#include <fstream>
+#include <set>
 #include <new>
 #include <string>
 #include <vector>
@@ -332,6 +335,44 @@ void RecordFromNumber(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::TweakDBID id;
     id.value = number;
     Return(aOut, id);
+}
+
+// Items the player hid from the item list (no visible model), kept in hidden_items.txt.
+std::set<uint64_t>& HiddenItems()
+{
+    static std::set<uint64_t> items;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        std::ifstream in(APM::GetRuntime().pluginDir / L"hidden_items.txt");
+        uint64_t value = 0;
+        while (in >> value)
+        {
+            items.insert(value);
+        }
+    }
+    return items;
+}
+
+void IsItemHidden(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    Return(aOut, HiddenItems().contains(record));
+}
+
+void HideItem(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    if (record != 0 && HiddenItems().insert(record).second)
+    {
+        std::ofstream out(APM::GetRuntime().pluginDir / L"hidden_items.txt", std::ios::app);
+        out << record << "\n";
+    }
 }
 
 void SetHandProp(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -1002,6 +1043,8 @@ void Register()
     ::Register("APM_PropRecordCount", &PropRecordCount, "Int32", {{"Int32", "kind"}});
     ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
     ::Register("APM_RecordFromNumber", &RecordFromNumber, "TweakDBID", {{"Uint64", "number"}});
+    ::Register("APM_IsItemHidden", &IsItemHidden, "Bool", {{"Uint64", "record"}});
+    ::Register("APM_HideItem", &HideItem, nullptr, {{"Uint64", "record"}});
     ::Register("APM_SetHandProp", &SetHandProp, nullptr, {{"Bool", "rightHand"}, {"Uint64", "record"}});
     ::Register("APM_GetHandProp", &GetHandProp, "Uint64", {{"Bool", "rightHand"}});
     ::Register("APM_HistoryCheckpoint", &HistoryCheckpoint, nullptr, {});

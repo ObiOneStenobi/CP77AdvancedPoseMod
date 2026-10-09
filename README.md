@@ -83,14 +83,18 @@ closer.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
   **Shift+drag** to move it. **Shift+drag** on the hips moves the whole body.
 - **In hand**: choose the hand, then click the item name to open the item list beside the panel: type to search
-  (Enter takes the first result, Esc closes), recent items come first. **X** empties the hand. Weapons go in the right
-  hand only (the game poses both hands around them); items without a model to hold are not listed. Move
+  (Enter takes the first result, Esc closes), filter with the **All / Weapons / Food / Other** tabs; recent items
+  come first. **X** empties the hand. The **eye** button hides the held item from the list for good (for items that
+  show nothing in the hand; the list is kept in `hidden_items.txt` in the plugin folder, delete a line to bring an item
+  back). Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
+  misc items are not listed. Move
   or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
-- **Mirror** (toggle): while it is on, every edit of a left / right part (rotation, fingers, held item, IK pin) is
-  copied, mirrored, to the same part on the other side, as soon as that part is touched. Eyes are not mirrored.
+- **Mirror** (toggle): turning it on changes nothing; from then on, every edit of a left / right part makes the other
+  side a mirror copy of that whole limb (arm, hand or leg, IK pin included), following it step by step. Eyes are not
+  mirrored.
 - **T pose / A pose**: replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
   keep their edits); **Reset all** goes back.
 - Moving a whole finger keeps the extra bend of its segments.

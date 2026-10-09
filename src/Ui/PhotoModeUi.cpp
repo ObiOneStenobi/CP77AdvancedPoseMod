@@ -873,8 +873,7 @@ using namespace APM;
 using APM::Ui::CatalogEntry;
 using APM::Ui::GetBoneCatalog;
 
-// Counterpart of a left / right entry ("Left forearm" <-> "Right forearm"), or nullptr. Head parts (eyes) are left
-// out: mirrored eyes would look apart.
+// Counterpart of a left / right entry ("Left forearm" <-> "Right forearm"), or nullptr.
 const CatalogEntry* OtherSide(const CatalogEntry& aEntry)
 {
     const std::string label = aEntry.label;
@@ -887,7 +886,7 @@ const CatalogEntry* OtherSide(const CatalogEntry& aEntry)
     {
         other = "Left " + label.substr(6);
     }
-    if (other.empty() || std::string(aEntry.group) == "Head")
+    if (other.empty())
     {
         return nullptr;
     }
@@ -901,16 +900,149 @@ const CatalogEntry* OtherSide(const CatalogEntry& aEntry)
     return nullptr;
 }
 
-void MirrorCurrentPart()
+Math::Quat MirrorModel(const Math::Quat& q)
 {
-    if (!g_mirror)
+    return {q.i, -q.j, -q.k, q.r};
+}
+
+// Writes the edit that gives a bone the local rotation aWanted (on top of its animation).
+void SetLocalRotation(const char* aBone, const Math::Quat& aAnimated, const Math::Quat& aWanted, bool aFingerAxes)
+{
+    const Math::Quat edit = Math::Normalize(Math::Mul(Math::Conjugate(aAnimated), aWanted));
+    std::array<float, 3> angles{};
+    if (RotationToAngles(aBone, edit, aFingerAxes, angles))
+    {
+        for (auto& angle : angles)
+        {
+            angle = std::clamp(angle, -180.f, 180.f);
+        }
+        Pose::PoseOverrides::SetRotationQuat(aBone, AnglesToRotation(aBone, angles, aFingerAxes), angles);
+    }
+}
+
+constexpr const char* MirrorChainBones[4][4] = {{"LeftArm", "LeftForeArm", "LeftHand", "LeftShoulder"},
+                                                {"RightArm", "RightForeArm", "RightHand", "RightShoulder"},
+                                                {"LeftUpLeg", "LeftLeg", "LeftFoot", "Hips"},
+                                                {"RightUpLeg", "RightLeg", "RightFoot", "Hips"}};
+
+// IK chain that ends at a bone, or -1.
+int32_t ChainOfEnd(const std::string& aBone)
+{
+    for (int32_t c = 0; c < 4; ++c)
+    {
+        if (aBone == MirrorChainBones[c][2])
+        {
+            return c;
+        }
+    }
+    return -1;
+}
+
+// Pinned hand / foot of the source chain mirrored onto the other chain: same target and orientation, mirrored
+// across the body's left / right plane.
+void MirrorChain(int32_t aSource, const Pose::TargetRegistry::ReferencePose& aReference)
+{
+    const int32_t target = aSource ^ 1;
+    const auto source = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(aSource));
+    auto settings = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(target));
+    if (!source.enabled)
+    {
+        if (settings.enabled)
+        {
+            settings.enabled = false;
+            Pose::PoseOverrides::SetIkChain(static_cast<Pose::IkChain>(target), settings);
+        }
+        return;
+    }
+    const auto hash = [](const char* aName) { return RED4ext::CName(aName).hash; };
+    const auto refIndex = [&](const char* aBone) -> int32_t
+    {
+        const auto it = std::find(aReference.boneNames.begin(), aReference.boneNames.end(), hash(aBone));
+        return it == aReference.boneNames.end() ? -1 : static_cast<int32_t>(std::distance(aReference.boneNames.begin(), it));
+    };
+    // Frames of both limbs: end bone and the bone the limb hangs from, in the animation and now.
+    struct Frame
+    {
+        Math::Vec3 end;
+        Math::Quat endRotation;
+        Math::Vec3 parent;
+        Math::Quat parentRotation;
+        Math::Vec3 currentParent;
+        Math::Quat currentParentRotation;
+    };
+    const auto frame = [&](int32_t aChain, Frame& aOut)
+    {
+        const char* end = MirrorChainBones[aChain][2];
+        const char* parent = MirrorChainBones[aChain][3];
+        return Pose::GizmoState::GetAnimatedModel(hash(end), aOut.end, aOut.endRotation) &&
+               Pose::GizmoState::GetAnimatedModel(hash(parent), aOut.parent, aOut.parentRotation) &&
+               Pose::GizmoState::GetBoneModelPosition(hash(parent), aOut.currentParent) &&
+               Pose::GizmoState::GetBoneModelRotation(hash(parent), aOut.currentParentRotation);
+    };
+    Frame from;
+    Frame to;
+    const int32_t refFrom = refIndex(MirrorChainBones[aSource][2]);
+    const int32_t refTo = refIndex(MirrorChainBones[target][2]);
+    if (!frame(aSource, from) || !frame(target, to) || refFrom < 0 || refTo < 0)
     {
         return;
     }
-    const auto& source = CurrentEntry();
-    const auto* target = OtherSide(source);
+    const Math::Vec3 offset{source.offset[0], source.offset[1], source.offset[2]};
+    const Math::Quat bodyFrom =
+        Math::Normalize(Math::Mul(from.currentParentRotation, Math::Conjugate(from.parentRotation)));
+    const Math::Quat bodyTo = Math::Normalize(Math::Mul(to.currentParentRotation, Math::Conjugate(to.parentRotation)));
+
+    // Where the source pins its hand / foot, and how it turns it (model space).
+    std::array<float, 3> angles{};
+    Pose::PoseOverrides::GetUiAngles(MirrorChainBones[aSource][2], angles);
+    const Math::Quat sourceEdit = AnglesToRotation(MirrorChainBones[aSource][2], angles, false);
+    Math::Vec3 pin = from.end + offset;
+    Math::Quat pinRotation = Math::Mul(from.endRotation, sourceEdit);
+    if (source.followBody)
+    {
+        pin = from.currentParent + Math::Rotate(bodyFrom, from.end + offset - from.parent);
+        pinRotation = Math::Mul(bodyFrom, pinRotation);
+    }
+
+    // Mirrored for the other limb (the reference pose is symmetric: its frames tell how the two sides differ).
+    const Math::Vec3 mirroredPin{-pin.x, pin.y, pin.z};
+    const Math::Quat correction =
+        Math::Mul(Math::Conjugate(MirrorModel(aReference.modelRotations[refFrom])), aReference.modelRotations[refTo]);
+    const Math::Quat mirroredRotation = Math::Normalize(Math::Mul(MirrorModel(pinRotation), correction));
+
+    settings.enabled = true;
+    settings.followBody = source.followBody;
+    settings.swivel = -source.swivel;
+    Math::Vec3 targetOffset = mirroredPin - to.end;
+    Math::Quat targetWorld = mirroredRotation;
+    if (source.followBody)
+    {
+        targetOffset = Math::Rotate(Math::Conjugate(bodyTo), mirroredPin - to.currentParent) - to.end + to.parent;
+        targetWorld = Math::Mul(Math::Conjugate(bodyTo), mirroredRotation);
+    }
+    settings.offset = {targetOffset.x, targetOffset.y, targetOffset.z};
+    Pose::PoseOverrides::SetIkChain(static_cast<Pose::IkChain>(target), settings);
+    // Pinned rotation = (body) * animation * edit.
+    Pose::GizmoState::GetAnimatedModel(hash(MirrorChainBones[target][2]), to.end, to.endRotation);
+    const Math::Quat targetEdit = Math::Normalize(Math::Mul(Math::Conjugate(to.endRotation), targetWorld));
+    std::array<float, 3> targetAngles{};
+    if (RotationToAngles(MirrorChainBones[target][2], targetEdit, false, targetAngles))
+    {
+        for (auto& angle : targetAngles)
+        {
+            angle = std::clamp(angle, -180.f, 180.f);
+        }
+        Pose::PoseOverrides::SetRotationQuat(MirrorChainBones[target][2],
+                                             AnglesToRotation(MirrorChainBones[target][2], targetAngles, false), targetAngles);
+    }
+}
+
+// Mirror mode: the whole tab of the part just edited ("Left arm", "Right hand", ...) is copied to the other side as a
+// mirror image - the other limb jumps to the same pose and then follows every change.
+void MirrorGroup(const std::string& aGroup)
+{
     Pose::TargetRegistry::ReferencePose reference;
-    if (!target || !Pose::TargetRegistry::GetReferencePose(reference))
+    if (!g_mirror || aGroup.empty() || aGroup == "Head" || !Pose::TargetRegistry::GetReferencePose(reference))
     {
         return;
     }
@@ -919,68 +1051,87 @@ void MirrorCurrentPart()
         const auto it = std::find(reference.boneNames.begin(), reference.boneNames.end(), RED4ext::CName(aBone).hash);
         return it == reference.boneNames.end() ? -1 : static_cast<int32_t>(std::distance(reference.boneNames.begin(), it));
     };
-    const bool sourceFinger = UsesFingerAxes(source);
-    const bool targetFinger = UsesFingerAxes(*target);
-    for (size_t b = 0; b < source.bones.size(); ++b)
+    for (const auto& source : GetBoneCatalog())
     {
-        const int32_t is = refIndex(source.bones[b]);
-        const int32_t it = refIndex(target->bones[b]);
-        if (is < 0 || it < 0)
+        if (aGroup != source.group)
         {
             continue;
         }
-        std::array<float, 3> angles{};
-        if (!Pose::PoseOverrides::GetUiAngles(source.bones[b], angles))
+        const auto* target = OtherSide(source);
+        if (!target)
         {
-            Pose::PoseOverrides::ResetBone(target->bones[b]);
             continue;
         }
-        // The edit, seen in model space at the (symmetric) reference pose, mirrored, then given to the other bone.
-        const Math::Quat edit = AnglesToRotation(source.bones[b], angles, sourceFinger);
-        const Math::Quat model = Math::Mul(Math::Mul(reference.modelRotations[is], edit), Math::Conjugate(reference.modelRotations[is]));
-        const Math::Quat mirrored{model.i, -model.j, -model.k, model.r};
-        const Math::Quat targetEdit =
-            Math::Normalize(Math::Mul(Math::Mul(Math::Conjugate(reference.modelRotations[it]), mirrored), reference.modelRotations[it]));
-        std::array<float, 3> targetAngles{};
-        if (RotationToAngles(target->bones[b], targetEdit, targetFinger, targetAngles))
+        const bool fingerAxes = UsesFingerAxes(*target);
+        for (size_t b = 0; b < source.bones.size(); ++b)
         {
-            for (auto& angle : targetAngles)
+            const int32_t chain = ChainOfEnd(source.bones[b]);
+            if (chain >= 0 && Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(chain)).enabled)
             {
-                angle = std::clamp(angle, -180.f, 180.f);
+                continue; // its hand / foot is placed by the pin, mirrored below
             }
-            Pose::PoseOverrides::SetRotationQuat(target->bones[b], AnglesToRotation(target->bones[b], targetAngles, targetFinger),
-                                                 targetAngles);
+            const int32_t is = refIndex(source.bones[b]);
+            const int32_t it = refIndex(target->bones[b]);
+            Math::Quat animatedSource{};
+            Math::Quat animatedTarget{};
+            Math::Vec3 unused{};
+            if (is < 0 || it < 0 ||
+                !Pose::GizmoState::GetAnimatedLocal(RED4ext::CName(source.bones[b]).hash, animatedSource, unused) ||
+                !Pose::GizmoState::GetAnimatedLocal(RED4ext::CName(target->bones[b]).hash, animatedTarget, unused))
+            {
+                continue;
+            }
+            // The source bone's local rotation now (animation + edit), as a change from the symmetric reference pose
+            // seen in model space, mirrored, and given to the other bone.
+            std::array<float, 3> angles{};
+            Pose::PoseOverrides::GetUiAngles(source.bones[b], angles);
+            const Math::Quat local = Math::Mul(animatedSource, AnglesToRotation(source.bones[b], angles, UsesFingerAxes(source)));
+            const Math::Quat change = Math::Mul(Math::Conjugate(reference.localRotations[is]), local);
+            const Math::Quat changeModel =
+                Math::Mul(Math::Mul(reference.modelRotations[is], change), Math::Conjugate(reference.modelRotations[is]));
+            const Math::Quat targetChange = Math::Mul(
+                Math::Mul(Math::Conjugate(reference.modelRotations[it]), MirrorModel(changeModel)), reference.modelRotations[it]);
+            SetLocalRotation(target->bones[b], animatedTarget,
+                             Math::Normalize(Math::Mul(reference.localRotations[it], targetChange)), fingerAxes);
+        }
+        if (source.allowsTranslation && target->allowsTranslation)
+        {
+            std::array<float, 3> offset{};
+            Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
+            const int32_t is = refIndex(source.bones.front());
+            const int32_t it = refIndex(target->bones.front());
+            if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+            {
+                const Math::Vec3 model =
+                    Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
+                const Math::Vec3 local = Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]),
+                                                      Math::Vec3{-model.x, model.y, model.z});
+                Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
+            }
         }
     }
-    if (source.allowsTranslation && target->allowsTranslation)
+    // Limbs: mirror the pin (or drop the other side's pin when this side has none).
+    for (int32_t c = 0; c < 4; ++c)
     {
-        std::array<float, 3> offset{};
-        Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
-        const int32_t is = refIndex(source.bones.front());
-        const int32_t it = refIndex(target->bones.front());
-        if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+        const bool sourceSide = std::string(MirrorChainBones[c][2]).rfind(aGroup.substr(0, aGroup.find(' ')), 0) == 0;
+        const bool limbGroup = aGroup.find("arm") != std::string::npos ? c < 2 : (aGroup.find("leg") != std::string::npos && c >= 2);
+        if (sourceSide && limbGroup)
         {
-            const Math::Vec3 model =
-                Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
-            const Math::Vec3 local =
-                Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]), Math::Vec3{-model.x, model.y, model.z});
-            Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
+            MirrorChain(c, reference);
         }
     }
 }
 
-// IK of the current limb copied to the other side: pin, mirrored offset (model X is left / right), mirrored swivel.
+void MirrorCurrentPart()
+{
+    MirrorGroup(CurrentEntry().group);
+}
+
 void MirrorCurrentChain()
 {
-    if (!g_mirror)
-    {
-        return;
-    }
-    const auto chain = static_cast<size_t>(CurrentChain());
-    auto settings = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(chain));
-    settings.offset[0] = -settings.offset[0];
-    settings.swivel = -settings.swivel;
-    Pose::PoseOverrides::SetIkChain(static_cast<Pose::IkChain>(chain ^ 1u), settings);
+    // The pinned limb's tab ("Left arm" for the left hand, ...).
+    constexpr const char* groups[] = {"Left arm", "Right arm", "Left leg", "Right leg"};
+    MirrorGroup(groups[static_cast<size_t>(CurrentChain())]);
 }
 } // namespace
 
@@ -988,7 +1139,7 @@ namespace APM::Ui::PhotoModeUi
 {
 void SetMirror(bool aMirror)
 {
-    g_mirror = aMirror;
+    g_mirror = aMirror; // nothing happens until a left / right part is edited
 }
 
 bool IsMirror()
