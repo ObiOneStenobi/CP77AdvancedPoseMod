@@ -101,7 +101,7 @@ closer.
   hand at once (undo and Mirror work as usual); then refine with the finger markers.
 - Photo Mode's **Look at camera** has priority over our eye edits: while it is on they wait, and come back when it
   is turned off (head and chest edits stay, the game turns them on top). With a full pose loaded (T / A pose, saved
-  poses) the neck (and the spine, for the torso) is turned towards the camera: the face ends parallel to the camera's view.
+  poses) the neck (and the spine, for the torso) is turned so the face looks at the camera.
   With Torso or Head the eyes also follow the camera (up to 30 degrees from where the face looks), also when the
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them.

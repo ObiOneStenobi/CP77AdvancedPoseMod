@@ -448,7 +448,7 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
 }
 
 // Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
-// pose) replaces it. Turn the base pose towards the camera instead: the face ends parallel to the camera's view plane.
+// pose) replaces it. Turn the base pose towards the camera instead: the face looks at the camera's position.
 // The spine (torso only) turns around the vertical, a share per bone; the neck and the head take the rest.
 void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
@@ -480,11 +480,23 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     const Vec3 face = FaceForward(aTarget);
     const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face);
 
-    // Facing the camera: against the camera's view direction.
-    Vec3 wanted = APM::Math::Normalize(camera.forward * -1.f);
-
     thread_local ModelPose current;
     ComputeModelPose(aTarget, aBones, aCount, current);
+
+    // Looking at the camera: from between the eyes (the head if they are missing) towards the camera's position.
+    Vec3 from = current.positions[head];
+    const int32_t leftEye = IndexOf(aTarget, Hash("LeftEye"));
+    const int32_t rightEye = IndexOf(aTarget, Hash("RightEye"));
+    if (leftEye >= 0 && rightEye >= 0 && static_cast<uint32_t>(leftEye) < aCount && static_cast<uint32_t>(rightEye) < aCount)
+    {
+        from = (current.positions[leftEye] + current.positions[rightEye]) * 0.5f;
+    }
+    Vec3 wanted = camera.position - from;
+    if (APM::Math::Length(wanted) < 1e-3f)
+    {
+        return;
+    }
+    wanted = APM::Math::Normalize(wanted);
     {
         // Never more than a natural turn away from the base pose.
         constexpr float MaxTurn = 1.75f; // ~100 degrees
