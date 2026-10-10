@@ -1468,6 +1468,12 @@ void MirrorCurrentChain()
 
 namespace APM::Ui::PhotoModeUi
 {
+void ResetSession()
+{
+    g_mirror = false;
+    g_eyeFocus = 150.f;
+}
+
 void SetMirror(bool aMirror)
 {
     g_mirror = aMirror; // nothing happens until a left / right part is edited

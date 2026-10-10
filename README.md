@@ -67,6 +67,8 @@ Open Photo Mode and click **Pose editor** (top left).
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
   writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
+- Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
+  previous session are cleared. Save a pose to keep it.
 - A saved pose stores the **whole visible pose** (every body bone, edits and IK included), not just the edits:
   loading it replaces the Photo Mode pose underneath, whatever pose is selected there, and new edits go on top of
   it. The face keeps its Photo Mode expression. **Reset all** goes back to the Photo Mode pose. Poses saved by

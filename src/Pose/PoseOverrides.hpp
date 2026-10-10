@@ -141,6 +141,8 @@ void SetIkChain(IkChain aChain, const IkChainSettings& aSettings);
 IkChainSettings GetIkChain(IkChain aChain);
 void ResetBone(const std::string& aBone);
 void ResetAll();
+// Starts a new Photo Mode session: clears the pose, face, held items and undo history, and disables the custom pose.
+void ClearSession();
 size_t Count();
 
 // Pose files live in red4ext/plugins/AdvancedPoseMod/poses/<name>.json

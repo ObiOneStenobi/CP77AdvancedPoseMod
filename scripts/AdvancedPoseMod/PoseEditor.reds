@@ -2062,7 +2062,7 @@ public class APM_PoseEditor extends IScriptable {
         return changed;
     }
 
-    // Puts the chosen items on the Photo Mode puppet (also after loading a pose, or when Photo Mode opens again).
+    // Puts the chosen items on the Photo Mode puppet (also after loading a pose or undo / redo).
     private func SyncProps(timeDelta: Float) {
         if !APM_IsPhotoModeActive() {
             this.m_shownRight = 0ul;

@@ -340,6 +340,22 @@ void ResetAll()
     PublishLocked();
 }
 
+void ClearSession()
+{
+    std::scoped_lock lock(g_mutex);
+    g_bones.clear();
+    g_ik = {};
+    g_base.reset();
+    g_faceEdits = {};
+    g_faceBase.reset();
+    g_undo.clear();
+    g_redo.clear();
+    g_propRight = 0;
+    g_propLeft = 0;
+    PublishLocked();
+    g_enabled = false;
+}
+
 size_t Count()
 {
     const auto snapshot = GetSnapshot();

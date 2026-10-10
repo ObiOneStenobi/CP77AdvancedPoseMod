@@ -10,6 +10,7 @@
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
+#include "Ui/PhotoModeUi.hpp"
 #include "Ui/TextEntry.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -311,6 +312,9 @@ void RefreshTargets(void* aSystem)
 
 bool Detour_Activate(void* aSystem)
 {
+    // Every Photo Mode session starts from the game's pose: nothing from the previous session is kept.
+    APM::Pose::PoseOverrides::ClearSession();
+    APM::Ui::PhotoModeUi::ResetSession();
     const bool result = g_origActivate(aSystem);
 
     APM::Config::Load();
@@ -328,8 +332,8 @@ void Detour_Deactivate(void* aSystem)
     g_active = false;
     APM::Pose::TargetRegistry::Clear();
     APM::Pose::GizmoState::Clear();
-    // The custom pose is kept in memory but must be re-enabled by the player next time.
-    APM::Pose::PoseOverrides::SetEnabled(false);
+    // The edits are dropped: the next session starts from the game's pose.
+    APM::Pose::PoseOverrides::ClearSession();
     APM::Ui::TextEntry::End();
     APM::Log::Info("PhotoMode: deactivated");
     g_origDeactivate(aSystem);
