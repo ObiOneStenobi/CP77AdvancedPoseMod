@@ -90,6 +90,9 @@ public func APM_Vector(x: Float, y: Float, z: Float, w: Float) -> Vector4 {
 
 // "Left upper arm" -> "Upper arm" (the tab already says which side)
 public func APM_ShortPartLabel(label: String) -> String {
+    if StrEndsWith(label, " eye") {
+        return label; // "Left eye" / "Right eye" sit side by side in the Head tab
+    }
     if StrBeginsWith(label, "Left ") {
         return StrAfterFirst(label, "Left ");
     }
@@ -297,7 +300,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_markers: array<ref<APM_Marker>>;
     private let m_lineLayer: wref<inkCanvas>;
     private let m_hipsPart: Int32;
-    private let m_autoIk: Bool; // dragging a hand / foot uses IK (else it rotates; Shift swaps)
+    private let m_autoIk: Bool;
+    private let m_eyesTogether: Bool; // one look marker for both eyes (else one per eye) // dragging a hand / foot uses IK (else it rotates; Shift swaps)
     private let m_rootDot: wref<inkRectangle>;  // V's root (where Photo Mode placed her): saved hips positions are relative to it
     private let m_rootLine: wref<inkRectangle>;
     private let m_rootLabel: wref<inkText>;
@@ -354,6 +358,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
         this.m_autoIk = APM_SessionGet("AutoIk", 1.0) > 0.5;
+        this.m_eyesTogether = APM_SessionGet("EyesTogether", 1.0) > 0.5;
 
         let layer = new inkCanvas();
         layer.SetName(n"APM_PoseEditorLayer");
@@ -476,7 +481,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
         this.CreateIconButton(header, "limits:on", "lock", 260.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
         this.CreateIconButton(header, "limits:off", "lock-open", 260.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
-        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates). Off: dragging rotates it (Shift moves it with IK)");
+        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -842,8 +847,8 @@ public class APM_PoseEditor extends IScriptable {
         let i = 0;
         while i < count {
             let label = APM_UiGetOptionLabel(7701u, i);
-            // The single eyes are driven by the "look" marker of "Eyes (both)".
-            if i != this.m_leftEyePart && i != this.m_rightEyePart {
+            // Eyes: one look marker for both, or one per eye (whichever was chosen last in the Head tab).
+            if true {
                 let root = new inkCanvas();
                 root.SetName(StringToName("APM_gizmo:" + IntToString(i)));
                 root.SetAnchor(inkEAnchor.TopLeft);
@@ -882,7 +887,7 @@ public class APM_PoseEditor extends IScriptable {
                 marker.isProp = StrEndsWith(label, "hand prop");
                 marker.group = APM_UiGetOptionGroup(7701u, i);
                 marker.kind = APM_MarkerKindBone();
-                if Equals(label, "Eyes (both)") {
+                if Equals(label, "Eyes (both)") || i == this.m_leftEyePart || i == this.m_rightEyePart {
                     marker.kind = APM_MarkerKindEyeLook();
                 } else if APM_GizmoIsPartDetail(i) {
                     marker.kind = APM_MarkerKindFingerDetail();
@@ -894,7 +899,9 @@ public class APM_PoseEditor extends IScriptable {
                 marker.halo = halo;
                 marker.line = this.CreateLine();
                 if marker.kind == APM_MarkerKindEyeLook() {
-                    marker.line2 = this.CreateLine();
+                    if !this.IsSingleEye(i) {
+                        marker.line2 = this.CreateLine();
+                    }
                 } else {
                     marker.parentLine = this.CreateLine();
                 }
@@ -2168,6 +2175,33 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // How far in front of the eyes their "look" marker floats (meters).
+    private func IsSingleEye(part: Int32) -> Bool {
+        return part == this.m_leftEyePart || part == this.m_rightEyePart;
+    }
+
+    private func SetEyesTogether(together: Bool) {
+        if !Equals(this.m_eyesTogether, together) {
+            this.m_eyesTogether = together;
+            APM_SessionSet("EyesTogether", together ? 1.0 : 0.0);
+        }
+    }
+
+    // Point one eye looks at, that far ahead.
+    private func SingleEyePoint(toWorld: Matrix, part: Int32, distance: Float) -> Vector4 {
+        let eye = APM_PartWorldPosition(toWorld, part);
+        let forwardModel = APM_GizmoGetPartForward(part);
+        if eye.W < 0.5 || forwardModel.W < 0.5 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let forward = Vector4.TransformDir(toWorld, APM_Vector(forwardModel.X, forwardModel.Y, forwardModel.Z, 0.0));
+        let length = SqrtF(forward.X * forward.X + forward.Y * forward.Y + forward.Z * forward.Z);
+        if length < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let k = distance / length;
+        return APM_Vector(eye.X + forward.X * k, eye.Y + forward.Y * k, eye.Z + forward.Z * k, 1.0);
+    }
+
     private func LookDistance() -> Float {
         return 0.6;
     }
@@ -2266,8 +2300,21 @@ public class APM_PoseEditor extends IScriptable {
             let marker = this.m_markers[i];
             let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
             let world: Vector4;
-            if marker.kind == APM_MarkerKindEyeLook() {
+            if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
+                let eyeDistance = this.LookDistance();
+                if isDragged && this.m_dragMode == APM_DragEyeLook() {
+                    let eye = APM_PartWorldPosition(toWorld, marker.part);
+                    eyeDistance = Vector4.Distance(APM_Vector(eye.X, eye.Y, eye.Z, 0.0), APM_Vector(this.m_lookTarget.X, this.m_lookTarget.Y, this.m_lookTarget.Z, 0.0));
+                }
+                world = this.SingleEyePoint(toWorld, marker.part, eyeDistance);
+                if this.m_eyesTogether {
+                    world.W = 0.0; // hidden: both eyes move together
+                }
+            } else if marker.kind == APM_MarkerKindEyeLook() {
                 world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.EyeDirectionPoint(toWorld, this.m_lookTarget) : this.EyeLookPoint(toWorld);
+                if !this.m_eyesTogether {
+                    world.W = 0.0; // hidden: each eye has its own marker
+                }
             } else {
                 let markerModel = APM_GizmoGetPartMarker(marker.part);
                 world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
@@ -2341,6 +2388,12 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
+        // Choosing "Eyes (both)" or a single eye in the Head tab switches the eye markers.
+        if selected == this.m_leftEyePart || selected == this.m_rightEyePart {
+            this.SetEyesTogether(false);
+        } else if Equals(APM_UiGetOptionLabel(7701u, selected), "Eyes (both)") {
+            this.SetEyesTogether(true);
+        }
         this.UpdateRootMarker(camera, toWorld, selected);
         this.UpdateHint();
     }
@@ -2366,7 +2419,13 @@ public class APM_PoseEditor extends IScriptable {
         let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
         if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
-                text += this.m_autoIk ? "   (Shift: rotate, Alt: free, Ctrl: twist)" : "   (Shift: move with IK, Alt: free, Ctrl: twist)";
+                if this.m_autoIk {
+                    text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
+                } else if APM_GizmoIsIkActive(marker.chain) {
+                    text += "   (Shift: move with IK, Alt: free, Ctrl: twist)";
+                } else {
+                    text += "   (Alt: free, Ctrl: twist)";
+                }
             } else if marker.part == this.m_hipsPart {
                 text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
             } else if marker.canMove {
@@ -2412,6 +2471,10 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let thickness = (strong ? 2.5 : 1.5) * s;
         let opacity = strong ? 0.9 : 0.45;
+        if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
+            this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, marker.part), world, color, thickness, opacity);
+            return 0.0;
+        }
         if marker.kind == APM_MarkerKindEyeLook() {
             this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, this.m_leftEyePart), world, color, thickness, opacity);
             this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity);
@@ -2667,8 +2730,12 @@ public class APM_PoseEditor extends IScriptable {
             return APM_DragMove();
         }
         if marker.chain >= 0 {
-            // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: the other way round.
-            return Equals(shift, this.m_autoIk) ? APM_DragRotate() : APM_DragIkMove();
+            // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: drag rotates it; Shift moves it with IK
+            // only when that limb is already pinned (the magnet off never pins a limb).
+            if this.m_autoIk {
+                return shift ? APM_DragRotate() : APM_DragIkMove();
+            }
+            return shift && APM_GizmoIsIkActive(marker.chain) ? APM_DragIkMove() : APM_DragRotate();
         }
         if marker.swivelChain >= 0 && !shift && APM_GizmoIsIkActive(marker.swivelChain) {
             return APM_DragSwivel();
@@ -2749,7 +2816,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         if this.m_dragMode == APM_DragEyeLook() {
-            let look = this.EyeLookPoint(toWorld);
+            let look = this.IsSingleEye(marker.part) ? this.SingleEyePoint(toWorld, marker.part, this.LookDistance()) : this.EyeLookPoint(toWorld);
             let lookScreen = this.ProjectToScreen(camera, look);
             if look.W < 0.5 || lookScreen.W < 0.5 {
                 this.m_dragMarker = null;
@@ -2945,8 +3012,12 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let model = APM_WorldToModelPoint(toWorld, target);
-        APM_GizmoAimPart(this.m_leftEyePart, model);
-        APM_GizmoAimPart(this.m_rightEyePart, model);
+        if this.IsSingleEye(this.m_dragMarker.part) {
+            APM_GizmoAimPart(this.m_dragMarker.part, model);
+        } else {
+            APM_GizmoAimPart(this.m_leftEyePart, model);
+            APM_GizmoAimPart(this.m_rightEyePart, model);
+        }
         this.m_lookTarget = target;
         APM_UiSetValue(7701u, Cast<Float>(this.m_dragMarker.part));
     }

@@ -280,6 +280,34 @@ void PinAtCurrentPlace(Pose::IkChainSettings& aSettings)
     }
 }
 
+// The pin of the current chain is turned off: the arm / leg keeps the pose the IK gave it, as plain rotations
+// (Reset part puts it back).
+void BakeChainPose()
+{
+    constexpr const char* chainBones[4][3] = {{"LeftArm", "LeftForeArm", "LeftHand"},
+                                              {"RightArm", "RightForeArm", "RightHand"},
+                                              {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+                                              {"RightUpLeg", "RightLeg", "RightFoot"}};
+    for (const char* bone : chainBones[static_cast<size_t>(CurrentChain())])
+    {
+        const uint64_t hash = RED4ext::CName(bone).hash;
+        Math::Quat finalLocal{};
+        Math::Quat animated{};
+        Math::Vec3 unused{};
+        if (!Pose::GizmoState::GetFinalLocal(hash, finalLocal, unused) ||
+            !Pose::GizmoState::GetAnimatedLocal(hash, animated, unused))
+        {
+            continue;
+        }
+        const Math::Quat edit = Math::Normalize(Math::Mul(Math::Conjugate(animated), finalLocal));
+        std::array<float, 3> angles{};
+        if (RotationToAngles(bone, edit, false, angles))
+        {
+            Pose::PoseOverrides::SetRotationQuat(bone, edit, angles);
+        }
+    }
+}
+
 bool UsesFingerAxes(const Ui::CatalogEntry& aEntry)
 {
     return aEntry.mode == Ui::EntryMode::Curl || aEntry.mode == Ui::EntryMode::FingerSegment;
@@ -668,6 +696,10 @@ void SetValue(uint32_t aAttribute, float aValue)
             else if (!settings.enabled && updated.enabled)
             {
                 PinAtCurrentPlace(updated);
+            }
+            else if (settings.enabled && !updated.enabled)
+            {
+                BakeChainPose();
             }
         }
         else if (aAttribute == Attr::IkSwivel)

@@ -216,7 +216,18 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         input.target = target;
         input.swivelRadians = APM::Math::DegToRad(settings.swivel);
 
-        const auto result = APM::Pose::SolveTwoBoneIk(input);
+        auto result = APM::Pose::SolveTwoBoneIk(input);
+
+        // Joint limits: the thigh / upper arm and the knee / elbow stay within their natural range, so the hand /
+        // foot stops where the limb can no longer follow the target.
+        if (APM::Pose::JointLimits::IsEnabled())
+        {
+            const Quat parentGlobal = APM::Math::Mul(input.aGlobal, APM::Math::Conjugate(input.aLocal));
+            result.aLocal = APM::Pose::JointLimits::LimitLocal(chain.upper, result.aLocal, input.aLocal, false);
+            result.bLocal = APM::Pose::JointLimits::LimitLocal(chain.middle, result.bLocal, input.bLocal, false);
+            result.aGlobal = APM::Math::Normalize(APM::Math::Mul(parentGlobal, result.aLocal));
+            result.bGlobal = APM::Math::Normalize(APM::Math::Mul(result.aGlobal, result.bLocal));
+        }
 
         // The pinned hand/foot keeps the orientation the animation gave it, plus the player's own rotation of that
         // hand/foot - it no longer turns with the torso or the hips above it.
