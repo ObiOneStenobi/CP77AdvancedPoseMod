@@ -108,20 +108,17 @@ void ComputeModelPose(const APM::Pose::Target& aTarget, const RED4ext::QsTransfo
 // FK overrides (rotation / translation per bone, plus linked bones such as the face eyes)
 // ---------------------------------------------------------------------------------------------------------------------
 // aSameNameBones: also edit the bones that carry the edited names (main skeleton only, see ProcessSecondarySkeleton).
-// Bones Photo Mode's "Look at camera" currently turns: our edits of them wait (the game has priority).
+// Photo Mode's "Look at camera" is on: our edits of the eyes wait (the game has priority). The head and the chest are
+// left to work as before: the game turns them on top of the pose, and pausing them mixed two poses.
 bool IsLookAtBone(uint64_t aHash)
 {
-    const int32_t reach = APM::Pose::LookAtCamera::Reach();
-    if (reach == 0)
+    if (APM::Pose::LookAtCamera::Reach() == 0)
     {
         return false;
     }
-    static const uint64_t eyes[] = {Hash("LeftEye"), Hash("RightEye")};
-    static const uint64_t head[] = {Hash("Head"), Hash("Neck"), Hash("Neck1")};
-    static const uint64_t torso[] = {Hash("Spine1"), Hash("Spine2"), Hash("Spine3")};
-    const auto contains = [aHash](const auto& aList)
-    { return std::find(std::begin(aList), std::end(aList), aHash) != std::end(aList); };
-    return contains(eyes) || (reach >= 2 && contains(head)) || (reach >= 3 && contains(torso));
+    static const uint64_t left = Hash("LeftEye");
+    static const uint64_t right = Hash("RightEye");
+    return aHash == left || aHash == right;
 }
 
 bool IsEyeBone(uint64_t aHash)

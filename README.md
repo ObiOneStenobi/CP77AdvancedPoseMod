@@ -97,8 +97,8 @@ closer.
 - **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
   or one marker per eye.
 - The hips marker is violet: it is V's root and moves the whole body.
-- Photo Mode's **Look at camera** has priority: while it is on, our edits of the bones it turns (eyes; head and neck;
-  chest) wait and come back when it is turned off. Edited eyes are absolute on the face rig, so expressions that roll
+- Photo Mode's **Look at camera** has priority over our eye edits: while it is on they wait, and come back when it
+  is turned off (head and chest edits stay, the game turns them on top). Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
