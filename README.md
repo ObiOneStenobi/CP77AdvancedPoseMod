@@ -76,7 +76,9 @@ closer.
 - **Alt+drag** any marker to rotate the part freely, like a ball under the cursor: left / right turns it around the
   camera's vertical axis, up / down around its horizontal axis (as the head always does).
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
-  automatically). **Shift+drag** it to rotate the hand / foot instead.
+  automatically). **Shift+drag** it to rotate the hand / foot instead (as seen from the camera, like Alt). A pinned
+  hand / foot turns only as far as the wrist / ankle can (joint limits). A straight leg / arm bends the natural way
+  (knee forward, elbow back).
 - The pin row (**Off / World / Body**, under the limb buttons) sets the pin: *world* keeps the hand / foot where it is whatever the body does;
   *body* makes it follow the shoulder (hips) it hangs from, keeping the arm's (leg's) pose while the torso turns.
   Turning the pin on, or switching between world and body, leaves the hand / foot where it is.
@@ -104,7 +106,8 @@ closer.
   poses) the neck (and the spine, for the torso) is turned so the face looks at the camera.
   With Torso or Head the eyes also follow the camera (up to 30 degrees from where the face looks), also when the
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
-  the eyes (e.g. Whistle) no longer move them.
+  the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;
+  the back and chest with Torso) are grey and cannot be edited.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.

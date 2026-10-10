@@ -812,6 +812,14 @@ void GizmoGetChainJoint(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 }
 
 // True for body parts that only the close-up gizmos edit (outer finger segments).
+void GizmoIsPartLocked(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsPartLookAtLocked(part));
+}
+
 void GizmoIsPartDetail(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t part = 0;
@@ -1116,6 +1124,7 @@ void Register()
     ::Register("APM_GizmoGetPartSwivelChain", &GizmoGetPartSwivelChain, "Int32", {{"Int32", "part"}});
     ::Register("APM_GizmoIsIkActive", &GizmoIsIkActive, "Bool", {{"Int32", "chain"}});
     ::Register("APM_GizmoGetChainJoint", &GizmoGetChainJoint, "Vector4", {{"Int32", "chain"}, {"Int32", "joint"}});
+    ::Register("APM_GizmoIsPartLocked", &GizmoIsPartLocked, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoIsPartDetail", &GizmoIsPartDetail, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});

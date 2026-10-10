@@ -125,6 +125,8 @@ public native func APM_GizmoIsIkActive(chain: Int32) -> Bool
 // Model-space joint of an IK chain (0 shoulder / hip, 1 elbow / knee, 2 hand / foot); w = 1 when valid
 public native func APM_GizmoGetChainJoint(chain: Int32, joint: Int32) -> Vector4
 // True for parts only edited from the close-up gizmos (outer finger segments)
+// True while Photo Mode's "Look at camera" turns the part (eyes, head and neck, back for the torso): not editable.
+public native func APM_GizmoIsPartLocked(part: Int32) -> Bool
 public native func APM_GizmoIsPartDetail(part: Int32) -> Bool
 // Model-space direction a part looks along (e.g. an eye's gaze); w = 1 when valid
 public native func APM_GizmoGetPartForward(part: Int32) -> Vector4

@@ -1,5 +1,6 @@
 #include "Pose/PoseProcessor.hpp"
 
+#include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
@@ -253,6 +254,18 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         input.bLocal = GetRotation(aBones[b]);
         input.target = target;
         input.swivelRadians = APM::Math::DegToRad(settings.swivel);
+        {
+            // Knees point forward, elbows back and a little down, following the hips / the chest.
+            const bool leg = chainIndex >= 2;
+            const int32_t frameBone = IndexOf(aTarget, Hash(leg ? "Hips" : "Spine3"));
+            Quat frame{0.f, 0.f, 0.f, 1.f};
+            if (frameBone >= 0 && static_cast<uint32_t>(frameBone) < aCount &&
+                static_cast<size_t>(frameBone) < aTarget.refRotationsMS.size())
+            {
+                frame = APM::Math::Mul(aCurrentPose.rotations[frameBone], APM::Math::Conjugate(aTarget.refRotationsMS[frameBone]));
+            }
+            input.poleHint = APM::Math::Normalize(APM::Math::Rotate(frame, leg ? Vec3{0.f, 1.f, 0.f} : Vec3{0.f, -1.f, -0.4f}));
+        }
 
         auto result = APM::Pose::SolveTwoBoneIk(input);
 
@@ -585,6 +598,53 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
 // ---------------------------------------------------------------------------------------------------------------------
 // Secondary skeletons: FK + IK deltas from the main skeleton
 // ---------------------------------------------------------------------------------------------------------------------
+// Diagnostic (once every 2 s while a hand or foot is twisted): does the game turn the twist helper bones of the
+// deformation rig (calf, forearm) with our edits? Twist angles in degrees around the limb, from the reference pose.
+float TwistDegrees(const Quat& aRotation, const Vec3& aAxis)
+{
+    const Vec3 v{aRotation.i, aRotation.j, aRotation.k};
+    return 2.f * std::atan2(APM::Math::Dot(v, aAxis), aRotation.r) * 57.29578f;
+}
+
+void LogTwistHelpers(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    static ULONGLONG last = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (now - last < 2000)
+    {
+        return;
+    }
+    struct Probe
+    {
+        const char* end;
+        const char* helper;
+    };
+    static constexpr Probe Probes[] = {{"LeftFoot", "l_calf_0_JNT"}, {"RightFoot", "r_calf_0_JNT"},
+                                       {"LeftHand", "l_Wrist_1_JNT"}, {"RightHand", "r_Wrist_1_JNT"}};
+    for (const auto& probe : Probes)
+    {
+        const int32_t end = IndexOf(aTarget, Hash(probe.end));
+        const int32_t helper = IndexOf(aTarget, Hash(probe.helper));
+        if (end < 0 || helper < 0 || static_cast<uint32_t>(end) >= aCount || static_cast<uint32_t>(helper) >= aCount ||
+            static_cast<size_t>(end) >= aTarget.refRotationsLS.size() || static_cast<size_t>(helper) >= aTarget.refRotationsLS.size() ||
+            static_cast<size_t>(end) >= aTarget.refTranslationsLS.size())
+        {
+            continue;
+        }
+        const Vec3 axis = APM::Math::Normalize(aTarget.refTranslationsLS[end]); // along the shin / forearm
+        const Quat endChange = APM::Math::Mul(GetRotation(aBones[end]), APM::Math::Conjugate(aTarget.refRotationsLS[end]));
+        const Quat helperChange = APM::Math::Mul(GetRotation(aBones[helper]), APM::Math::Conjugate(aTarget.refRotationsLS[helper]));
+        const float endTwist = TwistDegrees(endChange, axis);
+        if (std::abs(endTwist) < 10.f)
+        {
+            continue;
+        }
+        last = now;
+        APM::Log::Info("Twist probe (%s): %s twist %.1f, %s twist %.1f", aTarget.debugName.c_str(), probe.end, endTwist,
+                       probe.helper, TwistDegrees(helperChange, axis));
+    }
+}
+
 void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                               const APM::Pose::OverrideSnapshot& aPose)
 {
@@ -594,6 +654,10 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     // are edited here: the linked ones, such as the face rig's eyeballs.
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
+    if (aTarget.debugName == "deformations")
+    {
+        LogTwistHelpers(aTarget, aBones, aCount);
+    }
 }
 } // namespace
 

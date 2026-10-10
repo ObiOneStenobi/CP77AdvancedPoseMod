@@ -5,6 +5,7 @@
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
@@ -131,6 +132,27 @@ bool IsPinnedChainEnd(std::string_view aBone)
     return false;
 }
 
+// Photo Mode's "Look at camera" turns these bones itself: they cannot be edited while it is on (eyes; head and neck;
+// the back and chest for the torso).
+bool IsLookAtLockedBone(std::string_view aBone)
+{
+    const int32_t reach = Pose::LookAtCamera::Reach();
+    if (reach >= 1 && (aBone == "LeftEye" || aBone == "RightEye"))
+    {
+        return true;
+    }
+    if (reach >= 2 && (aBone == "Head" || aBone == "Neck" || aBone == "Neck1"))
+    {
+        return true;
+    }
+    return reach >= 3 && (aBone == "Spine1" || aBone == "Spine2" || aBone == "Spine3");
+}
+
+bool IsLookAtLockedEntry(const Ui::CatalogEntry& aEntry)
+{
+    return std::any_of(aEntry.bones.begin(), aEntry.bones.end(), [](const char* aBone) { return IsLookAtLockedBone(aBone); });
+}
+
 // The edit (anim * edit = final local rotation) kept within the bone's natural range (Pose/JointLimits).
 bool g_noLimits = false; // hand presets: their rotations are natural already, store them as they are
 
@@ -159,6 +181,10 @@ Math::Quat LimitEdit(const char* aBone, const Math::Quat& aEdit, bool aSwapBends
 // Stores an edit given as UI angles, within the joint limits (the stored angles follow the limited rotation).
 void StoreEdit(const char* aBone, std::array<float, 3> aAngles, bool aSwapBends)
 {
+    if (IsLookAtLockedBone(aBone))
+    {
+        return;
+    }
     const Math::Quat wanted = AnglesToRotation(aBone, aAngles, aSwapBends);
     const Math::Quat limited = LimitEdit(aBone, wanted, aSwapBends);
     const float dot = limited.i * wanted.i + limited.j * wanted.j + limited.k * wanted.k + limited.r * wanted.r;
@@ -765,8 +791,11 @@ bool IsAttributeEnabled(uint32_t aAttribute)
     case Attr::IkZ:
     case Attr::IkSwivel:
         return Pose::PoseOverrides::GetIkChain(CurrentChain()).enabled;
+    case Attr::Bend1:
+    case Attr::Bend2:
+        return !IsLookAtLockedEntry(CurrentEntry());
     case Attr::Twist:
-        return !IsEyeEntry(CurrentEntry()) || IsBothEyes(); // both eyes: focus distance
+        return (!IsEyeEntry(CurrentEntry()) || IsBothEyes()) && !IsLookAtLockedEntry(CurrentEntry()); // both eyes: focus
     default:
         return true;
     }
@@ -887,7 +916,23 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
     const Math::Quat offset = AnglesToRotation(bone, angles, isFinger);
 
     // Rotate around a model-space axis: new offset = offset * (B^-1 * R * B).
-    const Math::Quat r = Math::FromAxisAngle(Math::Normalize(aModelAxis), Math::DegToRad(aDegrees));
+    Math::Quat r = Math::FromAxisAngle(Math::Normalize(aModelAxis), Math::DegToRad(aDegrees));
+    if (IsPinnedChainEnd(bone) && Pose::JointLimits::HasRange(bone))
+    {
+        // A pinned hand / foot: the IK keeps it within the wrist / ankle range, so turn it only as far as that goes
+        // (otherwise the stored rotation runs past what is shown and dragging back seems to do nothing).
+        Math::Quat parentModel{};
+        Math::Quat animated{};
+        Math::Vec3 unused{};
+        const uint64_t hash = RED4ext::CName(bone).hash;
+        if (Pose::GizmoState::GetParentModelRotation(hash, parentModel) &&
+            Pose::GizmoState::GetAnimatedLocal(hash, animated, unused))
+        {
+            const Math::Quat wanted = Math::Mul(Math::Conjugate(parentModel), Math::Mul(r, boneModel));
+            const Math::Quat limited = Pose::JointLimits::LimitLocal(bone, wanted, animated, false);
+            r = Math::Normalize(Math::Mul(Math::Mul(parentModel, limited), Math::Conjugate(boneModel)));
+        }
+    }
     const Math::Quat local = Math::Mul(Math::Mul(Math::Conjugate(boneModel), r), boneModel);
     const Math::Quat updated = Math::Normalize(Math::Mul(offset, local));
 
@@ -904,6 +949,12 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
     MirrorCurrentPart();
     RequestRefresh();
     return true;
+}
+
+bool IsPartLookAtLocked(int32_t aPart)
+{
+    const auto& catalog = GetBoneCatalog();
+    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) && IsLookAtLockedEntry(catalog[aPart]);
 }
 
 bool CanMovePart(int32_t aPart)

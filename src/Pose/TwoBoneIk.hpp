@@ -15,6 +15,7 @@ struct TwoBoneIkInput
     Math::Quat bLocal;      // local rotation of B
     Math::Vec3 target;      // desired model-space position of C
     float swivelRadians = 0.f; // extra rotation of the chain around the A->target axis
+    Math::Vec3 poleHint{};     // model-space direction the knee / elbow should point to when the limb is (nearly) straight
 };
 
 struct TwoBoneIkOutput
@@ -39,6 +40,17 @@ inline TwoBoneIkOutput SolveTwoBoneIk(const TwoBoneIkInput& in)
     const float baBc1 = std::acos(std::clamp((lat * lat - lab * lab - lcb * lcb) / (-2.f * lab * lcb), -1.f, 1.f));
 
     Vec3 bendAxis = Normalize(Cross(in.c - in.a, in.b - in.a));
+    // A (nearly) straight limb has no reliable bend plane: a knee a hair past straight would bend backwards. Bend it
+    // the natural way instead.
+    constexpr float NearlyStraight = 0.26f; // ~15 degrees from straight
+    if (Length(in.poleHint) > 0.5f && 3.14159265f - baBc0 < NearlyStraight)
+    {
+        const Vec3 hinted = Normalize(Cross(in.c - in.a, in.poleHint));
+        if (Length(hinted) > 0.5f)
+        {
+            bendAxis = hinted;
+        }
+    }
     if (Length(bendAxis) < 0.5f)
     {
         // Perfectly straight limb: pick a stable axis from A's orientation.

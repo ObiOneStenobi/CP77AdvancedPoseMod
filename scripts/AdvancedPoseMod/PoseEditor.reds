@@ -2419,8 +2419,11 @@ public class APM_PoseEditor extends IScriptable {
             // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
             // flat bar across the bone = twist. Orange = IK.
             let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
+            let locked = APM_GizmoIsPartLocked(marker.part);
             let color = APM_ColorText();
-            if isSelected {
+            if locked {
+                color = APM_Color(0.45, 0.45, 0.45, 1.0); // turned by Photo Mode's "Look at camera": not editable
+            } else if isSelected {
                 color = APM_ColorAccent();
             } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
                 color = APM_ColorIk();
@@ -2456,7 +2459,7 @@ public class APM_PoseEditor extends IScriptable {
                 if IsDefined(marker.halo) {
                     marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
                 }
-                marker.root.SetOpacity(isSelected || marker.isHovered ? 1.0 : 0.75);
+                marker.root.SetOpacity(locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75));
                 if mode == APM_DragTwist() {
                     marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
                     marker.dot.SetRotation(boneAngle + 90.0);
@@ -2814,10 +2817,11 @@ public class APM_PoseEditor extends IScriptable {
         if marker.chain >= 0 {
             // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: drag rotates it; Shift moves it with IK
             // only when that limb is already pinned (the magnet off never pins a limb).
+            // Rotation of a hand / foot turns it as seen from the camera, like Alt (aiming its short tip was too fast).
             if this.m_autoIk {
-                return shift ? APM_DragRotate() : APM_DragIkMove();
+                return shift ? APM_DragTrackball() : APM_DragIkMove();
             }
-            return shift && APM_GizmoIsIkActive(marker.chain) ? APM_DragIkMove() : APM_DragRotate();
+            return shift && APM_GizmoIsIkActive(marker.chain) ? APM_DragIkMove() : APM_DragTrackball();
         }
         if marker.swivelChain >= 0 && !shift && APM_GizmoIsIkActive(marker.swivelChain) {
             return APM_DragSwivel();
@@ -3460,6 +3464,12 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
+        if APM_GizmoIsPartLocked(marker.part) {
+            // Turned by Photo Mode's "Look at camera": selected (its values show), but not dragged.
+            APM_UiRequestRefresh();
+            this.Refresh();
+            return true;
+        }
         // Calibrate pointer -> canvas scale with the marker under the cursor.
         let pointer = e.GetScreenSpacePosition();
         this.m_lastPointer = pointer;
