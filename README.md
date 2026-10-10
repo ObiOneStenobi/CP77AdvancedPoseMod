@@ -182,3 +182,7 @@ tools/        developer scripts
 - RED4ext / RED4ext.SDK – WopsS and contributors
 - Photo Mode function hashes and structure offsets – psiberx (PhotoModeEx, MIT)
 - nlohmann/json – Niels Lohmann (MIT)
+
+## License
+
+MIT – see `LICENSE`. Third-party components keep their own licenses, listed in `THIRD_PARTY_NOTICES.md`.

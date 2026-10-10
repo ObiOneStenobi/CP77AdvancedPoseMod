@@ -601,7 +601,8 @@ bool Load(const std::string& aName)
         g_propLeft = prop("left");
     }
     g_enabled = true;
-    Log::Info("Pose loaded: %s (%zu bones)", name.c_str(), Count());
+    Log::Info("Pose loaded: %s (%zu edits, %zu base pose bones)", name.c_str(), Count(),
+              GetSnapshot()->base ? GetSnapshot()->base->bones.size() : size_t(0));
     return true;
 }
 
