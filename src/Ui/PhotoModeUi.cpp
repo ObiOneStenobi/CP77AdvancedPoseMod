@@ -4,6 +4,7 @@
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/JointLimits.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
@@ -30,13 +31,10 @@ using namespace APM::Ui::PhotoModeUi;
 
 constexpr int32_t SlotCount = 10;
 constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
-constexpr const char* OnOffLabels[] = {"Off", "On"};
 constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
 
 // Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
 std::atomic<bool> g_mirror{false};
-// Joint limits: edits keep each joint within a natural range (on by default, the panel can turn them off).
-std::atomic<bool> g_limits{true};
 // Last focus distance set for the eyes (cm), used when their lines of sight do not cross.
 float g_eyeFocus = 150.f;
 void MirrorCurrentPart();
@@ -121,130 +119,6 @@ bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, s
 
 constexpr const char* IkChainEnds[] = {"LeftHand", "RightHand", "LeftFoot", "RightFoot"};
 
-// --- Joint limits -------------------------------------------------------------------------------------------------
-// Ranges are measured from the reference (T) pose, on the bone's own axes (see TargetRegistry::GetBoneAxes):
-// forward = bend forward / back (positive: the bone's end moves forward, model +Y), side = sideways or raise / lower,
-// twist = along the bone. Side and twist are symmetric.
-struct JointRange
-{
-    float forwardMin;
-    float forwardMax;
-    float side;
-    float twist;
-};
-
-bool FindJointRange(std::string_view aBone, JointRange& aOut)
-{
-    if (aBone.rfind("Left", 0) == 0)
-    {
-        aBone.remove_prefix(4);
-    }
-    else if (aBone.rfind("Right", 0) == 0)
-    {
-        aBone.remove_prefix(5);
-    }
-    struct Entry
-    {
-        std::string_view name;
-        JointRange range;
-    };
-    static constexpr Entry Table[] = {
-        {"Spine", {-30.f, 40.f, 30.f, 35.f}},   {"Spine1", {-30.f, 40.f, 30.f, 35.f}},
-        {"Spine2", {-30.f, 40.f, 30.f, 35.f}},  {"Spine3", {-30.f, 40.f, 30.f, 35.f}},
-        {"Neck", {-35.f, 40.f, 30.f, 45.f}},    {"Neck1", {-35.f, 40.f, 30.f, 45.f}},
-        {"Head", {-40.f, 45.f, 35.f, 70.f}},    {"Shoulder", {-20.f, 20.f, 20.f, 15.f}},
-        {"Arm", {-70.f, 130.f, 100.f, 90.f}},   {"ForeArm", {-5.f, 150.f, 15.f, 90.f}},
-        {"Hand", {-80.f, 80.f, 40.f, 30.f}},    {"UpLeg", {-35.f, 125.f, 55.f, 45.f}},
-        {"Leg", {-150.f, 5.f, 8.f, 30.f}},      {"Foot", {-50.f, 45.f, 30.f, 25.f}},
-        {"ToeBase", {-40.f, 60.f, 10.f, 10.f}},
-    };
-    for (const auto& entry : Table)
-    {
-        if (aBone == entry.name)
-        {
-            aOut = entry.range;
-            return true;
-        }
-    }
-    if (aBone.rfind("HandThumb", 0) == 0)
-    {
-        aOut = {-60.f, 60.f, 60.f, 45.f};
-        return true;
-    }
-    if (aBone.rfind("HandIndex", 0) == 0 || aBone.rfind("HandMiddle", 0) == 0 || aBone.rfind("HandRing", 0) == 0 ||
-        aBone.rfind("HandPinky", 0) == 0)
-    {
-        aOut = {-110.f, 110.f, 30.f, 20.f};
-        return true;
-    }
-    return false;
-}
-
-struct JointFrame
-{
-    Math::Quat referenceLocal{};
-    float forwardSign = 1.f; // +1 when a positive bend1 moves the bone's end forward (model +Y) in the T pose
-};
-
-// Reference local rotation and bend direction of a bone, worked out once from the reference pose.
-bool GetJointFrame(uint64_t aHash, bool aSwapBends, JointFrame& aOut)
-{
-    static std::unordered_map<uint64_t, JointFrame> cache[2];
-    auto& frames = cache[aSwapBends ? 1 : 0];
-    if (const auto it = frames.find(aHash); it != frames.end())
-    {
-        aOut = it->second;
-        return true;
-    }
-    Pose::TargetRegistry::ReferencePose reference;
-    if (!Pose::TargetRegistry::GetReferencePose(reference))
-    {
-        return false;
-    }
-    const size_t count = reference.boneNames.size();
-    std::vector<Math::Vec3> positions(count);
-    for (size_t i = 0; i < count; ++i)
-    {
-        const int16_t parent = reference.parents[i];
-        positions[i] = parent >= 0 ? positions[parent] + Math::Rotate(reference.modelRotations[parent], reference.localTranslations[i])
-                                   : reference.localTranslations[i];
-    }
-    const auto found = std::find(reference.boneNames.begin(), reference.boneNames.end(), aHash);
-    if (found == reference.boneNames.end())
-    {
-        return false;
-    }
-    const auto index = static_cast<size_t>(std::distance(reference.boneNames.begin(), found));
-    JointFrame frame;
-    frame.referenceLocal = reference.localRotations[index];
-    Math::Vec3 tip{};
-    int32_t children = 0;
-    for (size_t i = index + 1; i < count; ++i)
-    {
-        if (reference.parents[i] == static_cast<int16_t>(index) && Math::Length(positions[i] - positions[index]) > 0.01f)
-        {
-            tip = tip + positions[i];
-            ++children;
-        }
-    }
-    Math::Vec3 bend1;
-    Math::Vec3 bend2;
-    Math::Vec3 twist;
-    if (children > 0 && Pose::TargetRegistry::GetBoneAxes(aHash, bend1, bend2, twist))
-    {
-        if (aSwapBends)
-        {
-            std::swap(bend1, bend2);
-        }
-        const Math::Vec3 direction = tip * (1.f / static_cast<float>(children)) - positions[index];
-        const Math::Vec3 axis = Math::Rotate(reference.modelRotations[index], bend1);
-        frame.forwardSign = Math::Cross(axis, direction).y >= 0.f ? 1.f : -1.f;
-    }
-    frames[aHash] = frame;
-    aOut = frame;
-    return true;
-}
-
 bool IsPinnedChainEnd(std::string_view aBone)
 {
     for (size_t c = 0; c < 4; ++c)
@@ -257,46 +131,27 @@ bool IsPinnedChainEnd(std::string_view aBone)
     return false;
 }
 
-// The edit (anim * edit = final local rotation) kept within the bone's natural range. Ranges grow to include where
-// the Photo Mode animation already has the joint, so editing never makes it jump.
+// The edit (anim * edit = final local rotation) kept within the bone's natural range (Pose/JointLimits).
 Math::Quat LimitEdit(const char* aBone, const Math::Quat& aEdit, bool aSwapBends)
 {
-    JointRange range{};
-    if (!g_limits || !FindJointRange(aBone, range) || IsPinnedChainEnd(aBone))
+    if (!Pose::JointLimits::HasRange(aBone) || IsPinnedChainEnd(aBone))
     {
         return aEdit;
     }
-    const uint64_t hash = RED4ext::CName(aBone).hash;
-    JointFrame frame;
     Math::Quat animated{};
     Math::Vec3 unused{};
-    if (!GetJointFrame(hash, aSwapBends, frame) || !Pose::GizmoState::GetAnimatedLocal(hash, animated, unused))
+    if (!Pose::GizmoState::GetAnimatedLocal(RED4ext::CName(aBone).hash, animated, unused))
     {
         return aEdit;
     }
-    const Math::Quat toReference = Math::Conjugate(frame.referenceLocal);
-    std::array<float, 3> wanted{};
-    std::array<float, 3> fromAnimation{};
-    if (!RotationToAngles(aBone, Math::Mul(toReference, Math::Mul(animated, aEdit)), aSwapBends, wanted) ||
-        !RotationToAngles(aBone, Math::Mul(toReference, animated), aSwapBends, fromAnimation))
+    const Math::Quat wanted = Math::Mul(animated, aEdit);
+    const Math::Quat limited = Pose::JointLimits::LimitLocal(aBone, wanted, animated, aSwapBends);
+    const float dot = limited.i * wanted.i + limited.j * wanted.j + limited.k * wanted.k + limited.r * wanted.r;
+    if (std::abs(dot) >= 0.999999f)
     {
         return aEdit;
     }
-    const float animForward = fromAnimation[0] * frame.forwardSign;
-    const float forwardMin = std::min(range.forwardMin, animForward);
-    const float forwardMax = std::max(range.forwardMax, animForward);
-    const float side = std::max(range.side, std::abs(fromAnimation[1]));
-    const float twist = std::max(range.twist, std::abs(fromAnimation[2]));
-    std::array<float, 3> limited = wanted;
-    limited[0] = std::clamp(wanted[0] * frame.forwardSign, forwardMin, forwardMax) * frame.forwardSign;
-    limited[1] = std::clamp(wanted[1], -side, side);
-    limited[2] = std::clamp(wanted[2], -twist, twist);
-    if (limited == wanted)
-    {
-        return aEdit;
-    }
-    const Math::Quat finalLocal = Math::Mul(frame.referenceLocal, AnglesToRotation(aBone, limited, aSwapBends));
-    return Math::Normalize(Math::Mul(Math::Conjugate(animated), finalLocal));
+    return Math::Normalize(Math::Mul(Math::Conjugate(animated), limited));
 }
 
 // Stores an edit given as UI angles, within the joint limits (the stored angles follow the limited rotation).
@@ -1515,11 +1370,11 @@ bool IsMirror()
 
 void SetLimits(bool aLimits)
 {
-    g_limits = aLimits;
+    Pose::JointLimits::SetEnabled(aLimits);
 }
 
 bool AreLimitsOn()
 {
-    return g_limits;
+    return Pose::JointLimits::IsEnabled();
 }
 } // namespace APM::Ui::PhotoModeUi

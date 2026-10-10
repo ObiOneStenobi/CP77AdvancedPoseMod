@@ -2,6 +2,7 @@
 
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/JointLimits.hpp"
 #include "Pose/TwoBoneIk.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -227,7 +228,9 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         {
             cWorld = APM::Math::Mul(body, cWorld);
         }
-        const Quat cLocalNew = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), cWorld));
+        Quat cLocalNew = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), cWorld));
+        // The pinned hand / foot still bends only as far as a wrist / ankle can (joint limits).
+        cLocalNew = APM::Pose::JointLimits::LimitLocal(chain.end, cLocalNew, cLocalOriginal, false);
 
         SetRotation(aBones[a], result.aLocal);
         SetRotation(aBones[b], result.bLocal);

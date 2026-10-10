@@ -91,7 +91,8 @@ closer.
   position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
   third row is their **focus distance** (nearer = more converged).
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
-  only, the spine, neck, wrists and fingers within human ranges). Click the lock to turn them off for full control.
+  only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
+  far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.
 - **In hand**: one row per hand. Click a hand's item to open the item list beside the panel: click the search box
   to type (Enter takes the first result, Esc stops typing), filter with the **All / Weapons / Food / Other** tabs; recent items
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as

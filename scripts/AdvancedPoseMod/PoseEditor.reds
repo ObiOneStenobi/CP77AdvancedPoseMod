@@ -2413,6 +2413,14 @@ public class APM_PoseEditor extends IScriptable {
             this.DrawWorldLine(camera, marker.line2, APM_PartWorldPosition(toWorld, this.m_rightEyePart), world, color, thickness, opacity);
             return 0.0;
         }
+        // Held items: just the marker (their bones do not point anywhere meaningful).
+        if marker.isProp {
+            marker.line.SetVisible(false);
+            if IsDefined(marker.parentLine) {
+                marker.parentLine.SetVisible(false);
+            }
+            return 0.0;
+        }
         let parentModel = APM_GizmoGetPartParent(marker.part);
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
         this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35);
@@ -2423,6 +2431,17 @@ public class APM_PoseEditor extends IScriptable {
             return 0.0;
         }
         let tip = Vector4.Transform(toWorld, APM_Vector(tipModel.X, tipModel.Y, tipModel.Z, 1.0));
+        // Fingers and palm: a short line that only shows where the bone points (no longer than 4 cm).
+        if marker.kind == APM_MarkerKindFinger() || marker.kind == APM_MarkerKindFingerDetail() {
+            let tx = tip.X - world.X;
+            let ty = tip.Y - world.Y;
+            let tz = tip.Z - world.Z;
+            let length = SqrtF(tx * tx + ty * ty + tz * tz);
+            if length > 0.04 {
+                let k = 0.04 / length;
+                tip = APM_Vector(world.X + tx * k, world.Y + ty * k, world.Z + tz * k, 1.0);
+            }
+        }
         return this.DrawWorldLine(camera, marker.line, world, APM_Vector(tip.X, tip.Y, tip.Z, 1.0), color, thickness, opacity);
     }
 
@@ -3331,6 +3350,11 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.m_dragValue = ClampF(this.m_dragValue + e.GetAxisData() * row.dragScale, row.minValue, row.maxValue);
         APM_UiSetValue(row.attribute, this.m_dragValue);
+        // Rotations stop at the joint limit while dragging (the stored value is the limited one).
+        let isFocus = row.attribute == 7704u && Equals(APM_UiGetOptionLabel(7701u, Cast<Int32>(APM_UiGetValue(7701u))), "Eyes (both)");
+        if APM_AreLimitsOn() && row.attribute >= 7702u && row.attribute <= 7704u && !isFocus {
+            this.m_dragValue = APM_UiGetValue(row.attribute);
+        }
         row.value.label.SetText(this.FormatValue(row, this.m_dragValue));
     }
 
