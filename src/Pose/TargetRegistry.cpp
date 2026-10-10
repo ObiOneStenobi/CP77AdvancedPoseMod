@@ -1,5 +1,7 @@
 #include "Pose/TargetRegistry.hpp"
 
+#include <RED4ext/CName.hpp>
+
 #include <Windows.h>
 
 #include <algorithm>
@@ -321,6 +323,17 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
             // arms (and elbows, hands, fingers) the same way. The basis becomes left-handed; RotationToAngles
             // in the UI handles that.
             bend1 = bend1 * -1.f;
+        }
+
+        // Hands: "forward / back" is the wrist bending towards the palm / the back of the hand (up / down with the
+        // palm down), "sideways" towards the thumb / the little finger - as for the feet.
+        static const uint64_t leftHand = RED4ext::CName("LeftHand").hash;
+        static const uint64_t rightHand = RED4ext::CName("RightHand").hash;
+        if (aBoneHash == leftHand || aBoneHash == rightHand)
+        {
+            const Vec3 sideways = bend1;
+            bend1 = bend2 * -1.f; // positive: towards the palm
+            bend2 = sideways;
         }
 
         aBend1 = Rotate(toLocal, bend1);

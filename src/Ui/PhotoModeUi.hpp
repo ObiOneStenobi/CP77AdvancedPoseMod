@@ -53,8 +53,6 @@ std::string GetOptionGroup(uint32_t aAttribute, int32_t aIndex);
 
 // Gizmo: rotates a body part around a model-space axis (degrees), keeping the UI angles in sync.
 bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees);
-// Turns a part on its own bend axes (the panel's forward / back and sideways rows), within the joint limits.
-bool BendPart(int32_t aPart, float aForwardDegrees, float aSideDegrees);
 // True while Photo Mode's "Look at camera" turns the part's bones (they cannot be edited then).
 bool IsPartLookAtLocked(int32_t aPart);
 // Moves a part that allows it (hips, held props) by a model-space vector (meters).

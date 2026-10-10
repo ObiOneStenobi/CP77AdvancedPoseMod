@@ -76,8 +76,9 @@ closer.
 - **Alt+drag** any marker to rotate the part freely, like a ball under the cursor: left / right turns it around the
   camera's vertical axis, up / down around its horizontal axis (as the head always does).
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
-  automatically). **Shift+drag** it to bend the hand / foot on its own axes like the panel rows (up / down: forward / back,
-  left / right: sideways); Alt+drag still turns it freely. A pinned
+  automatically). **Shift+drag** it to rotate the hand / foot like any other bone (its tip follows the cursor,
+  with a calmer speed); Alt+drag turns it freely. For the hands, *forward / back* bends the wrist towards the palm /
+  the back of the hand and *sideways* towards the thumb / the little finger, as for the feet. A pinned
   hand / foot turns only as far as the wrist / ankle can (joint limits). A straight leg / arm bends the natural way
   (knee forward, elbow back).
 - The pin row (**Off / World / Body**, under the limb buttons) sets the pin: *world* keeps the hand / foot where it is whatever the body does;
@@ -93,8 +94,8 @@ closer.
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
   position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
   third row is their **focus distance** (nearer = more converged).
-- **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag bends
-  it. Turned off, dragging bends the hand / foot on its own axes; Shift+drag moves it with IK only if that
+- **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag rotates
+  it. Turned off, dragging rotates the hand / foot like any other bone; Shift+drag moves it with IK only if that
   limb is already pinned in the IK row. Turning a pin off keeps the arm / leg where the IK put it (Reset part undoes it).
   With joint limits on, a pinned limb also stops where the hip / shoulder and knee / elbow can no longer follow.
 - **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
