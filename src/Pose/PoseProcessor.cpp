@@ -2,7 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
-#include "Pose/FaceExpressions.hpp"
+#include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -693,7 +693,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     // are edited here: the linked ones, such as the face rig's eyeballs.
     if (aTarget.debugName == "face_rig")
     {
-        APM::Pose::FaceExpressions::Apply(aTarget, aBones, aCount, aPose.face);
+        APM::Pose::FaceRig::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);

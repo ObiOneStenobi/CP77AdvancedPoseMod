@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -625,12 +626,12 @@ float GetValue(uint32_t aAttribute)
         return Pose::PoseOverrides::GetIkChain(CurrentChain()).swivel;
     case Attr::Slot:
         return static_cast<float>(g_slot);
-    case Attr::FaceWeight:
-    case Attr::FaceWeight + 1:
-    case Attr::FaceWeight + 2:
-    case Attr::FaceWeight + 3:
-        return Pose::PoseOverrides::GetFaceRegion(aAttribute - Attr::FaceWeight).weight * 100.f;
     default:
+        if (aAttribute >= Attr::FaceControl && aAttribute < Attr::FaceControl + Pose::FaceControlCount)
+        {
+            const size_t control = aAttribute - Attr::FaceControl;
+            return Pose::FaceRig::GetMeasure(control) + Pose::PoseOverrides::GetFaceEdit(control);
+        }
         return 0.f; // action selectors always rest on "-"
     }
 }
@@ -681,20 +682,6 @@ void SetValue(uint32_t aAttribute, float aValue)
             angle = value;
             ApplyAngles(angles);
             MirrorCurrentPart();
-        }
-        break;
-    }
-    case Attr::FaceWeight:
-    case Attr::FaceWeight + 1:
-    case Attr::FaceWeight + 2:
-    case Attr::FaceWeight + 3:
-    {
-        auto mix = Pose::PoseOverrides::GetFaceRegion(aAttribute - Attr::FaceWeight);
-        const float weight = std::clamp(aValue / 100.f, 0.f, 1.f);
-        if (!Same(mix.weight, weight))
-        {
-            mix.weight = weight;
-            Pose::PoseOverrides::SetFaceRegion(aAttribute - Attr::FaceWeight, mix);
         }
         break;
     }
@@ -793,6 +780,21 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
         break;
     default:
+        if (aAttribute >= Attr::FaceControl && aAttribute < Attr::FaceControl + Pose::FaceControlCount)
+        {
+            // The value shown is the expression's own plus the player's offset: keep the offset.
+            const size_t control = aAttribute - Attr::FaceControl;
+            const float edit = aValue - Pose::FaceRig::GetMeasure(control);
+            if (!Same(edit, Pose::PoseOverrides::GetFaceEdit(control)))
+            {
+                Pose::PoseOverrides::SetFaceEdit(control, edit);
+                const int32_t twin = Pose::FaceRig::ControlTwin(control);
+                if (g_mirror && twin >= 0)
+                {
+                    Pose::PoseOverrides::SetFaceEdit(static_cast<size_t>(twin), edit);
+                }
+            }
+        }
         break;
     }
 }
@@ -815,11 +817,6 @@ bool IsAttributeEnabled(uint32_t aAttribute)
         return !IsLookAtLockedEntry(CurrentEntry());
     case Attr::Twist:
         return (!IsEyeEntry(CurrentEntry()) || IsBothEyes()) && !IsLookAtLockedEntry(CurrentEntry()); // both eyes: focus
-    case Attr::FaceWeight:
-    case Attr::FaceWeight + 1:
-    case Attr::FaceWeight + 2:
-    case Attr::FaceWeight + 3:
-        return Pose::PoseOverrides::GetFaceRegion(aAttribute - Attr::FaceWeight).expression >= 0;
     default:
         return true;
     }

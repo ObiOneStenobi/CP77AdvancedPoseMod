@@ -92,21 +92,25 @@ public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
 // Photo Mode's "Look at camera" is on.
 public native func APM_SetCameraModel(position: Vector4, forward: Vector4, up: Vector4)
-// Expression mixer: Photo Mode's expression choices, recordings, and the expression of each face region
-// (0 brows, 1 eyes, 2 mouth, 3 jaw; -1 = none). Strengths are UI attributes 7730..7733 (percent).
-public native func APM_FaceBeginChoices()
-public native func APM_FaceAddChoice(name: String, value: Int32)
-public native func APM_FaceEndChoices(current: Int32)
-public native func APM_FaceChoiceCount() -> Int32
-public native func APM_FaceChoiceName(index: Int32) -> String
-public native func APM_FaceChoiceValue(index: Int32) -> Int32
-public native func APM_FaceNameOf(value: Int32) -> String
-public native func APM_FaceIsRecorded(value: Int32) -> Bool
-public native func APM_FaceRecordedCount() -> Int32
-public native func APM_FaceNeutralRecorded() -> Bool
-public native func APM_FaceForget()
-public native func APM_FaceGetExpression(region: Int32) -> Int32
-public native func APM_FaceSetExpression(region: Int32, value: Int32)
+// Face: controls (UI attributes 7740 + control: value shown = the expression's own + the offset), saved expressions.
+public native func APM_FaceControlCount() -> Int32
+public native func APM_FaceControlLabel(control: Int32) -> String
+public native func APM_FaceControlZone(control: Int32) -> String
+public native func APM_FaceControlIsAngle(control: Int32) -> Bool
+public native func APM_FaceIsEdited(control: Int32) -> Bool
+public native func APM_FaceResetControl(control: Int32)
+public native func APM_FaceReset()
+public native func APM_FaceUnload()
+public native func APM_FaceGetLoadedName() -> String
+public native func APM_FaceReloadList()
+public native func APM_FaceListCount() -> Int32
+public native func APM_FaceListName(index: Int32) -> String
+public native func APM_FaceSave(name: String) -> Bool
+public native func APM_FaceSaveNew() -> String
+public native func APM_FaceLoad(name: String) -> Bool
+public native func APM_FaceDelete(name: String) -> Bool
+// Opens the folder of saved poses (0) or saved expressions (1).
+public native func APM_OpenFolder(kind: Int32) -> Bool
 public native func APM_SetWheelCapture(capture: Bool)
 public native func APM_ConsumeWheel() -> Int32
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.

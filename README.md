@@ -112,12 +112,8 @@ closer.
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;
   the back and chest with Torso) are grey and cannot be edited.
-- **Expression mixer** (the *Expression* section, it folds): each region of the face (brows, eyes, mouth, jaw) can take
-  one of Photo Mode's facial expressions at a chosen strength, e.g. a smiling mouth with angry brows. The expressions
-  are recorded once: choose the first one ("Neutral") in Photo Mode's *Facial expression*, then go through the others
-  (wait about 3 seconds on each). Recordings are kept in `red4ext/plugins/AdvancedPoseMod/expressions.json`; the
-  circular arrow forgets them (after changing V's face, for example). The change from the neutral face is added to the
-  face shown, so keep Photo Mode's expression on Neutral for an exact mix. The mix is saved with poses.
+- **Saved poses folder**: the folder icon on the Poses section opens the folder of the saved poses, to share the
+  files (in full screen the game is minimized). Face controls and saved expressions are planned for a later version.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
   AdvancedPoseMod
-  VERSION 0.9.29
+  VERSION 0.9.31
   DESCRIPTION "Bone-by-bone posing with IK for Cyberpunk 2077 Photo Mode"
   LANGUAGES CXX
 )
@@ -48,7 +48,7 @@ file(GLOB_RECURSE APM_SOURCES CONFIGURE_DEPENDS
 add_library(AdvancedPoseMod SHARED ${APM_SOURCES})
 
 target_include_directories(AdvancedPoseMod PRIVATE "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK nlohmann_json::nlohmann_json)
+target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK nlohmann_json::nlohmann_json shell32)
 
 target_compile_definitions(AdvancedPoseMod PRIVATE
   WIN32_LEAN_AND_MEAN

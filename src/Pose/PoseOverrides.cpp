@@ -2,7 +2,6 @@
 
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
-#include "Pose/FaceExpressions.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -28,7 +27,8 @@ std::mutex g_mutex; // guards g_bones and g_snapshot replacement
 std::vector<APM::Pose::BoneOverride> g_bones;
 std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> g_ik{};
 std::shared_ptr<const APM::Pose::BasePose> g_base;
-APM::Pose::FaceMix g_face{};
+APM::Pose::FaceEdits g_faceEdits{};
+std::shared_ptr<const APM::Pose::BasePose> g_faceBase;
 
 // Undo / redo history (guarded by g_mutex).
 struct EditState
@@ -36,7 +36,8 @@ struct EditState
     std::vector<APM::Pose::BoneOverride> bones;
     std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
     std::shared_ptr<const APM::Pose::BasePose> base;
-    APM::Pose::FaceMix face{};
+    APM::Pose::FaceEdits faceEdits{};
+    std::shared_ptr<const APM::Pose::BasePose> faceBase;
 };
 constexpr size_t MaxHistory = 100;
 std::vector<EditState> g_undo;
@@ -57,7 +58,8 @@ void PublishLocked()
     auto snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
     snapshot->ik = g_ik;
     snapshot->base = g_base;
-    snapshot->face = g_face;
+    snapshot->faceEdits = g_faceEdits;
+    snapshot->faceBase = g_faceBase;
     for (const auto& bone : g_bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -106,12 +108,12 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked()
 {
-    return {g_bones, g_ik, g_base, g_face};
+    return {g_bones, g_ik, g_base, g_faceEdits, g_faceBase};
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
 {
-    return aState.base == g_base && aState.face == g_face && SameIk(aState.ik, g_ik) && SameBones(aState.bones, g_bones);
+    return aState.base == g_base && aState.faceEdits == g_faceEdits && aState.faceBase == g_faceBase && SameIk(aState.ik, g_ik) && SameBones(aState.bones, g_bones);
 }
 
 void RestoreLocked(EditState&& aState)
@@ -119,7 +121,8 @@ void RestoreLocked(EditState&& aState)
     g_bones = std::move(aState.bones);
     g_ik = aState.ik;
     g_base = std::move(aState.base);
-    g_face = aState.face;
+    g_faceEdits = aState.faceEdits;
+    g_faceBase = std::move(aState.faceBase);
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
@@ -334,7 +337,6 @@ void ResetAll()
     g_bones.clear();
     g_ik = {};
     g_base.reset();
-    g_face = {};
     PublishLocked();
 }
 
@@ -439,24 +441,6 @@ bool Save(const std::string& aName)
         }
     }
 
-    {
-        // Expression mixer: by Photo Mode value, with the name for reading.
-        const auto face = snapshot->face;
-        if (AnyFaceMix(face))
-        {
-            auto& mix = root["face"] = nlohmann::json::object();
-            for (size_t r = 0; r < FaceRegionCount; ++r)
-            {
-                if (face[r].IsActive())
-                {
-                    mix[FaceExpressions::GetRegionName(r)] = {{"expression", face[r].expression},
-                                                              {"name", FaceExpressions::GetNameOf(face[r].expression)},
-                                                              {"weight", face[r].weight}};
-                }
-            }
-        }
-    }
-
     if (g_propRight != 0 || g_propLeft != 0)
     {
         auto& props = root["props"] = nlohmann::json::object();
@@ -518,23 +502,8 @@ bool Load(const std::string& aName)
     std::vector<BoneOverride> loaded;
     std::array<IkChainSettings, IkChainCount> loadedIk{};
     std::shared_ptr<BasePose> loadedBase;
-    FaceMix loadedFace{};
     try
     {
-        if (root.contains("face"))
-        {
-            for (size_t r = 0; r < FaceRegionCount; ++r)
-            {
-                const char* region = FaceExpressions::GetRegionName(r);
-                if (root["face"].contains(region))
-                {
-                    const auto& entry = root["face"][region];
-                    loadedFace[r].expression = entry.value("expression", -1);
-                    loadedFace[r].weight = std::clamp(entry.value("weight", 0.f), 0.f, 1.f);
-                }
-            }
-        }
-
         if (root.contains("base"))
         {
             loadedBase = std::make_shared<BasePose>();
@@ -611,7 +580,6 @@ bool Load(const std::string& aName)
         g_bones = std::move(loaded);
         g_ik = loadedIk;
         g_base = std::move(loadedBase);
-        g_face = loadedFace;
         PublishLocked();
         const auto prop = [&](const char* aKey) -> uint64_t
         {
@@ -637,25 +605,47 @@ bool Load(const std::string& aName)
     return true;
 }
 
-void SetFaceRegion(size_t aRegion, const FaceRegionMix& aMix)
+void SetFaceEdit(size_t aControl, float aValue)
 {
-    if (aRegion >= FaceRegionCount)
+    if (aControl >= FaceControlCount)
     {
         return;
     }
     std::scoped_lock lock(g_mutex);
-    g_face[aRegion] = aMix;
+    g_faceEdits[aControl] = aValue;
     PublishLocked();
-    if (aMix.IsActive())
-    {
-        g_enabled = true;
-    }
+    g_enabled = true;
 }
 
-FaceRegionMix GetFaceRegion(size_t aRegion)
+float GetFaceEdit(size_t aControl)
 {
     std::scoped_lock lock(g_mutex);
-    return aRegion < FaceRegionCount ? g_face[aRegion] : FaceRegionMix{};
+    return aControl < FaceControlCount ? g_faceEdits[aControl] : 0.f;
+}
+
+void SetFaceBase(std::shared_ptr<const BasePose> aBase)
+{
+    std::scoped_lock lock(g_mutex);
+    CheckpointLocked();
+    g_faceBase = std::move(aBase);
+    g_faceEdits = {};
+    PublishLocked();
+    g_enabled = true;
+}
+
+std::string GetFaceBaseName()
+{
+    std::scoped_lock lock(g_mutex);
+    return g_faceBase ? g_faceBase->name : std::string();
+}
+
+void ResetFace()
+{
+    std::scoped_lock lock(g_mutex);
+    CheckpointLocked();
+    g_faceBase.reset();
+    g_faceEdits = {};
+    PublishLocked();
 }
 
 void SetHandProp(bool aRightHand, uint64_t aRecord)
