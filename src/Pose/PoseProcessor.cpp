@@ -325,6 +325,128 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
     }
 }
 
+// Which way the face looks in the reference pose (model space): from the head towards the eyes, level.
+Vec3 FaceForward(const APM::Pose::Target& aTarget)
+{
+    const size_t refCount = std::min(aTarget.refRotationsMS.size(), aTarget.refTranslationsLS.size());
+    thread_local std::vector<Vec3> refPositions;
+    refPositions.resize(refCount);
+    for (size_t i = 0; i < refCount; ++i)
+    {
+        const int16_t parent = i < aTarget.parents.size() ? aTarget.parents[i] : int16_t(-1);
+        refPositions[i] = parent >= 0 && static_cast<size_t>(parent) < i
+                              ? refPositions[parent] + APM::Math::Rotate(aTarget.refRotationsMS[parent], aTarget.refTranslationsLS[i])
+                              : aTarget.refTranslationsLS[i];
+    }
+    const int32_t head = IndexOf(aTarget, Hash("Head"));
+    const int32_t leftEye = IndexOf(aTarget, Hash("LeftEye"));
+    const int32_t rightEye = IndexOf(aTarget, Hash("RightEye"));
+    if (head >= 0 && leftEye >= 0 && rightEye >= 0 && static_cast<size_t>(head) < refCount &&
+        static_cast<size_t>(leftEye) < refCount && static_cast<size_t>(rightEye) < refCount)
+    {
+        Vec3 toEyes = (refPositions[leftEye] + refPositions[rightEye]) * 0.5f - refPositions[head];
+        toEyes.z = 0.f;
+        if (APM::Math::Length(toEyes) > 1e-4f)
+        {
+            return APM::Math::Normalize(toEyes);
+        }
+    }
+    return {0.f, 1.f, 0.f};
+}
+
+// Eyes aimed at the camera while Photo Mode's "Look at camera" turns the head or the torso (the game leaves them
+// straight once the head reaches its limit). Final local rotations of LeftEye / RightEye, for the face rig.
+std::mutex g_cameraEyeMutex;
+std::array<Quat, 2> g_cameraEyeLocals{};
+bool g_cameraEyesValid = false;
+
+void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    const auto camera = APM::Pose::LookAtCamera::GetCamera();
+    const int32_t head = IndexOf(aTarget, Hash("Head"));
+    if (APM::Pose::LookAtCamera::Reach() < 2 || !camera.valid || head < 0 || static_cast<uint32_t>(head) >= aCount ||
+        static_cast<size_t>(head) >= aTarget.refRotationsMS.size())
+    {
+        std::scoped_lock lock(g_cameraEyeMutex);
+        g_cameraEyesValid = false;
+        return;
+    }
+    constexpr float MaxEyeTurn = 0.52f; // ~30 degrees from where the face looks
+    const Vec3 face = FaceForward(aTarget);
+    thread_local ModelPose current;
+    ComputeModelPose(aTarget, aBones, aCount, current);
+    const Vec3 faceDirection =
+        APM::Math::Rotate(current.rotations[head], APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face));
+
+    std::array<Quat, 2> locals{};
+    bool ok = true;
+    static constexpr const char* Eyes[] = {"LeftEye", "RightEye"};
+    for (size_t e = 0; e < 2; ++e)
+    {
+        const int32_t eye = IndexOf(aTarget, Hash(Eyes[e]));
+        const int16_t parent = eye >= 0 && static_cast<size_t>(eye) < aTarget.parents.size() ? aTarget.parents[eye] : int16_t(-1);
+        if (eye < 0 || static_cast<uint32_t>(eye) >= aCount || parent < 0 || static_cast<size_t>(eye) >= aTarget.refRotationsMS.size())
+        {
+            ok = false;
+            break;
+        }
+        Vec3 wanted = camera.position - current.positions[eye];
+        if (APM::Math::Length(wanted) < 1e-3f)
+        {
+            ok = false;
+            break;
+        }
+        wanted = APM::Math::Normalize(wanted);
+        const float fromFace = APM::Math::AngleBetween(faceDirection, wanted);
+        const Vec3 clampAxis = APM::Math::Cross(faceDirection, wanted);
+        if (fromFace > MaxEyeTurn && APM::Math::Length(clampAxis) > 1e-6f)
+        {
+            wanted = APM::Math::Rotate(APM::Math::FromAxisAngle(clampAxis, MaxEyeTurn), faceDirection);
+        }
+        const Vec3 eyeLocalForward = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[eye]), face);
+        const Vec3 looking = APM::Math::Rotate(current.rotations[eye], eyeLocalForward);
+        const float angle = APM::Math::AngleBetween(looking, wanted);
+        const Vec3 axis = APM::Math::Cross(looking, wanted);
+        Quat model = current.rotations[eye];
+        if (angle > 1e-4f && APM::Math::Length(axis) > 1e-6f)
+        {
+            model = APM::Math::Mul(APM::Math::FromAxisAngle(axis, angle), model);
+        }
+        locals[e] = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+        SetRotation(aBones[eye], locals[e]);
+    }
+    std::scoped_lock lock(g_cameraEyeMutex);
+    g_cameraEyeLocals = locals;
+    g_cameraEyesValid = ok;
+}
+
+// The face rig's eyeballs follow the camera-aimed eyes of the main skeleton.
+void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    std::array<Quat, 2> locals{};
+    {
+        std::scoped_lock lock(g_cameraEyeMutex);
+        if (!g_cameraEyesValid || APM::Pose::LookAtCamera::Reach() < 2)
+        {
+            return;
+        }
+        locals = g_cameraEyeLocals;
+    }
+    static const uint64_t left = Hash("LeftEye");
+    static const uint64_t right = Hash("RightEye");
+    for (const auto& link : aTarget.linkedBones)
+    {
+        if ((link.sourceBone != left && link.sourceBone != right) || link.targetIndex >= aCount)
+        {
+            continue;
+        }
+        const Quat& local = locals[link.sourceBone == left ? 0 : 1];
+        const Quat change = APM::Math::Mul(APM::Math::Conjugate(link.sourceReferenceLocal), local);
+        const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, change), link.post);
+        SetRotation(aBones[link.targetIndex], APM::Math::Normalize(APM::Math::Mul(link.targetReferenceLocal, converted)));
+    }
+}
+
 // Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
 // pose) replaces it. Turn the base pose towards the camera instead: the face ends parallel to the camera's view plane.
 // The spine (torso only) turns around the vertical, a share per bone; the neck and the head take the rest.
@@ -355,28 +477,7 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         return;
     }
 
-    // Which way the face looks, in the head bone's frame: from the head towards the eyes, level, in the reference pose.
-    thread_local std::vector<Vec3> refPositions;
-    refPositions.resize(refCount);
-    for (size_t i = 0; i < refCount; ++i)
-    {
-        const int16_t parent = i < aTarget.parents.size() ? aTarget.parents[i] : int16_t(-1);
-        refPositions[i] = parent >= 0 && static_cast<size_t>(parent) < i
-                              ? refPositions[parent] + APM::Math::Rotate(aTarget.refRotationsMS[parent], aTarget.refTranslationsLS[i])
-                              : aTarget.refTranslationsLS[i];
-    }
-    Vec3 face{0.f, 1.f, 0.f};
-    const int32_t leftEye = IndexOf(aTarget, Hash("LeftEye"));
-    const int32_t rightEye = IndexOf(aTarget, Hash("RightEye"));
-    if (leftEye >= 0 && rightEye >= 0 && static_cast<size_t>(leftEye) < refCount && static_cast<size_t>(rightEye) < refCount)
-    {
-        Vec3 toEyes = (refPositions[leftEye] + refPositions[rightEye]) * 0.5f - refPositions[head];
-        toEyes.z = 0.f;
-        if (APM::Math::Length(toEyes) > 1e-4f)
-        {
-            face = APM::Math::Normalize(toEyes);
-        }
-    }
+    const Vec3 face = FaceForward(aTarget);
     const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face);
 
     // Facing the camera: against the camera's view direction.
@@ -466,6 +567,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
         ComputeModelPose(aTarget, aBones, aCount, currentPose);
         SolveIkChains(aTarget, aBones, aCount, aPose, originalPose, currentPose);
     }
+    AimEyesAtCamera(aTarget, aBones, aCount);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -479,6 +581,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     // (a chest bent by 8 degrees was drawn bent by about 55). Only bones that do not follow the main skeleton
     // are edited here: the linked ones, such as the face rig's eyeballs.
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
+    ApplyCameraEyesToLinks(aTarget, aBones, aCount);
 }
 } // namespace
 

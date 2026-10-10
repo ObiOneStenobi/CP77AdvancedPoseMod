@@ -1420,8 +1420,7 @@ bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
 {
     // Finger curl of each segment (degrees towards the palm, from the straight reference fingers) and the thumb's
     // local rotations from the reference pose (base, first segment, tip; the same on both hands, the rig is mirrored).
-    // Worked out on V's rig: the fist and point thumbs lie across the middle segments of the fingers, the grip makes
-    // a round hole around a ~34 mm handle with the thumb closing it.
+    // Worked out on V's rig: the fist and point thumbs lie across the middle segments of the fingers.
     struct Preset
     {
         std::array<std::array<float, 3>, 4> fingers; // index, middle, ring, little
@@ -1444,20 +1443,73 @@ bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
          {{{0.00355f, -0.05227f, -0.18870f, 0.98064f},
            {0.f, 0.00319f, -0.44396f, 0.89604f},
            {0.f, 0.03417f, -0.40269f, 0.91470f}}}},
-        // Grip: round around a handle, the thumb closing the ring
-        {{{{26.2f, 72.3f, 51.5f}, {35.9f, 88.5f, 57.7f}, {24.5f, 74.8f, 55.5f}, {11.2f, 48.6f, 45.5f}}},
-         {{{-0.03066f, 0.13140f, -0.03410f, 0.99027f},
-           {0.f, -0.20083f, -0.31434f, 0.92782f},
-           {0.f, 0.07786f, -0.63811f, 0.76600f}}}},
+        // Grip: not used (see GripPose below)
+        {{{{0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}}},
+         {{{0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 0.f, 1.f}}}},
     }};
     if (aPreset < 0 || aPreset >= static_cast<int32_t>(Presets.size()))
     {
         return false;
     }
+    // Grip: the whole hand (palm, fingers and thumb) as posed by hand around a handle, local rotations from the
+    // reference pose. The rig is mirrored, so the same rotations make the left hand.
+    struct BoneRotation
+    {
+        const char* bone;
+        Math::Quat rotation;
+    };
+    static constexpr BoneRotation GripPose[] = {
+        {"InHandThumb", {-0.03654f, 0.14878f, -0.09290f, 0.98382f}},
+        {"InHandIndex", {0.00116f, 0.00468f, 0.05029f, 0.99872f}},
+        {"InHandMiddle", {-0.00001f, -0.00014f, 0.02201f, 0.99976f}},
+        {"InHandRing", {-0.00141f, -0.04478f, 0.02209f, 0.99875f}},
+        {"InHandPinky", {-0.00282f, -0.02671f, 0.03048f, 0.99917f}},
+        {"HandThumb1", {0.21192f, -0.32700f, -0.19642f, 0.89976f}},
+        {"HandThumb2", {-0.17609f, 0.07082f, -0.08865f, 0.97781f}},
+        {"HandIndex1", {-0.06781f, 0.07682f, -0.20249f, 0.97391f}},
+        {"HandIndex2", {0.02810f, -0.02690f, -0.43799f, 0.89814f}},
+        {"HandIndex3", {0.01277f, -0.09502f, -0.46056f, 0.88243f}},
+        {"HandMiddle1", {0.00149f, -0.00285f, -0.22042f, 0.97540f}},
+        {"HandMiddle2", {-0.01767f, 0.02189f, -0.56941f, 0.82157f}},
+        {"HandMiddle3", {-0.01027f, 0.03866f, -0.36704f, 0.92935f}},
+        {"HandRing1", {0.00445f, 0.04516f, -0.18019f, 0.98259f}},
+        {"HandRing2", {-0.01730f, 0.03108f, -0.49654f, 0.86728f}},
+        {"HandRing3", {-0.01452f, 0.06282f, -0.45375f, 0.88879f}},
+        {"HandPinky1", {0.00571f, -0.11799f, -0.14799f, 0.98191f}},
+        {"HandPinky2", {-0.02308f, 0.09438f, -0.38407f, 0.91818f}},
+        {"HandPinky3", {0.02518f, 0.07176f, -0.32338f, 0.94321f}},
+    };
+    constexpr int32_t GripPreset = 4;
+
     const auto& preset = Presets[static_cast<size_t>(aPreset)];
     const std::string side = aRightHand ? "Right" : "Left";
     g_noLimits = true;
     bool any = false;
+
+    if (aPreset == GripPreset)
+    {
+        for (const auto& entry : GripPose)
+        {
+            const std::string bone = side + entry.bone;
+            Math::Quat reference{};
+            float sign = 1.f;
+            if (!Pose::JointLimits::GetReferenceFrame(bone, true, reference, sign))
+            {
+                continue;
+            }
+            any = SetBoneLocal(bone.c_str(), Math::Normalize(Math::Mul(reference, entry.rotation)), true) || any;
+        }
+        MirrorGroup(aRightHand ? "Right hand" : "Left hand");
+        g_noLimits = false;
+        RequestRefresh();
+        return any;
+    }
+
+    // The other presets leave the palm to the animation.
+    for (const char* palm : {"InHandIndex", "InHandMiddle", "InHandRing", "InHandPinky"})
+    {
+        Pose::PoseOverrides::ResetBone(side + palm);
+    }
 
     const std::array<std::string, 3> thumbBones = {side + "InHandThumb", side + "HandThumb1", side + "HandThumb2"};
     for (size_t s = 0; s < thumbBones.size(); ++s)
