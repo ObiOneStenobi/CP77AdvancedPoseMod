@@ -2,6 +2,7 @@
 
 #include "Core/Config.hpp"
 #include "Core/Log.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
@@ -313,6 +314,8 @@ bool Detour_Activate(void* aSystem)
     const bool result = g_origActivate(aSystem);
 
     APM::Config::Load();
+    APM::Pose::LookAtCamera::Reset(); // the game starts every session with "Look at camera" off
+    APM::Pose::LookAtCamera::ForgetCamera();
     APM::AnimGraphHook::OnPhotoModeActivated();
     g_sessionId.fetch_add(1);
     g_active = true;

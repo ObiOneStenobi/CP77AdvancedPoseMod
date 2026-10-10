@@ -109,6 +109,8 @@ public native func APM_FaceSave(name: String) -> Bool
 public native func APM_FaceSaveNew() -> String
 public native func APM_FaceLoad(name: String) -> Bool
 public native func APM_FaceDelete(name: String) -> Bool
+// False when the game was updated and the mod could not hook into it.
+public native func APM_IsReady() -> Bool
 // Opens the folder of saved poses (0) or saved expressions (1).
 public native func APM_OpenFolder(kind: Int32) -> Bool
 public native func APM_SetWheelCapture(capture: Bool)

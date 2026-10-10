@@ -288,6 +288,10 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
     }
 
     APM::Pose::TargetRegistry::VisitTarget(aTargetPointer, [&](const APM::Pose::Target& aTarget) {
+        if (aTarget.photoModeSlot != 0)
+        {
+            return; // only V is posed: other Photo Mode characters keep the game's animation
+        }
         if (boneCount != aTarget.boneNames.size())
         {
             bool expected = false;

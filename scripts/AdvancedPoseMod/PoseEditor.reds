@@ -487,7 +487,12 @@ public class APM_PoseEditor extends IScriptable {
         // Header: switches, then the tools used all the time
         let header = this.CreateSection(n"APM_Header");
         this.m_sectionHeader = header;
-        this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
+        if APM_IsReady() {
+            this.CreateText(header, "Advanced pose", 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
+        } else {
+            // The game was updated and the mod could not hook into it: nothing would work.
+            this.CreateText(header, "Unsupported game version - see the log", 16.0, 10.0, 260.0, 32.0, 13, APM_ColorWarning());
+        }
         let enabledButton = this.CreateButton(header, "enabled", "Pose off", 280.0, 8.0, 92.0, 32.0);
         enabledButton.tooltip = "Turn your edits on V on / off";
         let gizmosButton = this.CreateButton(header, "gizmos", "Gizmos", 376.0, 8.0, 92.0, 32.0);

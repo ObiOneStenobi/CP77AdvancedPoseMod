@@ -614,6 +614,14 @@ void FaceDelete(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Pose::FaceRig::Delete(name.c_str()));
 }
 
+// False when the game was updated and the hooks could not be installed (the panel says so).
+void IsReady(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    const auto& rt = APM::GetRuntime();
+    Return(aOut, rt.trackerReady && rt.animationReady);
+}
+
 // Opens the folder of saved poses (0) or saved expressions (1) in Explorer.
 void OpenFolder(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -1266,6 +1274,7 @@ void Register()
     ::Register("APM_FaceSaveNew", &FaceSaveNew, "String", {});
     ::Register("APM_FaceLoad", &FaceLoad, "Bool", {{"String", "name"}});
     ::Register("APM_FaceDelete", &FaceDelete, "Bool", {{"String", "name"}});
+    ::Register("APM_IsReady", &IsReady, "Bool", {});
     ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});

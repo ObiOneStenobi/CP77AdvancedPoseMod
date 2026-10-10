@@ -14,6 +14,12 @@ namespace APM::Pose::LookAtCamera
 inline std::atomic<int32_t> g_mode{0};   // attribute 15
 inline std::atomic<int32_t> g_target{1}; // attribute 74
 
+inline void Reset()
+{
+    g_mode = 0;
+    g_target = 1;
+}
+
 inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
 {
     if (aAttribute == 15)
@@ -58,6 +64,12 @@ inline void SetCamera(const Math::Vec3& aPosition, const Math::Vec3& aForward, c
 {
     std::scoped_lock lock(g_cameraMutex);
     g_camera = {aPosition, aForward, aUp, Math::Length(aForward) > 1e-4f};
+}
+
+inline void ForgetCamera()
+{
+    std::scoped_lock lock(g_cameraMutex);
+    g_camera.valid = false;
 }
 
 inline CameraView GetCamera()

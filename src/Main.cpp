@@ -31,7 +31,7 @@ std::filesystem::path ResolvePluginDir()
 void OnPostRegisterTypes()
 {
     // RTTI is ready here, so the animation node classes can be inspected and natives registered.
-    APM::AnimGraphHook::Install();
+    APM::GetRuntime().animationReady = APM::AnimGraphHook::Install();
     APM::PhotoModeMenuGuard::Install();
     APM::ScriptApi::Register();
 }
@@ -55,7 +55,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
 
         APM::Log::Info("AdvancedPoseMod %s is loading", APM_VERSION_STRING);
 
-        APM::PhotoModeTracker::Install();
+        g_runtime.trackerReady = APM::PhotoModeTracker::Install();
         RED4ext::CRTTISystem::Get()->AddPostRegisterCallback(&OnPostRegisterTypes);
         break;
     }
