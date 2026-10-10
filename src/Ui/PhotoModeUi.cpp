@@ -1416,7 +1416,8 @@ bool AreLimitsOn()
 
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
 {
-    // Curl of each segment (degrees towards the palm), from the reference pose (straight fingers).
+    // Curl of each segment (degrees towards the palm), from the reference pose (straight fingers). The thumb has three:
+    // its base (it swings the thumb across the palm) and its two segments, closing towards the little finger.
     struct FingerCurl
     {
         const char* finger;
@@ -1428,30 +1429,46 @@ bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
         {{{"Thumb", {0.f, 0.f, 0.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {0.f, 0.f, 0.f}},
           {"Ring", {0.f, 0.f, 0.f}}, {"Pinky", {0.f, 0.f, 0.f}}}},
         // Relaxed: a little more curl towards the little finger
-        {{{"Thumb", {10.f, 15.f, 0.f}}, {"Index", {15.f, 20.f, 10.f}}, {"Middle", {20.f, 25.f, 12.f}},
+        {{{"Thumb", {5.f, 10.f, 10.f}}, {"Index", {15.f, 20.f, 10.f}}, {"Middle", {20.f, 25.f, 12.f}},
           {"Ring", {25.f, 30.f, 15.f}}, {"Pinky", {30.f, 35.f, 18.f}}}},
-        // Fist
-        {{{"Thumb", {40.f, 50.f, 0.f}}, {"Index", {85.f, 95.f, 60.f}}, {"Middle", {85.f, 95.f, 60.f}},
+        // Fist: the thumb over the index and middle fingers
+        {{{"Thumb", {25.f, 30.f, 40.f}}, {"Index", {85.f, 95.f, 60.f}}, {"Middle", {85.f, 95.f, 60.f}},
           {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
         // Point: index straight, the others closed
-        {{{"Thumb", {40.f, 50.f, 0.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {85.f, 95.f, 60.f}},
+        {{{"Thumb", {25.f, 30.f, 40.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {85.f, 95.f, 60.f}},
           {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
-        // Grip: around a handle
-        {{{"Thumb", {30.f, 30.f, 0.f}}, {"Index", {55.f, 60.f, 35.f}}, {"Middle", {55.f, 60.f, 35.f}},
+        // Grip: around a handle, the thumb on the other side
+        {{{"Thumb", {20.f, 15.f, 20.f}}, {"Index", {55.f, 60.f, 35.f}}, {"Middle", {55.f, 60.f, 35.f}},
           {"Ring", {55.f, 60.f, 35.f}}, {"Pinky", {55.f, 60.f, 35.f}}}},
     }};
     if (aPreset < 0 || aPreset >= static_cast<int32_t>(Presets.size()))
     {
         return false;
     }
-    const std::string side = aRightHand ? "RightHand" : "LeftHand";
+    const std::string side = aRightHand ? "Right" : "Left";
     bool any = false;
     for (const auto& finger : Presets[static_cast<size_t>(aPreset)])
     {
-        const int32_t segments = std::string(finger.finger) == "Thumb" ? 2 : 3;
-        for (int32_t s = 0; s < segments; ++s)
+        if (std::string(finger.finger) == "Thumb")
         {
-            const std::string bone = side + finger.finger + std::to_string(s + 1);
+            const std::array<std::string, 3> bones = {side + "InHandThumb", side + "HandThumb1", side + "HandThumb2"};
+            for (size_t s = 0; s < bones.size(); ++s)
+            {
+                Math::Quat reference{};
+                Math::Vec3 axis{};
+                if (!Pose::JointLimits::GetThumbCurl(bones[s], reference, axis))
+                {
+                    continue;
+                }
+                const Math::Quat wanted = Math::Normalize(
+                    Math::Mul(reference, Math::FromAxisAngle(axis, Math::DegToRad(finger.curl[s]))));
+                any = SetBoneLocal(bones[s].c_str(), wanted, true) || any;
+            }
+            continue;
+        }
+        for (int32_t s = 0; s < 3; ++s)
+        {
+            const std::string bone = side + "Hand" + finger.finger + std::to_string(s + 1);
             Math::Quat reference{};
             float sign = 1.f;
             if (!Pose::JointLimits::GetReferenceFrame(bone, true, reference, sign))

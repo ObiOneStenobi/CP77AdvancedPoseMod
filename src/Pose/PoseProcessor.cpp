@@ -325,6 +325,79 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
     }
 }
 
+// Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
+// pose) replaces it. Turn the base pose's neck (and spine, for the torso) so the head faces where the game turned it;
+// the turn is shared along the chain, the head taking the rest.
+void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, const ModelPose& aGame)
+{
+    const int32_t reach = APM::Pose::LookAtCamera::Reach();
+    if (reach < 2)
+    {
+        return;
+    }
+    struct Share
+    {
+        const char* bone;
+        float weight; // part of the remaining turn
+    };
+    static constexpr Share TorsoChain[] = {{"Spine1", 0.15f}, {"Spine2", 0.2f}, {"Spine3", 0.25f},
+                                           {"Neck", 0.35f},   {"Neck1", 0.5f},  {"Head", 1.f}};
+    static constexpr Share HeadChain[] = {{"Neck", 0.4f}, {"Neck1", 0.5f}, {"Head", 1.f}};
+    const Share* chain = reach >= 3 ? TorsoChain : HeadChain;
+    const size_t chainSize = reach >= 3 ? std::size(TorsoChain) : std::size(HeadChain);
+
+    const int32_t head = IndexOf(aTarget, Hash("Head"));
+    if (head < 0 || static_cast<uint32_t>(head) >= aCount || static_cast<size_t>(head) >= aTarget.refRotationsMS.size() ||
+        static_cast<size_t>(head) >= aGame.rotations.size())
+    {
+        return;
+    }
+    // The face's forward direction in the head bone's frame (the body faces model +Y in the reference pose).
+    const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), Vec3{0.f, 1.f, 0.f});
+    Vec3 wanted = APM::Math::Rotate(aGame.rotations[head], faceLocal);
+
+    thread_local ModelPose current;
+    ComputeModelPose(aTarget, aBones, aCount, current);
+    {
+        // Never more than a natural turn away from the base pose.
+        constexpr float MaxTurn = 1.75f; // ~100 degrees
+        const Vec3 start = APM::Math::Rotate(current.rotations[head], faceLocal);
+        const float angle = APM::Math::AngleBetween(start, wanted);
+        const Vec3 axis = APM::Math::Cross(start, wanted);
+        if (angle > MaxTurn && APM::Math::Length(axis) > 1e-6f)
+        {
+            wanted = APM::Math::Rotate(APM::Math::FromAxisAngle(axis, MaxTurn), start);
+        }
+    }
+    for (size_t c = 0; c < chainSize; ++c)
+    {
+        const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
+        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount)
+        {
+            continue;
+        }
+        const int16_t parent = static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
+        if (parent < 0)
+        {
+            continue;
+        }
+        if (c > 0)
+        {
+            ComputeModelPose(aTarget, aBones, aCount, current);
+        }
+        const Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
+        const float angle = APM::Math::AngleBetween(facing, wanted);
+        const Vec3 axis = APM::Math::Cross(facing, wanted);
+        if (angle < 1e-3f || APM::Math::Length(axis) < 1e-6f)
+        {
+            break;
+        }
+        const Quat turn = APM::Math::FromAxisAngle(axis, angle * chain[c].weight);
+        const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
+        SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+    }
+}
+
 void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                          const APM::Pose::OverrideSnapshot& aPose)
 {
@@ -334,7 +407,16 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
     // A full saved pose takes the place of the Photo Mode pose: edits and IK work on top of it.
     if (aPose.base)
     {
+        const bool lookAt = APM::Pose::LookAtCamera::Reach() >= 2;
+        if (lookAt)
+        {
+            ComputeModelPose(aTarget, aBones, aCount, originalPose); // the game's pose, with its look at the camera
+        }
         ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
+        if (lookAt)
+        {
+            KeepLookAt(aTarget, aBones, aCount, originalPose);
+        }
     }
     APM::Pose::GizmoState::PublishAnimatedPose(aTarget, aBones, aCount);
 

@@ -252,7 +252,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_groupButtons: array<ref<APM_Button>>;
     private let m_partButtons: array<ref<APM_Button>>;
     private let m_partIndices: array<Int32>;
-    private let m_handPresets: wref<inkCanvas>; // preset row under the parts of a hand tab // body part index shown by each part button (-1 = unused)
+    private let m_handPresets: wref<inkCanvas>; // preset row under the parts of a hand tab (and of the arm tab's hand) // body part index shown by each part button (-1 = unused)
     private let m_poseButtons: array<ref<APM_Button>>;
     private let m_poseNames: array<String>;
     private let m_posePage: Int32;
@@ -651,7 +651,7 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let y = 0.0;
         y = this.PlaceSection(this.m_sectionHeader, y, 80.0, true);
-        let handTab = APM_IsHandGroup(APM_UiGetOptionGroup(7701u, Cast<Int32>(APM_UiGetValue(7701u))));
+        let handTab = this.PresetHand() > 0;
         this.m_handPresets.SetVisible(handTab);
         y = this.PlaceSection(this.m_sectionPart, y, handTab ? 196.0 : 160.0, true);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, true);
@@ -664,6 +664,20 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionItems, y, 82.0, true);
         y += 8.0;
         this.m_panel.SetSize(APM_PanelWidth() * s, y * s);
+    }
+
+    // Hand the preset row works on: 1 left, 2 right, 0 none (shown in the hand tabs and for the arm tab's hand).
+    private func PresetHand() -> Int32 {
+        let index = Cast<Int32>(APM_UiGetValue(7701u));
+        let group = APM_UiGetOptionGroup(7701u, index);
+        let label = APM_UiGetOptionLabel(7701u, index);
+        if Equals(group, "Right hand") || Equals(label, "Right hand") {
+            return 2;
+        }
+        if Equals(group, "Left hand") || Equals(label, "Left hand") {
+            return 1;
+        }
+        return 0;
     }
 
     private func PlaceSection(section: wref<inkCanvas>, y: Float, height: Float, visible: Bool) -> Float {
@@ -3215,10 +3229,10 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "redo") {
             APM_Redo();
         } else if Equals(prefix, "preset") {
-            let presetGroup = APM_UiGetOptionGroup(7701u, Cast<Int32>(APM_UiGetValue(7701u)));
-            if APM_IsHandGroup(presetGroup) {
+            let presetHand = this.PresetHand();
+            if presetHand > 0 {
                 APM_HistoryCheckpoint();
-                APM_ApplyHandPreset(Equals(presetGroup, "Right hand"), StringToInt(arg));
+                APM_ApplyHandPreset(presetHand == 2, StringToInt(arg));
             }
         } else if Equals(prefix, "eyes") {
             let which = StringToInt(arg);
