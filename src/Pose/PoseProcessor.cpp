@@ -461,7 +461,8 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
 }
 
 // Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
-// pose) replaces it. Turn the base pose towards the camera instead: the face looks at the camera's position.
+// pose) replaces it, and edits of the hips or the back turn the face away from it. Turn the pose (after the edits)
+// so the face looks at the camera's position.
 // The spine (torso only) turns around the vertical, a share per bone; the neck and the head take the rest.
 void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
@@ -564,28 +565,112 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     }
 }
 
+// The bones Photo Mode's "Look at camera" turns (head / torso). IK pins are measured on the pose without that turn,
+// so a camera move does not drag a world-pinned hand along, and body-pinned hands follow the turn like a manual one.
+constexpr const char* LookAtChain[] = {"Spine", "Spine1", "Spine2", "Spine3", "Neck", "Neck1", "Head"};
+constexpr const char* PoseSignature[] = {"Hips", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"};
+
+struct NoLookAtCache
+{
+    bool valid = false;
+    std::array<Quat, std::size(LookAtChain)> chain{};
+    std::array<Quat, std::size(PoseSignature)> signature{};
+};
+NoLookAtCache g_noLookAt;
+
+bool SameRotation(const Quat& a, const Quat& b)
+{
+    return std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r) > 0.9995f; // within ~3.6 degrees (breathing)
+}
+
+// Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,
+// puts them back in aBones (a copy) if the pose underneath is still the same one.
+bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    std::array<int32_t, std::size(LookAtChain)> chain{};
+    std::array<int32_t, std::size(PoseSignature)> signature{};
+    for (size_t i = 0; i < chain.size(); ++i)
+    {
+        chain[i] = IndexOf(aTarget, Hash(LookAtChain[i]));
+        if (chain[i] < 0 || static_cast<uint32_t>(chain[i]) >= aCount)
+        {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < signature.size(); ++i)
+    {
+        signature[i] = IndexOf(aTarget, Hash(PoseSignature[i]));
+        if (signature[i] < 0 || static_cast<uint32_t>(signature[i]) >= aCount)
+        {
+            return false;
+        }
+    }
+    if (APM::Pose::LookAtCamera::Reach() < 2)
+    {
+        for (size_t i = 0; i < chain.size(); ++i)
+        {
+            g_noLookAt.chain[i] = GetRotation(aBones[chain[i]]);
+        }
+        for (size_t i = 0; i < signature.size(); ++i)
+        {
+            g_noLookAt.signature[i] = GetRotation(aBones[signature[i]]);
+        }
+        g_noLookAt.valid = true;
+        return false;
+    }
+    if (!g_noLookAt.valid)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < signature.size(); ++i)
+    {
+        if (!SameRotation(GetRotation(aBones[signature[i]]), g_noLookAt.signature[i]))
+        {
+            g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
+            return false;
+        }
+    }
+    for (size_t i = 0; i < chain.size(); ++i)
+    {
+        SetRotation(aBones[chain[i]], g_noLookAt.chain[i]);
+    }
+    return true;
+}
+
 void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                          const APM::Pose::OverrideSnapshot& aPose)
 {
     thread_local ModelPose originalPose;
     thread_local ModelPose currentPose;
+    thread_local std::vector<RED4ext::QsTransform> withoutLookAt;
 
     // A full saved pose takes the place of the Photo Mode pose: edits and IK work on top of it.
     if (aPose.base)
     {
         ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
-        KeepLookAt(aTarget, aBones, aCount);
     }
     APM::Pose::GizmoState::PublishAnimatedPose(aTarget, aBones, aCount);
 
     const bool useIk = AnyIkEnabled(aPose);
-    if (useIk)
+    if (!aPose.base)
     {
-        // Where the animation (before any edit) puts the hands and feet: IK pins them there.
+        withoutLookAt.assign(aBones, aBones + aCount);
+        const bool removed = RemoveGameLookAt(aTarget, withoutLookAt.data(), aCount);
+        if (useIk)
+        {
+            // Where the animation (before any edit, and before the game's look at the camera) puts the hands and feet.
+            ComputeModelPose(aTarget, removed ? withoutLookAt.data() : aBones, aCount, originalPose);
+        }
+    }
+    else if (useIk)
+    {
         ComputeModelPose(aTarget, aBones, aCount, originalPose);
     }
 
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, true);
+
+    // After the edits: an edited body (hips, back) still ends with the face towards the camera.
+    KeepLookAt(aTarget, aBones, aCount);
 
     if (useIk)
     {
@@ -598,7 +683,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
 // ---------------------------------------------------------------------------------------------------------------------
 // Secondary skeletons: FK + IK deltas from the main skeleton
 // ---------------------------------------------------------------------------------------------------------------------
-// Diagnostic (once every 2 s while a hand or foot is twisted): does the game turn the twist helper bones of the
+// Diagnostic (every 2 s while a hand or foot is twisted): does the game turn the twist helper bones of the
 // deformation rig (calf, forearm) with our edits? Twist angles in degrees around the limb, from the reference pose.
 float TwistDegrees(const Quat& aRotation, const Vec3& aAxis)
 {
@@ -608,6 +693,12 @@ float TwistDegrees(const Quat& aRotation, const Vec3& aAxis)
 
 void LogTwistHelpers(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
 {
+    static bool announced = false;
+    if (!announced)
+    {
+        announced = true;
+        APM::Log::Info("Twist probe: watching %s (%u bones)", aTarget.debugName.c_str(), aCount);
+    }
     static ULONGLONG last = 0;
     const ULONGLONG now = GetTickCount64();
     if (now - last < 2000)
@@ -635,7 +726,7 @@ void LogTwistHelpers(const APM::Pose::Target& aTarget, const RED4ext::QsTransfor
         const Quat endChange = APM::Math::Mul(GetRotation(aBones[end]), APM::Math::Conjugate(aTarget.refRotationsLS[end]));
         const Quat helperChange = APM::Math::Mul(GetRotation(aBones[helper]), APM::Math::Conjugate(aTarget.refRotationsLS[helper]));
         const float endTwist = TwistDegrees(endChange, axis);
-        if (std::abs(endTwist) < 10.f)
+        if (std::abs(endTwist) < 3.f)
         {
             continue;
         }

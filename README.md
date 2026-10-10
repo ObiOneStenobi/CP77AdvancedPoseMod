@@ -76,7 +76,8 @@ closer.
 - **Alt+drag** any marker to rotate the part freely, like a ball under the cursor: left / right turns it around the
   camera's vertical axis, up / down around its horizontal axis (as the head always does).
 - Drag an orange marker (hands and feet) and it follows the cursor on a plane facing the camera (IK, pinned
-  automatically). **Shift+drag** it to rotate the hand / foot instead (as seen from the camera, like Alt). A pinned
+  automatically). **Shift+drag** it to bend the hand / foot on its own axes like the panel rows (up / down: forward / back,
+  left / right: sideways); Alt+drag still turns it freely. A pinned
   hand / foot turns only as far as the wrist / ankle can (joint limits). A straight leg / arm bends the natural way
   (knee forward, elbow back).
 - The pin row (**Off / World / Body**, under the limb buttons) sets the pin: *world* keeps the hand / foot where it is whatever the body does;
@@ -92,8 +93,8 @@ closer.
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
   position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
   third row is their **focus distance** (nearer = more converged).
-- **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag rotates
-  it. Turned off, dragging rotates the hand / foot like any other bone; Shift+drag moves it with IK only if that
+- **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag bends
+  it. Turned off, dragging bends the hand / foot on its own axes; Shift+drag moves it with IK only if that
   limb is already pinned in the IK row. Turning a pin off keeps the arm / leg where the IK put it (Reset part undoes it).
   With joint limits on, a pinned limb also stops where the hip / shoulder and knee / elbow can no longer follow.
 - **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
@@ -104,6 +105,8 @@ closer.
 - Photo Mode's **Look at camera** has priority over our eye edits: while it is on they wait, and come back when it
   is turned off (head and chest edits stay, the game turns them on top). With a full pose loaded (T / A pose, saved
   poses) the neck (and the spine, for the torso) is turned so the face looks at the camera.
+  Edits of the hips or the back no longer turn the face away (the turn is applied after them), and IK pins are
+  measured on the pose without the turn: a world pin stays put, a body pin follows the turned chest.
   With Torso or Head the eyes also follow the camera (up to 30 degrees from where the face looks), also when the
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;

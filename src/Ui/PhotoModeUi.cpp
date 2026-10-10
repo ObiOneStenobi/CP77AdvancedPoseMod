@@ -951,6 +951,41 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
     return true;
 }
 
+bool BendPart(int32_t aPart, float aForwardDegrees, float aSideDegrees)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()))
+    {
+        return false;
+    }
+    const auto& entry = catalog[aPart];
+    const uint64_t hash = RED4ext::CName(entry.bones.front()).hash;
+    Math::Vec3 bend1{};
+    Math::Vec3 bend2{};
+    Math::Vec3 twist{};
+    Math::Quat boneModel{};
+    if (!Pose::TargetRegistry::GetBoneAxes(hash, bend1, bend2, twist) ||
+        !Pose::GizmoState::GetBoneModelRotation(hash, boneModel))
+    {
+        return false;
+    }
+    if (UsesFingerAxes(entry))
+    {
+        std::swap(bend1, bend2);
+    }
+    // The bone's own axes, as the panel's rows use them: forward / back and sideways.
+    bool any = false;
+    if (std::abs(aForwardDegrees) > 1e-4f)
+    {
+        any = RotatePart(aPart, Math::Rotate(boneModel, bend1), aForwardDegrees) || any;
+    }
+    if (std::abs(aSideDegrees) > 1e-4f)
+    {
+        any = RotatePart(aPart, Math::Rotate(boneModel, bend2), aSideDegrees) || any;
+    }
+    return any;
+}
+
 bool IsPartLookAtLocked(int32_t aPart)
 {
     const auto& catalog = GetBoneCatalog();

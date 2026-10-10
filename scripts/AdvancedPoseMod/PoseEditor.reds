@@ -193,6 +193,7 @@ public func APM_DragSwivel() -> Int32 { return 4; }    // the elbow / knee of a 
 public func APM_DragTwist() -> Int32 { return 5; }     // rotation around the bone itself
 public func APM_DragEyeLook() -> Int32 { return 6; }   // the eyes look at the cursor
 public func APM_DragMove() -> Int32 { return 7; }      // the part (hips, held prop) follows the cursor
+public func APM_DragBend() -> Int32 { return 8; }      // hand / foot on its own axes: up / down bends, left / right sideways
 
 // The hips: V's root, moves the whole body.
 public func APM_ColorRoot() -> HDRColor {
@@ -488,7 +489,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
         this.CreateIconButton(header, "limits:on", "lock", 260.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
         this.CreateIconButton(header, "limits:off", "lock-open", 260.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
-        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row");
+        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift bends it). Off: dragging bends it, and IK is used only on limbs pinned in the IK row");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -794,7 +795,7 @@ public class APM_PoseEditor extends IScriptable {
         y += 20.0;
         y = this.AddHelpLine(help, "Alt + drag", "rotate freely", y);
         y = this.AddHelpLine(help, "Ctrl + drag", "twist", y);
-        y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or rotate (hands / feet with IK)", y);
+        y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or bend (hands / feet with IK)", y);
         y = this.AddHelpLine(help, "Mouse wheel", "while moving: nearer / farther", y);
         y = this.AddHelpLine(help, "Ctrl + Z  /  Ctrl + Y", "undo / redo", y);
         help.SetSize(width * s, (y + 16.0) * s);
@@ -2505,7 +2506,7 @@ public class APM_PoseEditor extends IScriptable {
         if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
                 if this.m_autoIk {
-                    text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
+                    text += "   (Shift: bend, Alt: free, Ctrl: twist)";
                 } else if APM_GizmoIsIkActive(marker.chain) {
                     text += "   (Shift: move with IK, Alt: free, Ctrl: twist)";
                 } else {
@@ -2544,6 +2545,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         if mode == APM_DragTrackball() {
             return "free rotate";
+        }
+        if mode == APM_DragBend() {
+            return "bend (up / down, sideways)";
         }
         return "rotate";
     }
@@ -2817,11 +2821,11 @@ public class APM_PoseEditor extends IScriptable {
         if marker.chain >= 0 {
             // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: drag rotates it; Shift moves it with IK
             // only when that limb is already pinned (the magnet off never pins a limb).
-            // Rotation of a hand / foot turns it as seen from the camera, like Alt (aiming its short tip was too fast).
+            // Rotating a hand / foot bends it on its own axes, like the panel rows (Alt still turns it freely).
             if this.m_autoIk {
-                return shift ? APM_DragTrackball() : APM_DragIkMove();
+                return shift ? APM_DragBend() : APM_DragIkMove();
             }
-            return shift && APM_GizmoIsIkActive(marker.chain) ? APM_DragIkMove() : APM_DragTrackball();
+            return shift && APM_GizmoIsIkActive(marker.chain) ? APM_DragIkMove() : APM_DragBend();
         }
         if marker.swivelChain >= 0 && !shift && APM_GizmoIsIkActive(marker.swivelChain) {
             return APM_DragSwivel();
@@ -2838,7 +2842,7 @@ public class APM_PoseEditor extends IScriptable {
             return label + ": drag where the eyes look, wheel: nearer / farther";
         }
         if marker.chain >= 0 {
-            return label + ": drag to move (IK, wheel: depth), Shift+drag to rotate, Alt+drag to rotate freely, Ctrl+drag to twist";
+            return label + ": drag to move (IK, wheel: depth), Shift+drag to bend, Alt+drag to rotate freely, Ctrl+drag to twist";
         }
         if marker.swivelChain >= 0 && APM_GizmoIsIkActive(marker.swivelChain) {
             return label + ": drag to turn the elbow / knee (IK), Ctrl+drag to twist";
@@ -2969,6 +2973,9 @@ public class APM_PoseEditor extends IScriptable {
             this.TwistPart(camera, toWorld, marker.part, dx, dy);
         } else if this.m_dragMode == APM_DragEyeLook() {
             this.MoveEyeLook(camera, toWorld, dx, dy);
+        } else if this.m_dragMode == APM_DragBend() {
+            // Up / down: bend forward / back; left / right: sideways (the panel's first two rows).
+            APM_GizmoBendPart(marker.part, dy * this.DegreesPerCanvasUnit(), dx * this.DegreesPerCanvasUnit());
         } else if this.m_dragMode == APM_DragTrackball() {
             // Head: rotate as seen from the camera - left/right turns around the camera's vertical axis,
             // up/down tilts around its horizontal axis (the side facing the camera follows the cursor).
