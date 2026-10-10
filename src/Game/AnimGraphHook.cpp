@@ -264,13 +264,13 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
     uint32_t boneCount = 0;
     APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount);
 
-    APM::Log::Info("Probe: target=%s node=%p vtbl=+0x%llX ctx=%p pose=%p trajectory=%p poseBones=%u rigBones=%zu",
+    APM::Log::Verbose("Probe: target=%s node=%p vtbl=+0x%llX ctx=%p pose=%p trajectory=%p poseBones=%u rigBones=%zu",
                    aTarget.debugName.c_str(), aNode,
                    static_cast<unsigned long long>(nodeVtbl - APM::SafeMemory::GetGameImageBase()),
                    reinterpret_cast<void*>(aContext), reinterpret_cast<void*>(aOut->pose),
                    reinterpret_cast<void*>(aOut->trajectory), boneCount, aTarget.boneNames.size());
-    APM::Log::Info("Probe: pose header:%s", HexDump(aOut->pose, 0x50).c_str());
-    APM::Log::Info("Probe: context head:%s", HexDump(aContext, 0x80).c_str());
+    APM::Log::Verbose("Probe: pose header:%s", HexDump(aOut->pose, 0x50).c_str());
+    APM::Log::Verbose("Probe: context head:%s", HexDump(aContext, 0x80).c_str());
 }
 
 // Applies the user's bone overrides (additive) to the final local-space pose of a target.
@@ -426,13 +426,13 @@ void LogStatsPeriodically()
     {
         return;
     }
-    APM::Log::Info("Stats: sampleCalls=%llu outermost=%llu contextsScanned=%llu candidates=%llu mapping=%s boneCounts=[%s]",
+    APM::Log::Verbose("Stats: sampleCalls=%llu outermost=%llu contextsScanned=%llu candidates=%llu mapping=%s boneCounts=[%s]",
                    static_cast<unsigned long long>(g_statAllCalls.load()),
                    static_cast<unsigned long long>(g_statOuterCalls.load()),
                    static_cast<unsigned long long>(g_statContexts.load()),
                    static_cast<unsigned long long>(g_statCandidates.load()),
                    g_contextPath.load() == PathUnknown ? "unknown" : "known", BoneCountsSeen().c_str());
-    APM::Log::Info("Stats: mappingHits=%u mappingMisses=%u", g_pathHits.load(), g_pathMisses.load());
+    APM::Log::Verbose("Stats: mappingHits=%u mappingMisses=%u", g_pathHits.load(), g_pathMisses.load());
 }
 
 void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aReturnAddress, uintptr_t aStackPointer)

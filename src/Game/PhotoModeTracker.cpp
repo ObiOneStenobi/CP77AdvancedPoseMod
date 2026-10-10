@@ -297,7 +297,7 @@ void RefreshTargets(void* aSystem)
     {
         for (const auto& target : targets)
         {
-            Log::Info("PhotoMode: target slot=%u type=%u entity=%p component=%p name=%s rig=%p bones=%zu",
+            Log::Verbose("PhotoMode: target slot=%u type=%u entity=%p component=%p name=%s rig=%p bones=%zu",
                       target.photoModeSlot, target.characterType, reinterpret_cast<void*>(target.entity),
                       reinterpret_cast<void*>(target.animatedComponent), target.debugName.c_str(),
                       reinterpret_cast<void*>(target.rig), target.boneNames.size());

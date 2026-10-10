@@ -93,7 +93,7 @@ void LogLocked()
         if (index >= 0)
         {
             const auto& p = skeleton->positions[index];
-            APM::Log::Info("Gizmo: %s leftHand=(%.3f %.3f %.3f)", name, p.x, p.y, p.z);
+            APM::Log::Verbose("Gizmo: %s leftHand=(%.3f %.3f %.3f)", name, p.x, p.y, p.z);
         }
     }
 }

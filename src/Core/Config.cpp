@@ -33,14 +33,16 @@ void Load()
     v.probeEnabled = ReadBool(file, L"Probe", L"Enabled", v.probeEnabled);
     v.probeScanBudget = ReadUInt(file, L"Probe", L"ScanBudget", v.probeScanBudget);
     v.probeDumpRig = ReadBool(file, L"Probe", L"DumpRig", v.probeDumpRig);
+    v.debugLog = ReadBool(file, L"Debug", L"Log", v.debugLog);
+    Log::g_verbose = v.debugLog;
 
     {
         std::scoped_lock lock(g_mutex);
         g_values = v;
     }
 
-    Log::Info("Config loaded: probe=%d budget=%u dumpRig=%d", v.probeEnabled ? 1 : 0, v.probeScanBudget,
-              v.probeDumpRig ? 1 : 0);
+    Log::Info("Config loaded: probe=%d budget=%u dumpRig=%d debugLog=%d", v.probeEnabled ? 1 : 0, v.probeScanBudget,
+              v.probeDumpRig ? 1 : 0, v.debugLog ? 1 : 0);
 }
 
 Values Get()

@@ -32,7 +32,7 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     }
     if (aAttribute == 15 || aAttribute == 74)
     {
-        APM::Log::Info("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
+        APM::Log::Verbose("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
     }
     APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
     g_origForward(aCallback, aAttribute, aValue, aApply);

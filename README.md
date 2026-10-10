@@ -133,7 +133,9 @@ closer.
   keep their edits); **Reset all** goes back.
 - Moving a whole finger keeps the extra bend of its segments.
 
-The CET overlay still has the **AdvancedPoseMod (debug)** window with raw bone access.
+Developers: `cet/` holds a debug window for Cyber Engine Tweaks with raw bone access (not part of the release
+package). `config.ini` `[Debug] Log=1` writes detailed diagnostics to the log, `[Probe] DumpRig=1` writes the skeletons
+to `probe\`.
 
 Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.json`.
 

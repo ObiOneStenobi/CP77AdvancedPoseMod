@@ -275,7 +275,7 @@ const RigData& RigLocked(const APM::Pose::Target& aTarget)
     }
     data.valid = true;
     g_rig = std::move(data);
-    APM::Log::Info("Face rig ready (%zu bones)", count);
+    APM::Log::Verbose("Face rig ready (%zu bones)", count);
     return g_rig;
 }
 

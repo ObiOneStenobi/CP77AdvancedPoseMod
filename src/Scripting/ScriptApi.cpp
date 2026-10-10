@@ -306,7 +306,7 @@ const std::vector<uint64_t>& PropRecords(int32_t aKind)
                 }
             }
             loaded[aKind] = true;
-            APM::Log::Info("Props: %zu records of %s", lists[aKind].size(), types[aKind]);
+            APM::Log::Verbose("Props: %zu records of %s", lists[aKind].size(), types[aKind]);
         }
     }
     return lists[aKind];
@@ -728,7 +728,7 @@ void LogInfo(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     CString text;
     RED4ext::GetParameter(aFrame, &text);
     aFrame->code++;
-    APM::Log::Info("Script: %s", text.c_str());
+    APM::Log::Verbose("Script: %s", text.c_str());
     Return(aOut, true);
 }
 
