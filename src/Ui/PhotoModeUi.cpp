@@ -1413,4 +1413,58 @@ bool AreLimitsOn()
 {
     return Pose::JointLimits::IsEnabled();
 }
+
+bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
+{
+    // Curl of each segment (degrees towards the palm), from the reference pose (straight fingers).
+    struct FingerCurl
+    {
+        const char* finger;
+        std::array<float, 3> curl;
+    };
+    using Preset = std::array<FingerCurl, 5>;
+    static const std::array<Preset, 5> Presets = {{
+        // Open: straight fingers
+        {{{"Thumb", {0.f, 0.f, 0.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {0.f, 0.f, 0.f}},
+          {"Ring", {0.f, 0.f, 0.f}}, {"Pinky", {0.f, 0.f, 0.f}}}},
+        // Relaxed: a little more curl towards the little finger
+        {{{"Thumb", {10.f, 15.f, 0.f}}, {"Index", {15.f, 20.f, 10.f}}, {"Middle", {20.f, 25.f, 12.f}},
+          {"Ring", {25.f, 30.f, 15.f}}, {"Pinky", {30.f, 35.f, 18.f}}}},
+        // Fist
+        {{{"Thumb", {40.f, 50.f, 0.f}}, {"Index", {85.f, 95.f, 60.f}}, {"Middle", {85.f, 95.f, 60.f}},
+          {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
+        // Point: index straight, the others closed
+        {{{"Thumb", {40.f, 50.f, 0.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {85.f, 95.f, 60.f}},
+          {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
+        // Grip: around a handle
+        {{{"Thumb", {30.f, 30.f, 0.f}}, {"Index", {55.f, 60.f, 35.f}}, {"Middle", {55.f, 60.f, 35.f}},
+          {"Ring", {55.f, 60.f, 35.f}}, {"Pinky", {55.f, 60.f, 35.f}}}},
+    }};
+    if (aPreset < 0 || aPreset >= static_cast<int32_t>(Presets.size()))
+    {
+        return false;
+    }
+    const std::string side = aRightHand ? "RightHand" : "LeftHand";
+    bool any = false;
+    for (const auto& finger : Presets[static_cast<size_t>(aPreset)])
+    {
+        const int32_t segments = std::string(finger.finger) == "Thumb" ? 2 : 3;
+        for (int32_t s = 0; s < segments; ++s)
+        {
+            const std::string bone = side + finger.finger + std::to_string(s + 1);
+            Math::Quat reference{};
+            float sign = 1.f;
+            if (!Pose::JointLimits::GetReferenceFrame(bone, true, reference, sign))
+            {
+                continue;
+            }
+            const std::array<float, 3> angles = {finger.curl[static_cast<size_t>(s)] * sign, 0.f, 0.f};
+            const Math::Quat wanted = Math::Normalize(Math::Mul(reference, AnglesToRotation(bone.c_str(), angles, true)));
+            any = SetBoneLocal(bone.c_str(), wanted, true) || any;
+        }
+    }
+    MirrorGroup(aRightHand ? "Right hand" : "Left hand");
+    RequestRefresh();
+    return any;
+}
 } // namespace APM::Ui::PhotoModeUi

@@ -76,6 +76,8 @@ public native func APM_PollHotkey() -> Int32
 public native func APM_IsAltDown() -> Bool
 // Copies one side onto the other, mirrored; group "Left arm" etc. or "" for the whole body. Returns parts copied.
 public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
+// Hand presets: 0 open, 1 relaxed, 2 fist, 3 point, 4 grip
+public native func APM_ApplyHandPreset(rightHand: Bool, preset: Int32) -> Bool
 // Mirror mode: edits of a left / right part are copied, mirrored, to the other side
 public native func APM_SetMirror(mirror: Bool)
 public native func APM_IsMirror() -> Bool

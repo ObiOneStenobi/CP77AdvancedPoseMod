@@ -19,5 +19,8 @@ bool HasRange(std::string_view aBone);
 
 // A final local rotation kept within the bone's range. aAnimatedLocal is where the animation has the joint.
 // aSwapBends: the bone's bends are swapped (finger axes, as the panel uses them).
+// Reference (T pose) local rotation of a bone and the sign that makes its bend1 curl towards the palm / go forward.
+bool GetReferenceFrame(std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal, float& aForwardSign);
+
 Math::Quat LimitLocal(std::string_view aBone, const Math::Quat& aLocal, const Math::Quat& aAnimatedLocal, bool aSwapBends);
 } // namespace APM::Pose::JointLimits

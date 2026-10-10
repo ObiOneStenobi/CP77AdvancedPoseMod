@@ -258,6 +258,18 @@ bool IsEnabled()
     return g_enabled;
 }
 
+bool GetReferenceFrame(std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal, float& aForwardSign)
+{
+    JointFrame frame;
+    if (!GetJointFrame(aBone, RED4ext::CName(std::string(aBone).c_str()).hash, aSwapBends, frame))
+    {
+        return false;
+    }
+    aReferenceLocal = frame.referenceLocal;
+    aForwardSign = frame.forwardSign;
+    return true;
+}
+
 bool HasRange(std::string_view aBone)
 {
     JointRange range{};

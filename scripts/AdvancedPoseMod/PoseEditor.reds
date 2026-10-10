@@ -251,7 +251,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_groupNames: array<String>;
     private let m_groupButtons: array<ref<APM_Button>>;
     private let m_partButtons: array<ref<APM_Button>>;
-    private let m_partIndices: array<Int32>; // body part index shown by each part button (-1 = unused)
+    private let m_partIndices: array<Int32>;
+    private let m_handPresets: wref<inkCanvas>; // preset row under the parts of a hand tab // body part index shown by each part button (-1 = unused)
     private let m_poseButtons: array<ref<APM_Button>>;
     private let m_poseNames: array<String>;
     private let m_posePage: Int32;
@@ -516,6 +517,23 @@ public class APM_PoseEditor extends IScriptable {
             ArrayPush(this.m_partIndices, -1);
             i += 1;
         }
+        // Hand presets (hand tabs only)
+        let presetRow = new inkCanvas();
+        presetRow.SetName(n"APM_HandPresets");
+        presetRow.SetAnchor(inkEAnchor.TopLeft);
+        presetRow.SetMargin(0.0, 160.0 * APM_UiScale(), 0.0, 0.0);
+        presetRow.SetSize(APM_PanelWidth() * APM_UiScale(), 36.0 * APM_UiScale());
+        presetRow.Reparent(partSection);
+        this.m_handPresets = presetRow;
+        this.CreateText(presetRow, "Preset", 16.0, 0.0, 90.0, 30.0, 15, APM_ColorDimText());
+        let presetNames: array<String> = ["Open", "Relaxed", "Fist", "Point", "Grip"];
+        let presetTips: array<String> = ["Straight fingers", "Slightly curled, at rest", "Closed fist", "Index finger pointing", "Fingers around a handle"];
+        let p = 0;
+        while p < 5 {
+            let presetButton = this.CreateSmallButton(presetRow, "preset:" + IntToString(p), presetNames[p], 108.0 + Cast<Float>(p) * 103.0, 0.0, 99.0, 30.0);
+            presetButton.tooltip = presetTips[p];
+            p += 1;
+        }
 
         // Rotation of the selected part
         let rotation = this.CreateSection(n"APM_Rotation");
@@ -633,7 +651,9 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let y = 0.0;
         y = this.PlaceSection(this.m_sectionHeader, y, 80.0, true);
-        y = this.PlaceSection(this.m_sectionPart, y, 160.0, true);
+        let handTab = APM_IsHandGroup(APM_UiGetOptionGroup(7701u, Cast<Int32>(APM_UiGetValue(7701u))));
+        this.m_handPresets.SetVisible(handTab);
+        y = this.PlaceSection(this.m_sectionPart, y, handTab ? 196.0 : 160.0, true);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, true);
         y = this.PlaceSection(this.m_sectionMove, y, 144.0, APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
@@ -3194,6 +3214,12 @@ public class APM_PoseEditor extends IScriptable {
             APM_Undo();
         } else if Equals(id, "redo") {
             APM_Redo();
+        } else if Equals(prefix, "preset") {
+            let presetGroup = APM_UiGetOptionGroup(7701u, Cast<Int32>(APM_UiGetValue(7701u)));
+            if APM_IsHandGroup(presetGroup) {
+                APM_HistoryCheckpoint();
+                APM_ApplyHandPreset(Equals(presetGroup, "Right hand"), StringToInt(arg));
+            }
         } else if Equals(prefix, "eyes") {
             let which = StringToInt(arg);
             let eyeTarget = which == 1 ? this.m_leftEyePart : (which == 2 ? this.m_rightEyePart : this.PartIndex("Eyes (both)"));

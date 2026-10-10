@@ -62,6 +62,9 @@ bool CanMovePart(int32_t aPart);
 int32_t MirrorParts(bool aFromLeft, const std::string& aGroup);
 // Turns a part (an eye) so that its forward direction points at a model-space point.
 bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
+
+// Hand presets (0 open, 1 relaxed, 2 fist, 3 point, 4 grip): sets the fingers of one hand. Returns false if unknown.
+bool ApplyHandPreset(bool aRightHand, int32_t aPreset);
 // Mirror mode: edits of a left / right part are copied, mirrored, to the other side.
 void SetMirror(bool aMirror);
 bool IsMirror();

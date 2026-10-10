@@ -401,6 +401,16 @@ void IsAltDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, (GetAsyncKeyState(VK_MENU) & 0x8000) != 0);
 }
 
+void ApplyHandPreset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    bool right = true;
+    int32_t preset = 0;
+    RED4ext::GetParameter(aFrame, &right);
+    RED4ext::GetParameter(aFrame, &preset);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::ApplyHandPreset(right, preset));
+}
+
 void MirrorParts(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     bool fromLeft = true;
@@ -1065,6 +1075,7 @@ void Register()
     ::Register("APM_SessionSet", &SessionSet, nullptr, {{"String", "key"}, {"Float", "value"}});
     ::Register("APM_IsAltDown", &IsAltDown, "Bool", {});
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
+    ::Register("APM_ApplyHandPreset", &ApplyHandPreset, "Bool", {{"Bool", "rightHand"}, {"Int32", "preset"}});
     ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});
     ::Register("APM_IsMirror", &IsMirror, "Bool", {});
     ::Register("APM_SetLimits", &SetLimits, nullptr, {{"Bool", "limits"}});
