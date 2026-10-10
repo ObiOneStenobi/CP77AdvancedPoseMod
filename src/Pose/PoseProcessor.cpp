@@ -3,6 +3,7 @@
 #include "Math/Vec3.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Pose/TwoBoneIk.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -107,21 +108,61 @@ void ComputeModelPose(const APM::Pose::Target& aTarget, const RED4ext::QsTransfo
 // FK overrides (rotation / translation per bone, plus linked bones such as the face eyes)
 // ---------------------------------------------------------------------------------------------------------------------
 // aSameNameBones: also edit the bones that carry the edited names (main skeleton only, see ProcessSecondarySkeleton).
+// Bones Photo Mode's "Look at camera" currently turns: our edits of them wait (the game has priority).
+bool IsLookAtBone(uint64_t aHash)
+{
+    const int32_t reach = APM::Pose::LookAtCamera::Reach();
+    if (reach == 0)
+    {
+        return false;
+    }
+    static const uint64_t eyes[] = {Hash("LeftEye"), Hash("RightEye")};
+    static const uint64_t head[] = {Hash("Head"), Hash("Neck"), Hash("Neck1")};
+    static const uint64_t torso[] = {Hash("Spine1"), Hash("Spine2"), Hash("Spine3")};
+    const auto contains = [aHash](const auto& aList)
+    { return std::find(std::begin(aList), std::end(aList), aHash) != std::end(aList); };
+    return contains(eyes) || (reach >= 2 && contains(head)) || (reach >= 3 && contains(torso));
+}
+
+bool IsEyeBone(uint64_t aHash)
+{
+    static const uint64_t left = Hash("LeftEye");
+    static const uint64_t right = Hash("RightEye");
+    return aHash == left || aHash == right;
+}
+
 void ApplyForwardOverrides(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                            const APM::Pose::OverrideSnapshot& aPose, bool aSameNameBones)
 {
     for (const auto& bone : aPose.bones)
     {
+        if (IsLookAtBone(bone.boneHash))
+        {
+            continue;
+        }
         if (bone.hasRotation)
         {
             for (const auto& link : aTarget.linkedBones)
             {
-                if (link.sourceBone == bone.boneHash && link.targetIndex < aCount)
+                if (link.sourceBone != bone.boneHash || link.targetIndex >= aCount)
                 {
-                    const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, bone.rotation), link.post);
-                    SetRotation(aBones[link.targetIndex],
-                                APM::Math::Mul(GetRotation(aBones[link.targetIndex]), converted));
+                    continue;
                 }
+                Quat animatedEye{};
+                Vec3 unused{};
+                if (IsEyeBone(bone.boneHash) && APM::Pose::GizmoState::GetAnimatedLocal(bone.boneHash, animatedEye, unused))
+                {
+                    // Edited eyes are absolute on the face rig: they point where the body's eye bone points (animation
+                    // + edit), so a facial expression that rolls the eyeballs no longer moves them.
+                    const Quat change = APM::Math::Mul(APM::Math::Conjugate(link.sourceReferenceLocal),
+                                                       APM::Math::Mul(animatedEye, bone.rotation));
+                    const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, change), link.post);
+                    SetRotation(aBones[link.targetIndex],
+                                APM::Math::Normalize(APM::Math::Mul(link.targetReferenceLocal, converted)));
+                    continue;
+                }
+                const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, bone.rotation), link.post);
+                SetRotation(aBones[link.targetIndex], APM::Math::Mul(GetRotation(aBones[link.targetIndex]), converted));
             }
         }
 
@@ -272,7 +313,7 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
     for (const auto& bone : aBase.bones)
     {
         const auto it = indices.find(bone.boneHash);
-        if (it == indices.end())
+        if (it == indices.end() || IsLookAtBone(bone.boneHash))
         {
             continue;
         }

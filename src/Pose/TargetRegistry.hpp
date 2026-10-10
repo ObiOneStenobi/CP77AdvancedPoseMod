@@ -21,6 +21,8 @@ struct LinkedBone
     uint32_t targetIndex = 0; // bone index in this target
     Math::Quat pre{};
     Math::Quat post{};
+    Math::Quat sourceReferenceLocal{}; // reference local rotations of both bones (absolute eyes)
+    Math::Quat targetReferenceLocal{};
 };
 
 struct Target

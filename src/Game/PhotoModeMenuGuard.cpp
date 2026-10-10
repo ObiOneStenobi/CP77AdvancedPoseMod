@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Ui/PhotoModeUi.hpp"
 
 #include <RED4ext/Detail/AddressHashes.hpp>
@@ -10,9 +11,7 @@
 #include <RED4ext/Relocation.hpp>
 
 #include <array>
-#include <cmath>
 #include <cstring>
-#include <unordered_map>
 
 // Our menu items use attribute keys the game does not know (7700-7799). Their values are handled by the
 // plugin, so they must not reach the game's Photo Mode system. gameuiPhotoModeMenuController::OnAttributeUpdated
@@ -31,14 +30,11 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     {
         return;
     }
-    // Diagnostics: which Photo Mode setting changed (to find the keys of "look at camera" and the expressions).
-    static std::unordered_map<uint32_t, float> last;
-    const auto it = last.find(aAttribute);
-    if (it == last.end() || std::abs(it->second - aValue) > 0.0001f)
+    if (aAttribute == 15 || aAttribute == 74)
     {
-        last[aAttribute] = aValue;
-        APM::Log::Info("Photo Mode attribute %u = %.3f", aAttribute, aValue);
+        APM::Log::Info("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
     }
+    APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
     g_origForward(aCallback, aAttribute, aValue, aApply);
 }
 

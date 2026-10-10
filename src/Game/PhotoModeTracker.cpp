@@ -171,6 +171,12 @@ void LinkBones(std::vector<APM::Pose::Target>& aTargets)
                 link.targetIndex = static_cast<uint32_t>(dst);
                 link.pre = Normalize(Mul(Conjugate(b), a));
                 link.post = Normalize(Mul(Conjugate(a), b));
+                if (static_cast<size_t>(src) < source.refRotationsLS.size() &&
+                    static_cast<size_t>(dst) < target.refRotationsLS.size())
+                {
+                    link.sourceReferenceLocal = source.refRotationsLS[src];
+                    link.targetReferenceLocal = target.refRotationsLS[dst];
+                }
                 target.linkedBones.push_back(link);
                 break;
             }
