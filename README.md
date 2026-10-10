@@ -7,6 +7,7 @@ IK for hands and feet, hand presets, eyes, items in hand), and whole poses can b
 
 ## Download
 
+- [Nexus Mods](https://www.nexusmods.com/cyberpunk2077/mods/35013)
 - [GitHub Releases](https://github.com/ObiOneStenobi/CP77AdvancedPoseMod/releases): `AdvancedPoseMod-<version>.zip`
 
 Install with Vortex, or extract the zip into the game folder (the one containing `bin`).
