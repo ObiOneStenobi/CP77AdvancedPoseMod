@@ -562,6 +562,10 @@ float GetValue(uint32_t aAttribute)
     case Attr::Bend2:
     case Attr::Twist:
     {
+        if (aAttribute == Attr::Twist && IsEyeEntry(CurrentEntry()) && !IsBothEyes())
+        {
+            return 0.f; // single eyes have no twist
+        }
         if (aAttribute == Attr::Twist && IsBothEyes())
         {
             Math::Vec3 middle{};

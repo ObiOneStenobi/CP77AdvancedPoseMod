@@ -94,7 +94,9 @@ closer.
   it. Turned off, dragging rotates the hand / foot like any other bone; Shift+drag moves it with IK only if that
   limb is already pinned in the IK row. Turning a pin off keeps the arm / leg where the IK put it (Reset part undoes it).
   With joint limits on, a pinned limb also stops where the hip / shoulder and knee / elbow can no longer follow.
-- **Eyes**: choose **Eyes (both)** for one look marker, or **Left eye** / **Right eye** for one marker per eye.
+- **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
+  or one marker per eye.
+- The hips marker is violet: it is V's root and moves the whole body.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.

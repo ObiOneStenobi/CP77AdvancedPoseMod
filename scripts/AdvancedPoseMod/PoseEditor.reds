@@ -194,6 +194,11 @@ public func APM_DragTwist() -> Int32 { return 5; }     // rotation around the bo
 public func APM_DragEyeLook() -> Int32 { return 6; }   // the eyes look at the cursor
 public func APM_DragMove() -> Int32 { return 7; }      // the part (hips, held prop) follows the cursor
 
+// The hips: V's root, moves the whole body.
+public func APM_ColorRoot() -> HDRColor {
+    return APM_Color(0.78, 0.48, 1.0, 1.0);
+}
+
 public func APM_ColorProp() -> HDRColor {
     return APM_Color(0.45, 1.0, 0.55, 1.0);
 }
@@ -517,6 +522,12 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionRotation = rotation;
         this.AddSeparator(rotation);
         this.m_partTitle = this.CreateText(rotation, "", 16.0, 6.0, 600.0, 26.0, 18, APM_ColorAccent());
+        let eyesBoth = this.CreateSmallButton(rotation, "eyes:0", "Both", 380.0, 4.0, 78.0, 26.0);
+        eyesBoth.tooltip = "Both eyes together: one look marker";
+        let eyesLeft = this.CreateSmallButton(rotation, "eyes:1", "Left", 462.0, 4.0, 78.0, 26.0);
+        eyesLeft.tooltip = "Left eye on its own (one marker per eye)";
+        let eyesRight = this.CreateSmallButton(rotation, "eyes:2", "Right", 544.0, 4.0, 78.0, 26.0);
+        eyesRight.tooltip = "Right eye on its own (one marker per eye)";
         this.CreateRow(rotation, 7702u, "Bend forward / back", 34.0, -180.0, 180.0, 1.0, 0.2, "");
         this.CreateRow(rotation, 7703u, "Bend sideways", 70.0, -180.0, 180.0, 1.0, 0.2, "");
         this.CreateRow(rotation, 7704u, "Twist", 106.0, -180.0, 180.0, 1.0, 0.2, "");
@@ -737,6 +748,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.AddHelpShape(help, 1, APM_ColorText(), "move", y);
         y = this.AddHelpShape(help, 2, APM_ColorText(), "twist", y);
         y = this.AddHelpShape(help, 1, APM_ColorIk(), "IK: moves the hand / foot, the arm / leg follows", y);
+        y = this.AddHelpShape(help, 1, APM_ColorRoot(), "hips: V's root, moves the whole body", y);
         let divider = new inkRectangle();
         divider.SetAnchor(inkEAnchor.TopLeft);
         divider.SetMargin(20.0 * s, (y + 8.0) * s, 0.0, 0.0);
@@ -2022,12 +2034,14 @@ public class APM_PoseEditor extends IScriptable {
         let slot = 0;
         i = 0;
         while i < count && slot < ArraySize(this.m_partButtons) {
-            if Equals(APM_UiGetOptionGroup(7701u, i), group) && !APM_GizmoIsPartDetail(i) {
+            if Equals(APM_UiGetOptionGroup(7701u, i), group) && !APM_GizmoIsPartDetail(i) && !this.IsSingleEye(i) {
                 this.m_partIndices[slot] = i;
                 let button = this.m_partButtons[slot];
                 button.root.SetVisible(true);
-                button.label.SetText(APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, i)));
-                button.isSelected = i == part;
+                let partLabel = APM_UiGetOptionLabel(7701u, i);
+                let isEyes = Equals(partLabel, "Eyes (both)");
+                button.label.SetText(isEyes ? "Eyes" : APM_ShortPartLabel(partLabel));
+                button.isSelected = i == part || (isEyes && this.IsSingleEye(part));
                 button.UpdateLook();
                 slot += 1;
             }
@@ -2039,6 +2053,18 @@ public class APM_PoseEditor extends IScriptable {
             slot += 1;
         }
         this.m_partTitle.SetText(APM_UiGetOptionLabel(7701u, part));
+        // Eyes: both together, or one at a time
+        let eyePart = this.IsSingleEye(part) || Equals(APM_UiGetOptionLabel(7701u, part), "Eyes (both)");
+        let e = 0;
+        while e < 3 {
+            let eyeButton = this.FindButton("eyes:" + IntToString(e));
+            if IsDefined(eyeButton) {
+                eyeButton.root.SetVisible(eyePart);
+                eyeButton.isSelected = (e == 0 && !this.IsSingleEye(part)) || (e == 1 && part == this.m_leftEyePart) || (e == 2 && part == this.m_rightEyePart);
+                eyeButton.UpdateLook();
+            }
+            e += 1;
+        }
 
         // Both eyes: the third row is the focus distance instead of the twist.
         let thirdRow = this.FindRow(7704u);
@@ -2346,6 +2372,8 @@ public class APM_PoseEditor extends IScriptable {
                 color = APM_ColorIk();
             } else if marker.isProp {
                 color = APM_ColorProp();
+            } else if marker.part == this.m_hipsPart {
+                color = APM_ColorRoot();
             }
             let boneAngle = 0.0;
             if inUse {
@@ -3166,6 +3194,12 @@ public class APM_PoseEditor extends IScriptable {
             APM_Undo();
         } else if Equals(id, "redo") {
             APM_Redo();
+        } else if Equals(prefix, "eyes") {
+            let which = StringToInt(arg);
+            let eyeTarget = which == 1 ? this.m_leftEyePart : (which == 2 ? this.m_rightEyePart : this.PartIndex("Eyes (both)"));
+            if eyeTarget >= 0 {
+                APM_UiSetValue(7701u, Cast<Float>(eyeTarget));
+            }
         } else if Equals(id, "autoik") {
             this.m_autoIk = !this.m_autoIk;
             APM_SessionSet("AutoIk", this.m_autoIk ? 1.0 : 0.0);
