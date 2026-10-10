@@ -4,6 +4,7 @@
 #include "Core/Runtime.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
@@ -467,6 +468,19 @@ void GizmoAimPart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &target);
     aFrame->code++;
     Return(aOut, APM::Ui::PhotoModeUi::AimPart(part, {target.X, target.Y, target.Z}));
+}
+
+void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    RED4ext::Vector4 position{};
+    RED4ext::Vector4 forward{};
+    RED4ext::Vector4 up{};
+    RED4ext::GetParameter(aFrame, &position);
+    RED4ext::GetParameter(aFrame, &forward);
+    RED4ext::GetParameter(aFrame, &up);
+    aFrame->code++;
+    APM::Pose::LookAtCamera::SetCamera({position.X, position.Y, position.Z}, {forward.X, forward.Y, forward.Z},
+                                       {up.X, up.Y, up.Z});
 }
 
 void SetWheelCapture(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -1082,6 +1096,8 @@ void Register()
     ::Register("APM_AreLimitsOn", &AreLimitsOn, "Bool", {});
     ::Register("APM_SetNeutralPose", &SetNeutralPose, "Bool", {{"Bool", "armsDown"}});
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
+    ::Register("APM_SetCameraModel", &SetCameraModel, nullptr,
+               {{"Vector4", "position"}, {"Vector4", "forward"}, {"Vector4", "up"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});

@@ -132,9 +132,11 @@ bool IsPinnedChainEnd(std::string_view aBone)
 }
 
 // The edit (anim * edit = final local rotation) kept within the bone's natural range (Pose/JointLimits).
+bool g_noLimits = false; // hand presets: their rotations are natural already, store them as they are
+
 Math::Quat LimitEdit(const char* aBone, const Math::Quat& aEdit, bool aSwapBends)
 {
-    if (!Pose::JointLimits::HasRange(aBone) || IsPinnedChainEnd(aBone))
+    if (g_noLimits || !Pose::JointLimits::HasRange(aBone) || IsPinnedChainEnd(aBone))
     {
         return aEdit;
     }
@@ -1416,71 +1418,79 @@ bool AreLimitsOn()
 
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
 {
-    // Curl of each segment (degrees towards the palm), from the reference pose (straight fingers). The thumb has three:
-    // its base (it swings the thumb across the palm) and its two segments, closing towards the little finger.
-    struct FingerCurl
+    // Finger curl of each segment (degrees towards the palm, from the straight reference fingers) and the thumb's
+    // local rotations from the reference pose (base, first segment, tip; the same on both hands, the rig is mirrored).
+    // Worked out on V's rig: the fist and point thumbs lie across the middle segments of the fingers, the grip makes
+    // a round hole around a ~34 mm handle with the thumb closing it.
+    struct Preset
     {
-        const char* finger;
-        std::array<float, 3> curl;
+        std::array<std::array<float, 3>, 4> fingers; // index, middle, ring, little
+        std::array<Math::Quat, 3> thumb;             // i, j, k, r
     };
-    using Preset = std::array<FingerCurl, 5>;
     static const std::array<Preset, 5> Presets = {{
         // Open: straight fingers
-        {{{"Thumb", {0.f, 0.f, 0.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {0.f, 0.f, 0.f}},
-          {"Ring", {0.f, 0.f, 0.f}}, {"Pinky", {0.f, 0.f, 0.f}}}},
+        {{{{0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}}},
+         {{{0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 0.f, 1.f}}}},
         // Relaxed: a little more curl towards the little finger
-        {{{"Thumb", {5.f, 10.f, 10.f}}, {"Index", {15.f, 20.f, 10.f}}, {"Middle", {20.f, 25.f, 12.f}},
-          {"Ring", {25.f, 30.f, 15.f}}, {"Pinky", {30.f, 35.f, 18.f}}}},
-        // Fist: the thumb over the index and middle fingers
-        {{{"Thumb", {25.f, 30.f, 40.f}}, {"Index", {85.f, 95.f, 60.f}}, {"Middle", {85.f, 95.f, 60.f}},
-          {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
-        // Point: index straight, the others closed
-        {{{"Thumb", {25.f, 30.f, 40.f}}, {"Index", {0.f, 0.f, 0.f}}, {"Middle", {85.f, 95.f, 60.f}},
-          {"Ring", {85.f, 95.f, 60.f}}, {"Pinky", {85.f, 95.f, 60.f}}}},
-        // Grip: around a handle, the thumb on the other side
-        {{{"Thumb", {20.f, 15.f, 20.f}}, {"Index", {55.f, 60.f, 35.f}}, {"Middle", {55.f, 60.f, 35.f}},
-          {"Ring", {55.f, 60.f, 35.f}}, {"Pinky", {55.f, 60.f, 35.f}}}},
+        {{{{15.f, 20.f, 10.f}, {20.f, 25.f, 12.f}, {25.f, 30.f, 15.f}, {30.f, 35.f, 18.f}}},
+         {{{0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, -0.13053f, 0.99144f}, {0.f, 0.f, -0.13053f, 0.99144f}}}},
+        // Fist: the thumb across the middle segments of the index and middle fingers
+        {{{{85.f, 95.f, 60.f}, {85.f, 95.f, 60.f}, {85.f, 95.f, 60.f}, {85.f, 95.f, 60.f}}},
+         {{{0.16598f, -0.17244f, -0.05488f, 0.96938f},
+           {0.f, 0.03699f, -0.47433f, 0.87957f},
+           {0.f, -0.13479f, -0.43234f, 0.89158f}}}},
+        // Point: index straight, the thumb a little further in, over the middle finger
+        {{{{0.f, 0.f, 0.f}, {85.f, 95.f, 60.f}, {85.f, 95.f, 60.f}, {85.f, 95.f, 60.f}}},
+         {{{0.00355f, -0.05227f, -0.18870f, 0.98064f},
+           {0.f, 0.00319f, -0.44396f, 0.89604f},
+           {0.f, 0.03417f, -0.40269f, 0.91470f}}}},
+        // Grip: round around a handle, the thumb closing the ring
+        {{{{26.2f, 72.3f, 51.5f}, {35.9f, 88.5f, 57.7f}, {24.5f, 74.8f, 55.5f}, {11.2f, 48.6f, 45.5f}}},
+         {{{-0.03066f, 0.13140f, -0.03410f, 0.99027f},
+           {0.f, -0.20083f, -0.31434f, 0.92782f},
+           {0.f, 0.07786f, -0.63811f, 0.76600f}}}},
     }};
     if (aPreset < 0 || aPreset >= static_cast<int32_t>(Presets.size()))
     {
         return false;
     }
+    const auto& preset = Presets[static_cast<size_t>(aPreset)];
     const std::string side = aRightHand ? "Right" : "Left";
+    g_noLimits = true;
     bool any = false;
-    for (const auto& finger : Presets[static_cast<size_t>(aPreset)])
+
+    const std::array<std::string, 3> thumbBones = {side + "InHandThumb", side + "HandThumb1", side + "HandThumb2"};
+    for (size_t s = 0; s < thumbBones.size(); ++s)
     {
-        if (std::string(finger.finger) == "Thumb")
+        Math::Quat reference{};
+        float sign = 1.f;
+        if (!Pose::JointLimits::GetReferenceFrame(thumbBones[s], true, reference, sign))
         {
-            const std::array<std::string, 3> bones = {side + "InHandThumb", side + "HandThumb1", side + "HandThumb2"};
-            for (size_t s = 0; s < bones.size(); ++s)
-            {
-                Math::Quat reference{};
-                Math::Vec3 axis{};
-                if (!Pose::JointLimits::GetThumbCurl(bones[s], reference, axis))
-                {
-                    continue;
-                }
-                const Math::Quat wanted = Math::Normalize(
-                    Math::Mul(reference, Math::FromAxisAngle(axis, Math::DegToRad(finger.curl[s]))));
-                any = SetBoneLocal(bones[s].c_str(), wanted, true) || any;
-            }
             continue;
         }
+        const Math::Quat wanted = Math::Normalize(Math::Mul(reference, preset.thumb[s]));
+        any = SetBoneLocal(thumbBones[s].c_str(), wanted, true) || any;
+    }
+
+    static constexpr const char* Fingers[] = {"Index", "Middle", "Ring", "Pinky"};
+    for (size_t f = 0; f < std::size(Fingers); ++f)
+    {
         for (int32_t s = 0; s < 3; ++s)
         {
-            const std::string bone = side + "Hand" + finger.finger + std::to_string(s + 1);
+            const std::string bone = side + "Hand" + Fingers[f] + std::to_string(s + 1);
             Math::Quat reference{};
             float sign = 1.f;
             if (!Pose::JointLimits::GetReferenceFrame(bone, true, reference, sign))
             {
                 continue;
             }
-            const std::array<float, 3> angles = {finger.curl[static_cast<size_t>(s)] * sign, 0.f, 0.f};
+            const std::array<float, 3> angles = {preset.fingers[f][static_cast<size_t>(s)] * sign, 0.f, 0.f};
             const Math::Quat wanted = Math::Normalize(Math::Mul(reference, AnglesToRotation(bone.c_str(), angles, true)));
             any = SetBoneLocal(bone.c_str(), wanted, true) || any;
         }
     }
     MirrorGroup(aRightHand ? "Right hand" : "Left hand");
+    g_noLimits = false;
     RequestRefresh();
     return any;
 }

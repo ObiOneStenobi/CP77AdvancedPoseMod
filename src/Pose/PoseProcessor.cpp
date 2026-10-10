@@ -326,12 +326,13 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
 }
 
 // Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
-// pose) replaces it. Turn the base pose's neck (and spine, for the torso) so the head faces where the game turned it;
-// the turn is shared along the chain, the head taking the rest.
-void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, const ModelPose& aGame)
+// pose) replaces it. Turn the base pose towards the camera instead: the face ends parallel to the camera's view plane.
+// The spine (torso only) turns around the vertical, a share per bone; the neck and the head take the rest.
+void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     const int32_t reach = APM::Pose::LookAtCamera::Reach();
-    if (reach < 2)
+    const auto camera = APM::Pose::LookAtCamera::GetCamera();
+    if (reach < 2 || !camera.valid)
     {
         return;
     }
@@ -339,22 +340,47 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     {
         const char* bone;
         float weight; // part of the remaining turn
+        bool yawOnly; // spine: turns around the vertical only
     };
-    static constexpr Share TorsoChain[] = {{"Spine1", 0.15f}, {"Spine2", 0.2f}, {"Spine3", 0.25f},
-                                           {"Neck", 0.35f},   {"Neck1", 0.5f},  {"Head", 1.f}};
-    static constexpr Share HeadChain[] = {{"Neck", 0.4f}, {"Neck1", 0.5f}, {"Head", 1.f}};
+    static constexpr Share TorsoChain[] = {{"Spine1", 0.2f, true}, {"Spine2", 0.25f, true}, {"Spine3", 0.33f, true},
+                                           {"Neck", 0.35f, false}, {"Neck1", 0.5f, false},  {"Head", 1.f, false}};
+    static constexpr Share HeadChain[] = {{"Neck", 0.35f, false}, {"Neck1", 0.5f, false}, {"Head", 1.f, false}};
     const Share* chain = reach >= 3 ? TorsoChain : HeadChain;
     const size_t chainSize = reach >= 3 ? std::size(TorsoChain) : std::size(HeadChain);
 
     const int32_t head = IndexOf(aTarget, Hash("Head"));
-    if (head < 0 || static_cast<uint32_t>(head) >= aCount || static_cast<size_t>(head) >= aTarget.refRotationsMS.size() ||
-        static_cast<size_t>(head) >= aGame.rotations.size())
+    const size_t refCount = std::min(aTarget.refRotationsMS.size(), aTarget.refTranslationsLS.size());
+    if (head < 0 || static_cast<uint32_t>(head) >= aCount || static_cast<size_t>(head) >= refCount)
     {
         return;
     }
-    // The face's forward direction in the head bone's frame (the body faces model +Y in the reference pose).
-    const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), Vec3{0.f, 1.f, 0.f});
-    Vec3 wanted = APM::Math::Rotate(aGame.rotations[head], faceLocal);
+
+    // Which way the face looks, in the head bone's frame: from the head towards the eyes, level, in the reference pose.
+    thread_local std::vector<Vec3> refPositions;
+    refPositions.resize(refCount);
+    for (size_t i = 0; i < refCount; ++i)
+    {
+        const int16_t parent = i < aTarget.parents.size() ? aTarget.parents[i] : int16_t(-1);
+        refPositions[i] = parent >= 0 && static_cast<size_t>(parent) < i
+                              ? refPositions[parent] + APM::Math::Rotate(aTarget.refRotationsMS[parent], aTarget.refTranslationsLS[i])
+                              : aTarget.refTranslationsLS[i];
+    }
+    Vec3 face{0.f, 1.f, 0.f};
+    const int32_t leftEye = IndexOf(aTarget, Hash("LeftEye"));
+    const int32_t rightEye = IndexOf(aTarget, Hash("RightEye"));
+    if (leftEye >= 0 && rightEye >= 0 && static_cast<size_t>(leftEye) < refCount && static_cast<size_t>(rightEye) < refCount)
+    {
+        Vec3 toEyes = (refPositions[leftEye] + refPositions[rightEye]) * 0.5f - refPositions[head];
+        toEyes.z = 0.f;
+        if (APM::Math::Length(toEyes) > 1e-4f)
+        {
+            face = APM::Math::Normalize(toEyes);
+        }
+    }
+    const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face);
+
+    // Facing the camera: against the camera's view direction.
+    Vec3 wanted = APM::Math::Normalize(camera.forward * -1.f);
 
     thread_local ModelPose current;
     ComputeModelPose(aTarget, aBones, aCount, current);
@@ -385,12 +411,26 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         {
             ComputeModelPose(aTarget, aBones, aCount, current);
         }
-        const Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
-        const float angle = APM::Math::AngleBetween(facing, wanted);
-        const Vec3 axis = APM::Math::Cross(facing, wanted);
+        Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
+        Vec3 target = wanted;
+        if (chain[c].yawOnly)
+        {
+            facing.z = 0.f;
+            target.z = 0.f;
+            if (APM::Math::Length(facing) < 1e-4f || APM::Math::Length(target) < 1e-4f)
+            {
+                continue;
+            }
+        }
+        const float angle = APM::Math::AngleBetween(facing, target);
+        Vec3 axis = APM::Math::Cross(facing, target);
+        if (chain[c].yawOnly)
+        {
+            axis = Vec3{0.f, 0.f, axis.z >= 0.f ? 1.f : -1.f};
+        }
         if (angle < 1e-3f || APM::Math::Length(axis) < 1e-6f)
         {
-            break;
+            continue;
         }
         const Quat turn = APM::Math::FromAxisAngle(axis, angle * chain[c].weight);
         const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
@@ -407,16 +447,8 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
     // A full saved pose takes the place of the Photo Mode pose: edits and IK work on top of it.
     if (aPose.base)
     {
-        const bool lookAt = APM::Pose::LookAtCamera::Reach() >= 2;
-        if (lookAt)
-        {
-            ComputeModelPose(aTarget, aBones, aCount, originalPose); // the game's pose, with its look at the camera
-        }
         ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
-        if (lookAt)
-        {
-            KeepLookAt(aTarget, aBones, aCount, originalPose);
-        }
+        KeepLookAt(aTarget, aBones, aCount);
     }
     APM::Pose::GizmoState::PublishAnimatedPose(aTarget, aBones, aCount);
 

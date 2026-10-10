@@ -415,6 +415,7 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Update(timeDelta: Float) {
         this.UpdateTooltip(timeDelta);
+        this.PublishCamera();
         this.UpdateMarkers();
         this.UpdateRename();
         this.SyncProps(timeDelta);
@@ -2330,6 +2331,25 @@ public class APM_PoseEditor extends IScriptable {
         }
         let distance = this.LookDistance();
         return APM_Vector((left.X + right.X) * 0.5 + (gl.X + gr.X) * 0.5 * distance, (left.Y + right.Y) * 0.5 + (gl.Y + gr.Y) * 0.5 * distance, (left.Z + right.Z) * 0.5 + (gl.Z + gr.Z) * 0.5 * distance, 1.0);
+    }
+
+    // Sends the camera to the plugin in V's model space (full poses turn towards it with "Look at camera").
+    private func PublishCamera() {
+        if !APM_IsPhotoModeActive() || !IsDefined(this.m_controller) {
+            return;
+        }
+        let player = this.m_controller.GetPlayerControlledObject();
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(player) || !IsDefined(component) {
+            return;
+        }
+        let camera = GameInstance.GetCameraSystem(player.GetGame());
+        let cameraTransform: Transform;
+        if !camera.GetActiveCameraWorldTransform(cameraTransform) {
+            return;
+        }
+        let toWorld = component.GetLocalToWorld();
+        APM_SetCameraModel(APM_WorldToModelPoint(toWorld, cameraTransform.position), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraForward()), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()));
     }
 
     private func UpdateMarkers() {

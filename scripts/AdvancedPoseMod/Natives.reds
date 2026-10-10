@@ -89,6 +89,9 @@ public native func APM_SetNeutralPose(armsDown: Bool) -> Bool
 // Turns a part (an eye) to look at a model-space point
 public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // Mouse wheel kept from the game while captured; ConsumeWheel returns the sum since the last call (120 per notch)
+// The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
+// Photo Mode's "Look at camera" is on.
+public native func APM_SetCameraModel(position: Vector4, forward: Vector4, up: Vector4)
 public native func APM_SetWheelCapture(capture: Bool)
 public native func APM_ConsumeWheel() -> Int32
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
