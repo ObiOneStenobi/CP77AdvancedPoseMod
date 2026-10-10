@@ -269,6 +269,11 @@ public class APM_PoseEditor extends IScriptable {
     private let m_sectionPoses: wref<inkCanvas>;
     private let m_posesBody: wref<inkCanvas>;
     private let m_sectionItems: wref<inkCanvas>;
+    private let m_sectionFace: wref<inkCanvas>;   // expression mixer (folds)
+    private let m_faceBody: wref<inkCanvas>;
+    private let m_faceOpen: Bool;
+    private let m_faceStatus: wref<inkText>;
+    private let m_faceNames: array<ref<APM_Button>>; // expression of each face region
     private let m_posesOpen: Bool;
     // Item picker (search list next to the panel)
     private let m_picker: wref<inkCanvas>;
@@ -363,6 +368,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
+        this.m_faceOpen = APM_SessionGet("FaceOpen", 0.0) > 0.5;
         this.m_autoIk = APM_SessionGet("AutoIk", 1.0) > 0.5;
         this.m_eyesTogether = APM_SessionGet("EyesTogether", 1.0) > 0.5;
 
@@ -637,6 +643,38 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, "Give back the item of the Photo Mode pose");
         this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, "Empty the left hand");
 
+        // Expression mixer (folds): per face region, a recorded Photo Mode expression and its strength
+        let face = this.CreateSection(n"APM_Face");
+        this.m_sectionFace = face;
+        this.AddSeparator(face);
+        this.CreateText(face, "Expression", 16.0, 6.0, 200.0, 28.0, 16, APM_ColorAccent());
+        this.CreateIconButton(face, "face:forget", "rotate-ccw", 538.0, 6.0, "Forget the recorded expressions (they are recorded again as you choose them in Photo Mode)");
+        this.CreateIconButton(face, "face:open", "chevron-down", 584.0, 6.0, "Show the expression mixer");
+        this.CreateIconButton(face, "face:close", "chevron-up", 584.0, 6.0, "Hide the expression mixer");
+        let faceBody = new inkCanvas();
+        faceBody.SetName(n"APM_FaceBody");
+        faceBody.SetAnchor(inkEAnchor.TopLeft);
+        faceBody.SetMargin(0.0, 40.0 * s, 0.0, 0.0);
+        faceBody.SetSize(width * s, 178.0 * s);
+        faceBody.Reparent(face);
+        this.m_faceBody = faceBody;
+        this.m_faceStatus = this.CreateText(faceBody, "", 16.0, 0.0, 608.0, 26.0, 13, APM_ColorDimText());
+        let regionNames: array<String> = ["Brows", "Eyes", "Mouth", "Jaw"];
+        let r = 0;
+        while r < 4 {
+            let rowY = 30.0 + Cast<Float>(r) * 36.0;
+            let key = IntToString(r);
+            let regionLabel = this.CreateText(faceBody, regionNames[r], 16.0, rowY, 90.0, 32.0, 15, APM_ColorText());
+            this.CreateButton(faceBody, "face:prev:" + key, "<", 106.0, rowY, 36.0, 32.0);
+            let nameButton = this.CreateButton(faceBody, "face:next:" + key, "", 146.0, rowY, 222.0, 32.0);
+            nameButton.label.SetLetterCase(textLetterCase.OriginalCase);
+            ArrayPush(this.m_faceNames, nameButton);
+            this.CreateButton(faceBody, "face:next:" + key, ">", 372.0, rowY, 36.0, 32.0);
+            this.CreateFaceStrengthRow(faceBody, regionLabel, 7730u + Cast<Uint32>(r), rowY);
+            this.CreateIconButton(faceBody, "face:clear:" + key, "x", 584.0, rowY + 1.0, "No expression on the " + StrLower(regionNames[r]));
+            r += 1;
+        }
+
         this.BuildPicker();
         this.BuildHelp();
         this.BuildTooltip(); // last: drawn above the panel, the item list and the help
@@ -663,6 +701,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_posesBody.SetVisible(this.m_posesOpen);
         y = this.PlaceSection(this.m_sectionPoses, y, this.m_posesOpen ? 218.0 : 40.0, true);
         y = this.PlaceSection(this.m_sectionItems, y, 82.0, true);
+        this.m_faceBody.SetVisible(this.m_faceOpen);
+        y = this.PlaceSection(this.m_sectionFace, y, this.m_faceOpen ? 218.0 : 40.0, true);
         y += 8.0;
         this.m_panel.SetSize(APM_PanelWidth() * s, y * s);
     }
@@ -1175,6 +1215,88 @@ public class APM_PoseEditor extends IScriptable {
         ArrayPush(this.m_rows, row);
     }
 
+    // Strength of a face region's expression: a value dragged left / right (percent).
+    private func CreateFaceStrengthRow(parent: wref<inkCompoundWidget>, label: wref<inkText>, attribute: Uint32, y: Float) {
+        let row = new APM_ValueRow();
+        row.attribute = attribute;
+        row.minValue = 0.0;
+        row.maxValue = 100.0;
+        row.step = 5.0;
+        row.dragScale = 0.25;
+        row.unit = "%";
+        row.label = label;
+        row.value = this.CreateButton(parent, "drag:" + IntToString(Cast<Int32>(attribute)), "0", 414.0, y, 164.0, 32.0);
+        row.value.tooltip = "Strength: drag left / right";
+        let left = this.CreateText(row.value.root, "<", 10.0, 0.0, 20.0, 32.0, 17, APM_ColorDimText());
+        left.SetInteractive(false);
+        let right = this.CreateText(row.value.root, ">", 142.0, 0.0, 20.0, 32.0, 17, APM_ColorDimText());
+        right.SetInteractive(false);
+        ArrayPush(this.m_rows, row);
+    }
+
+    // Expressions a face region can take: none, then the recorded ones in Photo Mode's order.
+    private func FaceOptions() -> array<Int32> {
+        let options: array<Int32>;
+        ArrayPush(options, -1);
+        let count = APM_FaceChoiceCount();
+        let i = 0;
+        while i < count {
+            let value = APM_FaceChoiceValue(i);
+            if APM_FaceIsRecorded(value) && i > 0 {
+                ArrayPush(options, value); // the first choice is the neutral face the others are measured from
+            }
+            i += 1;
+        }
+        return options;
+    }
+
+    private func StepFaceExpression(region: Int32, direction: Int32) {
+        let options = this.FaceOptions();
+        let current = APM_FaceGetExpression(region);
+        let index = 0;
+        let i = 0;
+        while i < ArraySize(options) {
+            if options[i] == current {
+                index = i;
+            }
+            i += 1;
+        }
+        let count = ArraySize(options);
+        index = (index + direction + count) % count;
+        APM_HistoryCheckpoint();
+        APM_FaceSetExpression(region, options[index]);
+    }
+
+    private func RefreshFace() {
+        let openButton = this.FindButton("face:open");
+        let closeButton = this.FindButton("face:close");
+        if IsDefined(openButton) && IsDefined(closeButton) {
+            openButton.root.SetVisible(!this.m_faceOpen);
+            closeButton.root.SetVisible(this.m_faceOpen);
+        }
+        let choices = APM_FaceChoiceCount();
+        let recorded = APM_FaceRecordedCount();
+        let status = "";
+        if choices == 0 {
+            status = "Open Photo Mode's facial expressions to start";
+        } else if !APM_FaceNeutralRecorded() {
+            status = "Choose \"" + APM_FaceChoiceName(0) + "\" as Photo Mode's facial expression to start";
+        } else if recorded < choices {
+            status = "Recorded " + IntToString(recorded) + " / " + IntToString(choices) + " - choose the others in Photo Mode to add them";
+        } else {
+            status = "Keep Photo Mode's expression on \"" + APM_FaceChoiceName(0) + "\" for an exact mix";
+        }
+        this.m_faceStatus.SetText(status);
+        let r = 0;
+        while r < ArraySize(this.m_faceNames) {
+            let value = APM_FaceGetExpression(r);
+            this.m_faceNames[r].label.SetText(value < 0 ? "None" : APM_FaceNameOf(value));
+            this.m_faceNames[r].isMarked = value >= 0;
+            this.m_faceNames[r].UpdateLook();
+            r += 1;
+        }
+    }
+
     // --- State -----------------------------------------------------------------------------------------------------
 
     private func SetOpen(open: Bool) {
@@ -1396,6 +1518,10 @@ public class APM_PoseEditor extends IScriptable {
             y += section.top / s;
         } else if Equals(name, n"APM_PosesBody") {
             let section = this.m_sectionPoses.GetMargin();
+            x += section.left / s;
+            y += section.top / s;
+        } else if Equals(name, n"APM_FaceBody") {
+            let section = this.m_sectionFace.GetMargin();
             x += section.left / s;
             y += section.top / s;
         }
@@ -2207,6 +2333,7 @@ public class APM_PoseEditor extends IScriptable {
         this.SetButton("overwrite", false, hasSelection);
         this.SetButton("load", false, hasSelection);
         this.RefreshProps();
+        this.RefreshFace();
         this.SetButton("mirror", APM_IsMirror(), true);
         this.SetButton("undo", false, APM_CanUndo());
         this.SetButton("redo", false, APM_CanRedo());
@@ -3250,6 +3377,22 @@ public class APM_PoseEditor extends IScriptable {
             APM_SessionSet("PosesOpen", this.m_posesOpen ? 1.0 : 0.0);
         } else if Equals(prefix, "prop") {
             this.RunPropButton(arg);
+        } else if Equals(id, "face:open") || Equals(id, "face:close") {
+            this.m_faceOpen = Equals(id, "face:open");
+            APM_SessionSet("FaceOpen", this.m_faceOpen ? 1.0 : 0.0);
+        } else if Equals(id, "face:forget") {
+            APM_FaceForget();
+        } else if Equals(prefix, "face") {
+            let action = StrBeforeFirst(arg, ":");
+            let region = StringToInt(StrAfterFirst(arg, ":"));
+            if Equals(action, "prev") {
+                this.StepFaceExpression(region, -1);
+            } else if Equals(action, "next") {
+                this.StepFaceExpression(region, 1);
+            } else if Equals(action, "clear") {
+                APM_HistoryCheckpoint();
+                APM_FaceSetExpression(region, -1);
+            }
         } else if Equals(id, "undo") {
             APM_Undo();
         } else if Equals(id, "redo") {
@@ -3573,6 +3716,26 @@ protected cb func OnInitialize() -> Bool {
     let result = wrappedMethod();
     this.m_apmPoseEditor = new APM_PoseEditor();
     this.m_apmPoseEditor.Initialize(this);
+    return result;
+}
+
+// Photo Mode's facial expression choices (attribute 28), for the expression mixer.
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnSetupOptionSelector(attribute: Uint32, values: array<PhotoModeOptionSelectorData>, startData: Int32, doApply: Bool) -> Bool {
+    let result = wrappedMethod(attribute, values, startData, doApply);
+    if attribute == 28u {
+        APM_FaceBeginChoices();
+        let i = 0;
+        while i < ArraySize(values) {
+            let text = values[i].optionText;
+            if StrBeginsWith(text, "LocKey#") {
+                text = GetLocalizedText(text);
+            }
+            APM_FaceAddChoice(text, values[i].optionData);
+            i += 1;
+        }
+        APM_FaceEndChoices(startData);
+    }
     return result;
 }
 

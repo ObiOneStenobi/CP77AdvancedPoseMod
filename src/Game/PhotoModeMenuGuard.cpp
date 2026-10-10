@@ -1,6 +1,7 @@
 #include "Game/PhotoModeMenuGuard.hpp"
 
 #include "Core/Log.hpp"
+#include "Pose/FaceExpressions.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -35,6 +36,7 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
         APM::Log::Info("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
     }
     APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
+    APM::Pose::FaceExpressions::OnPhotoModeAttribute(aAttribute, aValue);
     g_origForward(aCallback, aAttribute, aValue, aApply);
 }
 

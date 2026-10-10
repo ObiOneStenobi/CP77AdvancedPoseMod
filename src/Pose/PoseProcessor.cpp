@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/FaceExpressions.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -683,59 +684,6 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
 // ---------------------------------------------------------------------------------------------------------------------
 // Secondary skeletons: FK + IK deltas from the main skeleton
 // ---------------------------------------------------------------------------------------------------------------------
-// Diagnostic (every 2 s while a hand or foot is twisted): does the game turn the twist helper bones of the
-// deformation rig (calf, forearm) with our edits? Twist angles in degrees around the limb, from the reference pose.
-float TwistDegrees(const Quat& aRotation, const Vec3& aAxis)
-{
-    const Vec3 v{aRotation.i, aRotation.j, aRotation.k};
-    return 2.f * std::atan2(APM::Math::Dot(v, aAxis), aRotation.r) * 57.29578f;
-}
-
-void LogTwistHelpers(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
-{
-    static bool announced = false;
-    if (!announced)
-    {
-        announced = true;
-        APM::Log::Info("Twist probe: watching %s (%u bones)", aTarget.debugName.c_str(), aCount);
-    }
-    static ULONGLONG last = 0;
-    const ULONGLONG now = GetTickCount64();
-    if (now - last < 2000)
-    {
-        return;
-    }
-    struct Probe
-    {
-        const char* end;
-        const char* helper;
-    };
-    static constexpr Probe Probes[] = {{"LeftFoot", "l_calf_0_JNT"}, {"RightFoot", "r_calf_0_JNT"},
-                                       {"LeftHand", "l_Wrist_1_JNT"}, {"RightHand", "r_Wrist_1_JNT"}};
-    for (const auto& probe : Probes)
-    {
-        const int32_t end = IndexOf(aTarget, Hash(probe.end));
-        const int32_t helper = IndexOf(aTarget, Hash(probe.helper));
-        if (end < 0 || helper < 0 || static_cast<uint32_t>(end) >= aCount || static_cast<uint32_t>(helper) >= aCount ||
-            static_cast<size_t>(end) >= aTarget.refRotationsLS.size() || static_cast<size_t>(helper) >= aTarget.refRotationsLS.size() ||
-            static_cast<size_t>(end) >= aTarget.refTranslationsLS.size())
-        {
-            continue;
-        }
-        const Vec3 axis = APM::Math::Normalize(aTarget.refTranslationsLS[end]); // along the shin / forearm
-        const Quat endChange = APM::Math::Mul(GetRotation(aBones[end]), APM::Math::Conjugate(aTarget.refRotationsLS[end]));
-        const Quat helperChange = APM::Math::Mul(GetRotation(aBones[helper]), APM::Math::Conjugate(aTarget.refRotationsLS[helper]));
-        const float endTwist = TwistDegrees(endChange, axis);
-        if (std::abs(endTwist) < 3.f)
-        {
-            continue;
-        }
-        last = now;
-        APM::Log::Info("Twist probe (%s): %s twist %.1f, %s twist %.1f", aTarget.debugName.c_str(), probe.end, endTwist,
-                       probe.helper, TwistDegrees(helperChange, axis));
-    }
-}
-
 void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                               const APM::Pose::OverrideSnapshot& aPose)
 {
@@ -743,12 +691,12 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     // from the already edited main pose, one after the other. Editing those bones again multiplied every edit
     // (a chest bent by 8 degrees was drawn bent by about 55). Only bones that do not follow the main skeleton
     // are edited here: the linked ones, such as the face rig's eyeballs.
+    if (aTarget.debugName == "face_rig")
+    {
+        APM::Pose::FaceExpressions::Apply(aTarget, aBones, aCount, aPose.face);
+    }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
-    if (aTarget.debugName == "deformations")
-    {
-        LogTwistHelpers(aTarget, aBones, aCount);
-    }
 }
 } // namespace
 

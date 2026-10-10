@@ -73,15 +73,41 @@ struct BasePose
     std::vector<BasePoseBone> bones;
 };
 
+// Expression mixer (Pose/FaceExpressions): per face region, a recorded Photo Mode expression (the value the game
+// uses for it, -1 = none) and its strength (0..1).
+constexpr size_t FaceRegionCount = 4; // brows, eyes, mouth, jaw
+struct FaceRegionMix
+{
+    int32_t expression = -1;
+    float weight = 0.f;
+
+    bool IsActive() const { return expression >= 0 && weight > 0.f; }
+    bool operator==(const FaceRegionMix&) const = default;
+};
+using FaceMix = std::array<FaceRegionMix, FaceRegionCount>;
+
+inline bool AnyFaceMix(const FaceMix& aMix)
+{
+    for (const auto& region : aMix)
+    {
+        if (region.IsActive())
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 struct OverrideSnapshot
 {
     std::vector<BoneOverride> bones;
     std::array<IkChainSettings, IkChainCount> ik{};
     std::shared_ptr<const BasePose> base;
+    FaceMix face{};
 
     bool IsEmpty() const
     {
-        if (!bones.empty() || base)
+        if (!bones.empty() || base || AnyFaceMix(face))
         {
             return false;
         }
@@ -131,6 +157,10 @@ bool Save(const std::string& aName);
 std::string GetBasePoseName();
 // Replaces the Photo Mode pose with a neutral one ("T" = reference pose, "A" = arms lowered), clearing the edits.
 bool SetNeutralPose(bool aArmsDown);
+
+// Expression mixer of a face region (see FaceMix); saved with poses, part of undo / redo.
+void SetFaceRegion(size_t aRegion, const FaceRegionMix& aMix);
+FaceRegionMix GetFaceRegion(size_t aRegion);
 
 // Items held in the hands (TweakDB record ids as numbers, 0 = none); saved with poses.
 void SetHandProp(bool aRightHand, uint64_t aRecord);

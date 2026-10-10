@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Pose/FaceExpressions.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/LookAtCamera.hpp"
 #include "Pose/PoseOverrides.hpp"
@@ -481,6 +482,121 @@ void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     aFrame->code++;
     APM::Pose::LookAtCamera::SetCamera({position.X, position.Y, position.Z}, {forward.X, forward.Y, forward.Z},
                                        {up.X, up.Y, up.Z});
+}
+
+// --- Expression mixer --------------------------------------------------------------------------------------------
+std::vector<std::string> g_faceNames;
+std::vector<int32_t> g_faceValues;
+
+void FaceBeginChoices(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    aFrame->code++;
+    g_faceNames.clear();
+    g_faceValues.clear();
+}
+
+void FaceAddChoice(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    CString name;
+    int32_t value = 0;
+    RED4ext::GetParameter(aFrame, &name);
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    g_faceNames.emplace_back(name.c_str());
+    g_faceValues.push_back(value);
+}
+
+void FaceEndChoices(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t current = 0;
+    RED4ext::GetParameter(aFrame, &current);
+    aFrame->code++;
+    APM::Pose::FaceExpressions::SetChoices(g_faceNames, g_faceValues);
+    APM::Pose::FaceExpressions::OnPhotoModeAttribute(28, static_cast<float>(current));
+}
+
+void FaceChoiceCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(APM::Pose::FaceExpressions::GetChoiceCount()));
+}
+
+void FaceChoiceName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    Return(aOut, CString(index >= 0 ? APM::Pose::FaceExpressions::GetChoiceName(static_cast<size_t>(index)).c_str() : ""));
+}
+
+void FaceChoiceValue(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    Return(aOut, index >= 0 ? APM::Pose::FaceExpressions::GetChoiceValue(static_cast<size_t>(index)) : -1);
+}
+
+void FaceNameOf(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t value = 0;
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::FaceExpressions::GetNameOf(value).c_str()));
+}
+
+void FaceIsRecorded(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t value = 0;
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    Return(aOut, APM::Pose::FaceExpressions::IsRecorded(value));
+}
+
+void FaceRecordedCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(APM::Pose::FaceExpressions::RecordedCount()));
+}
+
+void FaceNeutralRecorded(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Pose::FaceExpressions::IsNeutralRecorded());
+}
+
+void FaceForget(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    aFrame->code++;
+    APM::Pose::FaceExpressions::ForgetRecordings();
+}
+
+void FaceGetExpression(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t region = 0;
+    RED4ext::GetParameter(aFrame, &region);
+    aFrame->code++;
+    Return(aOut, region >= 0 ? APM::Pose::PoseOverrides::GetFaceRegion(static_cast<size_t>(region)).expression : -1);
+}
+
+void FaceSetExpression(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t region = 0;
+    int32_t value = -1;
+    RED4ext::GetParameter(aFrame, &region);
+    RED4ext::GetParameter(aFrame, &value);
+    aFrame->code++;
+    if (region < 0)
+    {
+        return;
+    }
+    auto mix = APM::Pose::PoseOverrides::GetFaceRegion(static_cast<size_t>(region));
+    mix.expression = value;
+    if (value >= 0 && mix.weight <= 0.f)
+    {
+        mix.weight = 1.f; // a newly chosen expression starts at full strength
+    }
+    APM::Pose::PoseOverrides::SetFaceRegion(static_cast<size_t>(region), mix);
 }
 
 void SetWheelCapture(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -1106,6 +1222,19 @@ void Register()
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
     ::Register("APM_SetCameraModel", &SetCameraModel, nullptr,
                {{"Vector4", "position"}, {"Vector4", "forward"}, {"Vector4", "up"}});
+    ::Register("APM_FaceBeginChoices", &FaceBeginChoices, nullptr, {});
+    ::Register("APM_FaceAddChoice", &FaceAddChoice, nullptr, {{"String", "name"}, {"Int32", "value"}});
+    ::Register("APM_FaceEndChoices", &FaceEndChoices, nullptr, {{"Int32", "current"}});
+    ::Register("APM_FaceChoiceCount", &FaceChoiceCount, "Int32", {});
+    ::Register("APM_FaceChoiceName", &FaceChoiceName, "String", {{"Int32", "index"}});
+    ::Register("APM_FaceChoiceValue", &FaceChoiceValue, "Int32", {{"Int32", "index"}});
+    ::Register("APM_FaceNameOf", &FaceNameOf, "String", {{"Int32", "value"}});
+    ::Register("APM_FaceIsRecorded", &FaceIsRecorded, "Bool", {{"Int32", "value"}});
+    ::Register("APM_FaceRecordedCount", &FaceRecordedCount, "Int32", {});
+    ::Register("APM_FaceNeutralRecorded", &FaceNeutralRecorded, "Bool", {});
+    ::Register("APM_FaceForget", &FaceForget, nullptr, {});
+    ::Register("APM_FaceGetExpression", &FaceGetExpression, "Int32", {{"Int32", "region"}});
+    ::Register("APM_FaceSetExpression", &FaceSetExpression, nullptr, {{"Int32", "region"}, {"Int32", "value"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});

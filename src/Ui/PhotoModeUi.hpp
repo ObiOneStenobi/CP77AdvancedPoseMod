@@ -30,6 +30,7 @@ constexpr uint32_t IkY = 7713;
 constexpr uint32_t IkZ = 7714;
 constexpr uint32_t IkSwivel = 7715;
 constexpr uint32_t Slot = 7720;
+constexpr uint32_t FaceWeight = 7730; // 7730..7733: strength of each face region's expression (percent)
 // Action items: a selector with two options ("-" / "Apply"); choosing "Apply" runs the action.
 constexpr uint32_t ResetPart = 7721;
 constexpr uint32_t ResetAll = 7722;

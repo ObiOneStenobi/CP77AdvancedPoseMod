@@ -6,6 +6,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
+#include "Pose/FaceExpressions.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseProcessor.hpp"
@@ -299,6 +300,11 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        if (aTarget.debugName == "face_rig")
+        {
+            // Records the game's facial expressions as the player goes through them (expression mixer).
+            APM::Pose::FaceExpressions::Observe(aTarget, bones, boneCount);
+        }
         if (applyPose)
         {
             APM::Pose::PoseProcessor::Process(aTarget, bones, boneCount, *snapshot);

@@ -92,6 +92,21 @@ public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
 // Photo Mode's "Look at camera" is on.
 public native func APM_SetCameraModel(position: Vector4, forward: Vector4, up: Vector4)
+// Expression mixer: Photo Mode's expression choices, recordings, and the expression of each face region
+// (0 brows, 1 eyes, 2 mouth, 3 jaw; -1 = none). Strengths are UI attributes 7730..7733 (percent).
+public native func APM_FaceBeginChoices()
+public native func APM_FaceAddChoice(name: String, value: Int32)
+public native func APM_FaceEndChoices(current: Int32)
+public native func APM_FaceChoiceCount() -> Int32
+public native func APM_FaceChoiceName(index: Int32) -> String
+public native func APM_FaceChoiceValue(index: Int32) -> Int32
+public native func APM_FaceNameOf(value: Int32) -> String
+public native func APM_FaceIsRecorded(value: Int32) -> Bool
+public native func APM_FaceRecordedCount() -> Int32
+public native func APM_FaceNeutralRecorded() -> Bool
+public native func APM_FaceForget()
+public native func APM_FaceGetExpression(region: Int32) -> Int32
+public native func APM_FaceSetExpression(region: Int32, value: Int32)
 public native func APM_SetWheelCapture(capture: Bool)
 public native func APM_ConsumeWheel() -> Int32
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
