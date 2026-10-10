@@ -5,3 +5,4 @@ out/
 CMakeUserPresets.json
 dist/
 Claude outputs/
+release/
