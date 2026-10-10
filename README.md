@@ -2,13 +2,23 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-> Status: **phase 4 – pose editor**. V can be posed bone by bone in Photo Mode from the **Pose editor** panel and
-> with gizmos on the joints (rotation, IK for hands and feet, eyes), and whole poses can be saved and loaded.
+V can be posed bone by bone in Photo Mode from the **Pose editor** panel and with gizmos on the joints (rotation,
+IK for hands and feet, hand presets, eyes, items in hand), and whole poses can be saved, loaded and shared.
+
+## Download
+
+- [GitHub Releases](https://github.com/ObiOneStenobi/CP77AdvancedPoseMod/releases): `AdvancedPoseMod-<version>.zip`
+
+Install with Vortex, or extract the zip into the game folder (the one containing `bin`).
 
 ## Requirements
 
-- Cyberpunk 2077 2.31
+- Cyberpunk 2077 2.31 (PC)
 - [RED4ext](https://docs.red4ext.com) 1.30+
+- [redscript](https://github.com/jac3km4/redscript)
+
+To build from source:
+
 - Visual Studio 2022 with the **Desktop development with C++** workload (includes CMake and Git)
 
 ## Build
