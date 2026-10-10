@@ -890,9 +890,9 @@ bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
     }
     const Math::Vec3 local = Math::Rotate(Math::Conjugate(parent), aModelDelta);
     auto translation = CurrentTranslation();
-    translation[0] = std::clamp(translation[0] + local.x, -1.f, 1.f);
-    translation[1] = std::clamp(translation[1] + local.y, -1.f, 1.f);
-    translation[2] = std::clamp(translation[2] + local.z, -1.f, 1.f);
+    translation[0] = std::clamp(translation[0] + local.x, -10.f, 10.f);
+    translation[1] = std::clamp(translation[1] + local.y, -10.f, 10.f);
+    translation[2] = std::clamp(translation[2] + local.z, -10.f, 10.f);
     Pose::PoseOverrides::SetTranslation(bone, translation[0], translation[1], translation[2]);
     MirrorCurrentPart();
     RequestRefresh();

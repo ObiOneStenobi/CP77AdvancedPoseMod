@@ -90,6 +90,8 @@ closer.
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
   position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
   third row is their **focus distance** (nearer = more converged).
+- **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag rotates
+  it. Turned off, dragging rotates the hand / foot like any other bone and Shift+drag moves it with IK.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.

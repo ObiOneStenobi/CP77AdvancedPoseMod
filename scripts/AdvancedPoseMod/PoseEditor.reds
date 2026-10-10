@@ -297,6 +297,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_markers: array<ref<APM_Marker>>;
     private let m_lineLayer: wref<inkCanvas>;
     private let m_hipsPart: Int32;
+    private let m_autoIk: Bool; // dragging a hand / foot uses IK (else it rotates; Shift swaps)
     private let m_rootDot: wref<inkRectangle>;  // V's root (where Photo Mode placed her): saved hips positions are relative to it
     private let m_rootLine: wref<inkRectangle>;
     private let m_rootLabel: wref<inkText>;
@@ -352,6 +353,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
+        this.m_autoIk = APM_SessionGet("AutoIk", 1.0) > 0.5;
 
         let layer = new inkCanvas();
         layer.SetName(n"APM_PoseEditorLayer");
@@ -474,6 +476,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
         this.CreateIconButton(header, "limits:on", "lock", 260.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
         this.CreateIconButton(header, "limits:off", "lock-open", 260.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
+        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates). Off: dragging rotates it (Shift moves it with IK)");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -518,9 +521,9 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionMove = move;
         this.AddSeparator(move);
         this.CreateText(move, "Move (cm)", 16.0, 6.0, 300.0, 26.0, 18, APM_ColorAccent());
-        this.CreateRow(move, 7705u, "Left / right", 34.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateRow(move, 7706u, "Forward / back", 70.0, -100.0, 100.0, 0.5, 0.05, " cm");
-        this.CreateRow(move, 7707u, "Up / down", 106.0, -100.0, 100.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7705u, "Left / right", 34.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7706u, "Forward / back", 70.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7707u, "Up / down", 106.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
 
         // IK: limb + pin; the rows only while that limb is pinned
         let ik = this.CreateSection(n"APM_Ik");
@@ -549,9 +552,9 @@ public class APM_PoseEditor extends IScriptable {
         ikRows.SetSize(width * s, 148.0 * s);
         ikRows.Reparent(ik);
         this.m_ikRows = ikRows;
-        this.CreateRow(ikRows, 7712u, "Right / left", 0.0, -80.0, 80.0, 0.5, 0.05, " cm");
-        this.CreateRow(ikRows, 7713u, "Forward / back", 36.0, -80.0, 80.0, 0.5, 0.05, " cm");
-        this.CreateRow(ikRows, 7714u, "Up / down", 72.0, -80.0, 80.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7712u, "Right / left", 0.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7713u, "Forward / back", 36.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7714u, "Up / down", 72.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
         this.CreateRow(ikRows, 7715u, "Elbow / knee", 108.0, -180.0, 180.0, 1.0, 0.2, "");
 
         // Pose library (folds)
@@ -2117,6 +2120,7 @@ public class APM_PoseEditor extends IScriptable {
         let base = APM_GetBasePoseName();
         this.m_posesTitle.SetText("Poses " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
             + (StrLen(base) > 0 ? "  - " + base : ""));
+        this.SetButton("autoik", this.m_autoIk, true);
         let limitsOn = this.FindButton("limits:on");
         let limitsOff = this.FindButton("limits:off");
         if IsDefined(limitsOn) && IsDefined(limitsOff) {
@@ -2362,7 +2366,7 @@ public class APM_PoseEditor extends IScriptable {
         let text = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
         if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
-                text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
+                text += this.m_autoIk ? "   (Shift: rotate, Alt: free, Ctrl: twist)" : "   (Shift: move with IK, Alt: free, Ctrl: twist)";
             } else if marker.part == this.m_hipsPart {
                 text += "   (Shift: rotate, Alt: free, Ctrl: twist)";
             } else if marker.canMove {
@@ -2663,7 +2667,8 @@ public class APM_PoseEditor extends IScriptable {
             return APM_DragMove();
         }
         if marker.chain >= 0 {
-            return shift ? APM_DragRotate() : APM_DragIkMove();
+            // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: the other way round.
+            return Equals(shift, this.m_autoIk) ? APM_DragRotate() : APM_DragIkMove();
         }
         if marker.swivelChain >= 0 && !shift && APM_GizmoIsIkActive(marker.swivelChain) {
             return APM_DragSwivel();
@@ -2797,9 +2802,9 @@ public class APM_PoseEditor extends IScriptable {
             }
             let worldDelta = APM_Vector(target.X - this.m_dragStartWorld.X, target.Y - this.m_dragStartWorld.Y, target.Z - this.m_dragStartWorld.Z, 0.0);
             let modelDelta = APM_GizmoIkModelToOffset(marker.chain, APM_WorldToModelDirection(toWorld, worldDelta));
-            APM_UiSetValue(7712u, ClampF(this.m_dragStartOffset.X + modelDelta.X * 100.0, -80.0, 80.0));
-            APM_UiSetValue(7713u, ClampF(this.m_dragStartOffset.Y + modelDelta.Y * 100.0, -80.0, 80.0));
-            APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -80.0, 80.0));
+            APM_UiSetValue(7712u, ClampF(this.m_dragStartOffset.X + modelDelta.X * 100.0, -1000.0, 1000.0));
+            APM_UiSetValue(7713u, ClampF(this.m_dragStartOffset.Y + modelDelta.Y * 100.0, -1000.0, 1000.0));
+            APM_UiSetValue(7714u, ClampF(this.m_dragStartOffset.Z + modelDelta.Z * 100.0, -1000.0, 1000.0));
         } else if this.m_dragMode == APM_DragSwivel() {
             this.TurnElbowTowardsCursor(camera, toWorld, marker.swivelChain, dx, dy);
         } else if this.m_dragMode == APM_DragMove() {
@@ -3090,6 +3095,9 @@ public class APM_PoseEditor extends IScriptable {
             APM_Undo();
         } else if Equals(id, "redo") {
             APM_Redo();
+        } else if Equals(id, "autoik") {
+            this.m_autoIk = !this.m_autoIk;
+            APM_SessionSet("AutoIk", this.m_autoIk ? 1.0 : 0.0);
         } else if Equals(prefix, "limits") {
             APM_SetLimits(!APM_AreLimitsOn());
         } else if Equals(id, "mirror") {
