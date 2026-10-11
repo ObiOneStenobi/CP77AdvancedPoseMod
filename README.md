@@ -159,6 +159,16 @@ to `probe\`.
 
 Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.json`.
 
+## Known limitations
+
+- Only V is posed. Characters added in Photo Mode (base game or character packs) keep the game's animation; posing
+  them is planned. Non-humanoid characters (animals, objects) have unrelated skeletons and will stay unsupported.
+- The eyelids follow edited eyes with the share measured for each of the 15 base game expressions; expressions added
+  by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
+- No face controls or saved expressions yet; the face keeps the Photo Mode expression.
+- No automatic feet on the ground: place the feet with IK.
+- Built for game version 2.31; after a game update the panel reports an unsupported version until the mod is updated.
+
 ## Pose file format
 
 ```json

@@ -1,5 +1,7 @@
 """Builds src/Pose/EyelidFollowData.inc from AdvancedPoseMod logs written with the EyelidProbe ([Debug] Log=1).
 
+The probe (Pose/FaceRig.cpp, LogEyelidProbe) was removed once the table was built; it is in the git history (1.1.0).
+
 Usage: python tools/eyelid_follow_fit.py <advancedposemod-*.log> [more logs] > src/Pose/EyelidFollowData.inc
 
 The probe logs, as the game animated them, the turn of both eyes and the turn / move of every eyelid bone relative to the
