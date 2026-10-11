@@ -54,7 +54,9 @@ Found by the probe (2.31), for V's body graph (`root` component, 71 bones):
 Call stack of the outermost `Output::Sample` (2.31): `+0x2CA36F +0x2CA19B +0x1E1AFB +0x328B35 +0x1D31F9 ...`
 
 V's Photo Mode puppet has these animated components: `root` (71, main skeleton incl. fingers),
-`deformations` (181), `face_rig` (344), `shadow` (56), `breasts` (20), 3x `hair_dangle`, and one weapon/prop rig.
+`deformations` (181), `face_rig` (344), `shadow` (56), `breasts` (20), 3x `hair_dangle`, one weapon/prop rig, and the
+dangle rigs of some clothes (e.g. `tony_long_open_coat_dangle`, 17 bones). Female and male V use the same rig
+resources (identical hashes and reference poses); only the extra components differ.
 
 ## Photo Mode
 
@@ -62,7 +64,25 @@ Hashes and `gamePhotoModeSystem` offsets come from PhotoModeEx (psiberx, MIT):
 
 - `PhotoModeSystem::Activate` 2593396187, `Deactivate` 3043759683,
   `SpawnCharacter` 978529375, `ApplyPuppetTransforms` 2694650124
-- Player list: `DynArray<PhotoModeCharacter>` at `+0x130`, element size `0x190`, puppet handle at `+0x00`.
+- Player list: `DynArray<PhotoModeCharacter>` at `+0x130`, element size `0x190`, puppet handle at `+0x00`,
+  character type (uint32) at `+0x5C` (1 = female V, 2 = male V, 4 = NPC). V is slot 0; `+0x140` also points to it.
+
+### Characters added in Photo Mode (1.1.0 probe)
+
+- `+0x180` is the catalog of every character Photo Mode can add: `DynArray<PhotoModeCharacter>`, element size `0x190`,
+  257 entries with a character pack installed (base game + mods registered through PhotoModeEx). Entries are
+  type 4; the puppet handle stays empty until the character is spawned.
+- `+0x1D0`, `+0x1D8`, `+0x1E0` point to the catalog entries of the (up to three) characters shown in the scene. Changing
+  a character spawns the new entry and the slot pointer moves to it.
+- `SpawnCharacter(system, character, transform, a4)` receives the catalog entry; the puppet is loaded asynchronously
+  (handle empty at the call, components and rigs some frames later).
+- `ApplyPuppetTransforms(system, list, group)` is called with the player list (group 0) and with the catalog
+  (`+0x180`, group 1).
+- Human NPCs (class `NPCPuppet`) use the same `root` (71), `deformations` (181) and `face_rig` (344) rigs as V (same rig
+  resources: identical hashes), plus their own clothing / hair dangle rigs (6-136 bones). Heavy bodies add extra
+  skeletons (e.g. `adam_smasher_extra_joints`, 85 bones; `leg_pistons`, 29 bones) on top of the standard ones.
+- Non-humanoid characters have unrelated rigs: a quadruped (`Animated5678`, 75 bones: `spine_01_JNT`...,
+  `frontLeg_*`, `backLeg_*`, `tail_*`) and props of class `gameObject` (`Animated8050`, 2 bones). Not supported yet.
 
 ## Rig
 
@@ -111,3 +131,31 @@ as the face rig's eyeballs).
 
 The `deformations` skeleton (181 bones, twist/muscle helpers) is never sampled through `animAnimNode_Output`, so
 the 0.4.1 twist-helper code never ran and was removed.
+
+## Photo Mode attributes read by the plugin
+
+Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); the plugin only reads them.
+
+| Attribute | Meaning | Values |
+|---:|---|---|
+| 15 | Look at camera | 0 off, 1 camera, 2 custom |
+| 74 | Look at camera target | 0 torso, 1 head, 2 eyes |
+| 28 | Facial expression | index in the menu list; 0-14 base game, mods append after |
+
+## Eyelids follow the eyes (1.1.0)
+
+Measured with the EyelidProbe (face rig bones as the game animated them, Look at camera on the eyes, camera moved up /
+down / sideways, every base game expression). The eye bones `l/r_J_eye_JNT` turn at most about 30 degrees down,
+21 up and 40 sideways (turn vector in the parent space: x sideways, z up / down).
+
+- The game moves 44 eyelid bones of each eye (`*_eye_lid_up_*`, `*_eye_lid_dn_*`; lashes and some rows only follow
+  their parents) almost linearly with the eye's pitch, with a different slope looking down and up. Neutral
+  expression, upper lid roots: 92-100 % of the eye turn down, 75 % up; lower lid roots: 58 % down, 35 % up. Sideways
+  matters little except at the corners.
+- Each expression keeps a share of that movement, per eye and per lid: expressions that hold the eyelids (squint,
+  wide eyes, wink, nearly closed) keep 5-40 % of the upper lid movement; most others 70-100 %. The share is a property
+  of the expression; it cannot be read from a single frame (an eyelid's position mixes the expression's shape and
+  the gaze).
+- `tools/eyelid_follow_fit.py` turns probe logs into `src/Pose/EyelidFollowData.inc` (per bone slopes, per expression
+  shares). Predicting "eyes straight -> 30 degrees down" from the table matches the game within 2-6 % of the lid
+  movement.

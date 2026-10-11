@@ -20,6 +20,8 @@
 #include <RED4ext/Scripting/Natives/Generated/ent/AnimatedComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/Entity.hpp>
 
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -187,6 +189,203 @@ void LinkBones(std::vector<APM::Pose::Target>& aTargets)
     }
 }
 
+// Research probe ([Debug] Log=1): where Photo Mode keeps the characters added to the scene and what they are made of.
+// - On every spawn: which field or array of gamePhotoModeSystem holds the new character (by value, by pointer or as
+//   a direct field), searched in the first 0x1000 bytes.
+// - On every ApplyPuppetTransforms: the character list the game passes (once per list / size / group).
+// - Once per puppet, when its model is loaded: the animated components of the characters of those lists and of the
+//   characters spawned in this session (rigs written to probe\ with DumpRig=1).
+std::set<uint64_t> g_probedPuppets;          // game thread only
+std::vector<uintptr_t> g_spawnedCharacters;  // game thread only
+std::set<std::string> g_probedLists;         // game thread only
+
+void ProbeSpawn(void* aSystem, void* aCharacter)
+{
+    using namespace APM;
+    if (!Log::g_verbose.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    const auto system = reinterpret_cast<uintptr_t>(aSystem);
+    const auto character = reinterpret_cast<uintptr_t>(aCharacter);
+    uint64_t puppet = 0;
+    uint32_t type = 0;
+    SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet);
+    SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, type);
+    Log::Verbose("CharacterProbe: spawn character=%p type=%u puppet=%p", aCharacter, type,
+                 reinterpret_cast<void*>(puppet));
+    if (std::find(g_spawnedCharacters.begin(), g_spawnedCharacters.end(), character) == g_spawnedCharacters.end())
+    {
+        g_spawnedCharacters.push_back(character);
+    }
+    bool found = false;
+    for (uintptr_t offset = 0; offset < 0x1000; offset += 8)
+    {
+        uint64_t field = 0;
+        if (!SafeMemory::ReadU64(system + offset, field))
+        {
+            continue;
+        }
+        if (field == character)
+        {
+            Log::Verbose("CharacterProbe: system+0x%llX points to it", static_cast<unsigned long long>(offset));
+            found = true;
+        }
+        RawArray array{};
+        if (!SafeMemory::ReadBytes(system + offset, &array, sizeof(array)) || !SafeMemory::LooksLikePointer(array.entries) ||
+            array.size == 0 || array.size > 256 || array.capacity < array.size || array.capacity > 4096)
+        {
+            continue;
+        }
+        if (character >= array.entries && character < array.entries + array.size * 0x1000)
+        {
+            const uintptr_t distance = character - array.entries;
+            Log::Verbose("CharacterProbe: inside the array at system+0x%llX (size %u), distance 0x%llX",
+                         static_cast<unsigned long long>(offset), array.size, static_cast<unsigned long long>(distance));
+            found = true;
+        }
+        for (uint32_t i = 0; i < array.size; ++i)
+        {
+            for (const uint32_t stride : {8u, 16u})
+            {
+                uint64_t element = 0;
+                if (SafeMemory::ReadU64(array.entries + i * stride, element) && element == character)
+                {
+                    Log::Verbose("CharacterProbe: the array at system+0x%llX (size %u) holds a pointer to it at index "
+                                 "%u (stride %u)",
+                                 static_cast<unsigned long long>(offset), array.size, i, stride);
+                    found = true;
+                }
+            }
+        }
+    }
+    if (!found)
+    {
+        Log::Verbose("CharacterProbe: nothing in the first 0x1000 bytes of the system refers to this character");
+    }
+}
+
+// Logs the animated components of a puppet (once per puppet). The puppet must look like a live entity.
+void ProbePuppet(uint64_t aPuppet, const char* aWhere, uint32_t aType)
+{
+    using namespace APM;
+    uint64_t vtable = 0;
+    if (!aPuppet || !SafeMemory::LooksLikePointer(aPuppet) || !SafeMemory::ReadU64(aPuppet, vtable) ||
+        !SafeMemory::IsInGameImage(vtable) || g_probedPuppets.contains(aPuppet))
+    {
+        return;
+    }
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* animatedCls = rtti ? rtti->GetClass("entAnimatedComponent") : nullptr;
+    auto* entityCls = rtti ? rtti->GetClass("entEntity") : nullptr;
+    auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(aPuppet);
+    auto* entityType = entity->GetType();
+    if (!animatedCls || !entityCls || !entityType || !entityType->IsA(entityCls))
+    {
+        return;
+    }
+    // Wait until the model is loaded: at spawn time the components and their rigs are not there yet.
+    uint32_t loadedRigs = 0;
+    for (auto& handle : entity->components)
+    {
+        auto* component = handle.GetPtr();
+        auto* cls = component ? component->GetType() : nullptr;
+        if (cls && cls->IsA(animatedCls) &&
+            reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component)->rig.IsLoaded())
+        {
+            ++loadedRigs;
+        }
+    }
+    if (loadedRigs == 0)
+    {
+        return;
+    }
+    g_probedPuppets.insert(aPuppet);
+    const auto config = Config::Get();
+    Log::Verbose("CharacterProbe: %s type=%u puppet=%p class=%s components=%u", aWhere, aType,
+                 reinterpret_cast<void*>(aPuppet), CNameToString(entityType->GetName()).c_str(),
+                 entity->components.Size());
+    for (auto& handle : entity->components)
+    {
+        auto* component = handle.GetPtr();
+        auto* cls = component ? component->GetType() : nullptr;
+        if (!cls || !cls->IsA(animatedCls))
+        {
+            continue;
+        }
+        auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
+        RED4ext::anim::Rig* rig = animated->rig.IsLoaded() ? animated->rig.Get().GetPtr() : nullptr;
+        Log::Verbose("CharacterProbe:   component %s bones=%u rig=%016llx", CNameToString(component->name).c_str(),
+                     rig ? rig->boneNames.Size() : 0u, rig ? static_cast<unsigned long long>(rig->hash) : 0ull);
+        if (rig && config.probeEnabled && config.probeDumpRig)
+        {
+            APM::Pose::Target target;
+            target.debugName = CNameToString(component->name);
+            DumpRig(target, rig);
+        }
+    }
+}
+
+void ProbeList(uintptr_t aList, const char* aWhere)
+{
+    using namespace APM;
+    RawArray list{};
+    if (!SafeMemory::ReadBytes(aList, &list, sizeof(list)) || list.size > 64 ||
+        (list.size && !SafeMemory::LooksLikePointer(list.entries)))
+    {
+        return;
+    }
+    for (uint32_t slot = 0; slot < list.size; ++slot)
+    {
+        const uintptr_t character = list.entries + slot * PhotoModeLayout::CharacterSize;
+        uint64_t puppet = 0;
+        uint32_t type = 0;
+        SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet);
+        SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, type);
+        char where[96];
+        std::snprintf(where, sizeof(where), "%s slot %u", aWhere, slot);
+        ProbePuppet(puppet, where, type);
+    }
+}
+
+void ProbeLists(void* aSystem, void* aCharacterList = nullptr, uint8_t aGroup = 0xFF)
+{
+    using namespace APM;
+    if (!Log::g_verbose.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    const auto system = reinterpret_cast<uintptr_t>(aSystem);
+    if (aCharacterList)
+    {
+        const auto list = reinterpret_cast<uintptr_t>(aCharacterList);
+        RawArray array{};
+        SafeMemory::ReadBytes(list, &array, sizeof(array));
+        char key[128];
+        const bool inside = list >= system && list < system + 0x1000;
+        std::snprintf(key, sizeof(key), "%s0x%llX group %u size %u", inside ? "system+" : "",
+                      static_cast<unsigned long long>(inside ? list - system : list), aGroup, array.size);
+        if (g_probedLists.insert(key).second)
+        {
+            Log::Verbose("CharacterProbe: ApplyPuppetTransforms list %s (entries=%p capacity=%u)", key,
+                         reinterpret_cast<void*>(array.entries), array.capacity);
+        }
+        ProbeList(list, "ApplyPuppetTransforms list");
+    }
+    ProbeList(system + PhotoModeLayout::PlayerList, "list system+0x130");
+    ProbeList(system + PhotoModeLayout::CharacterList, "list system+0x180");
+    for (const uintptr_t character : g_spawnedCharacters)
+    {
+        uint64_t puppet = 0;
+        uint32_t type = 0;
+        if (SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, type) && type == 4 &&
+            SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet))
+        {
+            ProbePuppet(puppet, "spawned character", type);
+        }
+    }
+}
+
 void RefreshTargets(void* aSystem)
 {
     using namespace APM;
@@ -323,6 +522,9 @@ bool Detour_Activate(void* aSystem)
     APM::Pose::LookAtCamera::Reset(); // the game starts every session with "Look at camera" off
     APM::Pose::LookAtCamera::ForgetCamera();
     APM::AnimGraphHook::OnPhotoModeActivated();
+    g_probedPuppets.clear();
+    g_spawnedCharacters.clear();
+    g_probedLists.clear();
     g_sessionId.fetch_add(1);
     g_active = true;
     APM::Log::Info("PhotoMode: activated (session %u)", g_sessionId.load());
@@ -346,7 +548,9 @@ void Detour_SpawnCharacter(void* aSystem, void* aCharacter, const void* aSpawnTr
     g_origSpawnCharacter(aSystem, aCharacter, aSpawnTransform, a4);
     if (g_active)
     {
+        ProbeSpawn(aSystem, aCharacter);
         RefreshTargets(aSystem);
+        ProbeLists(aSystem);
     }
 }
 
@@ -356,6 +560,7 @@ void Detour_ApplyPuppetTransforms(void* aSystem, void* aCharacterList, uint8_t a
     if (g_active)
     {
         RefreshTargets(aSystem);
+        ProbeLists(aSystem, aCharacterList, aCharacterGroup);
     }
 }
 
