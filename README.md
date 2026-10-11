@@ -57,7 +57,7 @@ Open Photo Mode and click **Pose editor** (top left).
   **Mirror**, **Joint limits**, **Auto IK**, and at the far right **Reset all** (click twice). **?** opens the info
   window (marker legend and shortcuts).
 - **Reset** (next to the selected part's name) undoes every edit of that part; a pinned hand / foot goes back to where
-  the pose puts it (the pin stays). **Right-click a marker** does the same for its part. A small orange dot marks the
+  the pose puts it (the pin stays). **Right-click a marker** does the same for its part. A small blue dot marks the
   edited parts and the tabs that hold them (a loaded pose or T / A pose alone does not count). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
   and the hand / foot marker an orange glow, while that limb is pinned. Messages after an action (saved, loaded,
   click again...) appear for a moment above the button that was clicked.
