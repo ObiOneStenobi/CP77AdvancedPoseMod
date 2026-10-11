@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
   AdvancedPoseMod
-  VERSION 1.0.1
+  VERSION 1.1.0
   DESCRIPTION "Bone-by-bone posing with IK for Cyberpunk 2077 Photo Mode"
   LANGUAGES CXX
 )

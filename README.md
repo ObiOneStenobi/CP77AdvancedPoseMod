@@ -125,6 +125,10 @@ closer.
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;
   the back and chest with Torso) are grey and cannot be edited.
+- **Eyelids follow the eyes**: when the eyes are turned (eye markers or Look at camera), the eyelids move as the game
+  moves them for its own gaze (the upper lid lowers when looking down), by the share the current Photo Mode expression
+  allows: expressions that hold the eyelids (squint, wide eyes, wink, closed eyes) keep them almost still. Expressions
+  added by other mods follow like the neutral one.
 - **Saved poses folder**: the folder icon on the Poses section opens the folder of the saved poses, to share the
   files (in full screen the game is minimized). Face controls and saved expressions are planned for a later version.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way

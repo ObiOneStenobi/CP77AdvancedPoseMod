@@ -14,9 +14,12 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <mutex>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -441,6 +444,7 @@ std::string SanitizeName(const std::string& aName)
     }
     return out;
 }
+
 } // namespace
 
 namespace APM::Pose::FaceRig

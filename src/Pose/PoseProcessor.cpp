@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/EyelidFollow.hpp"
 #include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
@@ -691,12 +692,20 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     // from the already edited main pose, one after the other. Editing those bones again multiplied every edit
     // (a chest bent by 8 degrees was drawn bent by about 55). Only bones that do not follow the main skeleton
     // are edited here: the linked ones, such as the face rig's eyeballs.
-    if (aTarget.debugName == "face_rig")
+    const bool face = aTarget.debugName == "face_rig";
+    std::array<Quat, 2> gameEyes{};
+    const bool eyes = face && APM::Pose::EyelidFollow::ReadEyes(aTarget, aBones, aCount, gameEyes);
+    if (face)
     {
         APM::Pose::FaceRig::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
+    if (eyes)
+    {
+        // The eyelids follow our gaze as the game would make them follow its own.
+        APM::Pose::EyelidFollow::Apply(aTarget, aBones, aCount, gameEyes);
+    }
 }
 } // namespace
 

@@ -7,6 +7,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Pose/EyelidFollow.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
@@ -315,6 +316,7 @@ bool Detour_Activate(void* aSystem)
     // Every Photo Mode session starts from the game's pose: nothing from the previous session is kept.
     APM::Pose::PoseOverrides::ClearSession();
     APM::Ui::PhotoModeUi::ResetSession();
+    APM::Pose::EyelidFollow::ResetSession();
     const bool result = g_origActivate(aSystem);
 
     APM::Config::Load();

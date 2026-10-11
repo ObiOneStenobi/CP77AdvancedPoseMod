@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
+#include "Pose/EyelidFollow.hpp"
 #include "Pose/LookAtCamera.hpp"
 #include "Ui/PhotoModeUi.hpp"
 
@@ -33,6 +34,11 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     if (aAttribute == 15 || aAttribute == 74)
     {
         APM::Log::Verbose("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
+    }
+    else if (aAttribute == 28)
+    {
+        APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
+        APM::Pose::EyelidFollow::SetExpression(static_cast<int32_t>(aValue + 0.5f));
     }
     APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
     g_origForward(aCallback, aAttribute, aValue, aApply);
