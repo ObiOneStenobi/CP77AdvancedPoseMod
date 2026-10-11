@@ -3303,8 +3303,7 @@ public class APM_PoseEditor extends IScriptable {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraRight()), dy * this.DegreesPerCanvasUnit());
             }
         } else {
-            // Hands, feet and hips: short bones, turned with a longer lever so they do not spin too fast.
-            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy, marker.chain >= 0 || marker.part == this.m_hipsPart);
+            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy, this.MinimumLever(marker));
         }
     }
 
@@ -3448,9 +3447,26 @@ public class APM_PoseEditor extends IScriptable {
         return 2.0 * depth * TanF(Deg2Rad(fov) * 0.5) / APM_ScreenHeight();
     }
 
+    // Short bones are turned as if they were at least this long (meters), so they do not spin too fast: hands, feet,
+    // hips, toes and held items (3-8 cm) 30 cm; necks and lower back (7-8 cm) 15 cm. Fingers and palm keep their own
+    // length: their tip follows the cursor (their markers only show close up).
+    private func MinimumLever(marker: ref<APM_Marker>) -> Float {
+        if marker.chain >= 0 || marker.part == this.m_hipsPart {
+            return 0.3;
+        }
+        let label = APM_UiGetOptionLabel(7701u, marker.part);
+        if Equals(label, "Left toes") || Equals(label, "Right toes") || Equals(label, "Left hand prop") || Equals(label, "Right hand prop") {
+            return 0.3;
+        }
+        if Equals(label, "Neck") || Equals(label, "Upper neck") || Equals(label, "Lower back") {
+            return 0.15;
+        }
+        return 0.0;
+    }
+
     // Rotates a part around its joint so that the point it points at (its child joint) follows the cursor.
-    // longLever: hands / feet are short, so their tip is treated as farther away (a calmer, finer turn, like the arms).
-    private func RotateTipTowardsCursor(camera: ref<CameraSystem>, toWorld: Matrix, part: Int32, dx: Float, dy: Float, opt longLever: Bool) {
+    // minLever: a short bone's tip is treated as at least that far away (a calmer, finer turn, like the arms).
+    private func RotateTipTowardsCursor(camera: ref<CameraSystem>, toWorld: Matrix, part: Int32, dx: Float, dy: Float, minLever: Float) {
         let joint = APM_PartWorldPosition(toWorld, part);
         let tipModel = APM_GizmoGetPartTip(part);
         if joint.W < 0.5 || tipModel.W < 0.5 {
@@ -3479,7 +3495,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let length = SqrtF(lengthSq);
-        let lever = longLever ? MaxF(length, 0.3) : length;
+        let lever = MaxF(length, minLever);
         let degrees = Rad2Deg(axisLength / (length * lever));
         let axis = APM_Vector(ax / axisLength, ay / axisLength, az / axisLength, 0.0);
         APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, axis), degrees);
