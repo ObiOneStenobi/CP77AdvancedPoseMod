@@ -106,7 +106,7 @@ closer.
 - Shift / Ctrl / Alt can be pressed or released during a drag: the action changes on the fly, keeping what was done.
 - Close-up gizmos (camera near the hand): palm bones (cup or spread the hand) and thumb base.
 - **Hand prop** (green marker, also in the hand tab): the point a held weapon / prop hangs from. Drag to rotate it,
-  **Shift+drag** to move it. Dragging the hips moves the whole body (**Shift+drag** rotates them); while the hips are selected a grey
+  **Shift+drag** to move it. Dragging the hips moves the whole body (**Shift+drag** rotates them as seen from the camera, like the head); while the hips are selected a grey
   diamond shows V's root (where Photo Mode placed her), with a line to the hips: saved poses keep the hips
   position relative to that point. The eyes turn at most 30 degrees from where the pose points them; with **Eyes (both)** the
   third row is their **focus distance** (nearer = more converged).

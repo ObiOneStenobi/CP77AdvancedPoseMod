@@ -3133,8 +3133,10 @@ public class APM_PoseEditor extends IScriptable {
         }
         // Hips (V's root): move by default, Shift rotates. Held items: Shift moves.
         let isHips = marker.part == this.m_hipsPart;
-        if isHips && !shift {
-            return APM_DragMove();
+        if isHips {
+            // The hips have no bone to point along (their children surround them): they turn as seen from the
+            // camera, like the head.
+            return shift ? APM_DragTrackball() : APM_DragMove();
         }
         if shift && marker.canMove && !isHips {
             return APM_DragMove();
@@ -3448,10 +3450,10 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Short bones are turned as if they were at least this long (meters), so they do not spin too fast: hands, feet,
-    // hips, toes and held items (3-8 cm) 30 cm; necks and lower back (7-8 cm) 15 cm. Fingers and palm keep their own
+    // toes and held items (3-8 cm) 30 cm; necks and lower back (7-8 cm) 15 cm. Fingers and palm keep their own
     // length: their tip follows the cursor (their markers only show close up).
     private func MinimumLever(marker: ref<APM_Marker>) -> Float {
-        if marker.chain >= 0 || marker.part == this.m_hipsPart {
+        if marker.chain >= 0 {
             return 0.3;
         }
         let label = APM_UiGetOptionLabel(7701u, marker.part);
