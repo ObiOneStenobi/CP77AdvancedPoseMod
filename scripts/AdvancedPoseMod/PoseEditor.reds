@@ -3303,7 +3303,8 @@ public class APM_PoseEditor extends IScriptable {
                 APM_GizmoRotatePart(marker.part, APM_WorldToModelDirection(toWorld, camera.GetActiveCameraRight()), dy * this.DegreesPerCanvasUnit());
             }
         } else {
-            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy, marker.chain >= 0);
+            // Hands, feet and hips: short bones, turned with a longer lever so they do not spin too fast.
+            this.RotateTipTowardsCursor(camera, toWorld, marker.part, dx, dy, marker.chain >= 0 || marker.part == this.m_hipsPart);
         }
     }
 
