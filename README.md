@@ -53,9 +53,12 @@ Open Photo Mode and click **Pose editor** (top left).
 
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
 **X** hides the panel. These settings are remembered in `panel.ini`.
-  Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**, **Reset part** (eraser; a pinned hand / foot also goes back to
-  where the pose puts it), **Reset all** (click
-  twice), **Mirror**, and **?** which opens the info window (marker legend and shortcuts). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
+  Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**,
+  **Mirror**, **Joint limits**, **Auto IK**, and at the far right **Reset all** (click twice). **?** opens the info
+  window (marker legend and shortcuts).
+- **Reset** (next to the selected part's name) undoes every edit of that part; a pinned hand / foot goes back to where
+  the pose puts it (the pin stays). **Right-click a marker** does the same for its part. A small orange dot marks the
+  edited parts and the tabs that hold them (a loaded pose or T / A pose alone does not count). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
   and the hand / foot marker an orange glow, while that limb is pinned. Messages after an action (saved, loaded,
   click again...) appear for a moment above the button that was clicked.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
@@ -109,7 +112,7 @@ closer.
   third row is their **focus distance** (nearer = more converged).
 - **Auto IK** (magnet icon, on by default): dragging a hand / foot moves it with IK and pins it, Shift+drag rotates
   it. Turned off, dragging rotates the hand / foot like any other bone; Shift+drag moves it with IK only if that
-  limb is already pinned in the IK row. Turning a pin off keeps the arm / leg where the IK put it (Reset part undoes it).
+  limb is already pinned in the IK row. Turning a pin off keeps the arm / leg where the IK put it (Reset undoes it).
   With joint limits on, a pinned limb also stops where the hip / shoulder and knee / elbow can no longer follow.
 - **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
   or one marker per eye.

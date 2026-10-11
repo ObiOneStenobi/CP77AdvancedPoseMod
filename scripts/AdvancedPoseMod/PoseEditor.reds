@@ -130,6 +130,7 @@ public class APM_Button extends IScriptable {
     public let h: Float;
     public let icon: array<wref<inkRectangle>>; // drawn icon (instead of a label)
     public let outline: array<wref<inkRectangle>>; // glowing frame (IK limb buttons: that limb is pinned)
+    public let dot: wref<inkRectangle>; // small mark in the corner: this part (or a part of this tab) is edited
 
     public func UpdateLook() {
         if !IsDefined(this.root) {
@@ -350,6 +351,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_dragRow: ref<APM_ValueRow>;
     private let m_dragValue: Float;
     private let m_confirmResetAll: Bool;
+    private let m_rightWasDown: Bool;
     private let m_confirmDelete: Bool;
     // Props: items put in V's hands
     private let m_propRight: Bool;            // the hand the picker works on
@@ -436,6 +438,7 @@ public class APM_PoseEditor extends IScriptable {
         this.SyncProps(timeDelta);
         this.UpdatePicker();
         this.UpdateDragWheel();
+        this.UpdateRightClick();
         if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerTyping {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
@@ -503,12 +506,11 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "hide", "x", 584.0, 8.0, "Hide the panel", 32.0);
         this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, "Undo (Ctrl+Z)");
         this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, "Redo (Ctrl+Y)");
-        this.CreateIconButton(header, "resetpart", "eraser", 116.0, 46.0, "Reset the selected part (its IK pin goes back to the pose's place too)");
-        this.CreateIconButton(header, "resetall", "trash-2", 160.0, 46.0, "Reset everything (click twice) - items in hand stay");
-        this.CreateIconButton(header, "mirror", "flip-vertical-2", 216.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
-        this.CreateIconButton(header, "limits:on", "lock", 260.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
-        this.CreateIconButton(header, "limits:off", "lock-open", 260.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
-        this.CreateIconButton(header, "autoik", "magnet", 304.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row");
+        this.CreateIconButton(header, "mirror", "flip-vertical-2", 116.0, 46.0, "Mirror: while on, the limb you edit is copied to the other side and followed");
+        this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, "Joint limits on: rotations stay natural. Click to unlock");
+        this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, "Joint limits off: any rotation is allowed. Click to lock");
+        this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, "Reset everything (click twice) - items in hand stay");
+        this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -527,14 +529,18 @@ public class APM_PoseEditor extends IScriptable {
         while i < ArraySize(this.m_groupNames) {
             let x = 16.0 + Cast<Float>(i % 4) * 152.0;
             let y = 10.0 + Cast<Float>(i / 4) * 36.0;
-            ArrayPush(this.m_groupButtons, this.CreateButton(partSection, "group:" + IntToString(i), this.m_groupNames[i], x, y, 146.0, 32.0));
+            let groupButton = this.CreateButton(partSection, "group:" + IntToString(i), this.m_groupNames[i], x, y, 146.0, 32.0);
+            this.AddDot(groupButton);
+            ArrayPush(this.m_groupButtons, groupButton);
             i += 1;
         }
         i = 0;
         while i < 6 {
             let x = 16.0 + Cast<Float>(i % 3) * 203.0;
             let y = 86.0 + Cast<Float>(i / 3) * 36.0;
-            ArrayPush(this.m_partButtons, this.CreateButton(partSection, "part:" + IntToString(i), "", x, y, 197.0, 32.0));
+            let partButton = this.CreateButton(partSection, "part:" + IntToString(i), "", x, y, 197.0, 32.0);
+            this.AddDot(partButton);
+            ArrayPush(this.m_partButtons, partButton);
             ArrayPush(this.m_partIndices, -1);
             i += 1;
         }
@@ -560,7 +566,9 @@ public class APM_PoseEditor extends IScriptable {
         let rotation = this.CreateSection(n"APM_Rotation");
         this.m_sectionRotation = rotation;
         this.AddSeparator(rotation);
-        this.m_partTitle = this.CreateText(rotation, "", 16.0, 6.0, 600.0, 26.0, 18, APM_ColorAccent());
+        this.m_partTitle = this.CreateText(rotation, "", 16.0, 6.0, 360.0, 26.0, 18, APM_ColorAccent());
+        let partReset = this.CreateSmallButton(rotation, "partreset", "Reset", 530.0, 4.0, 92.0, 26.0);
+        partReset.tooltip = "Undo every edit of this part (an IK pin goes back to the pose's place too)";
         let eyesBoth = this.CreateSmallButton(rotation, "eyes:0", "Both", 380.0, 4.0, 78.0, 26.0);
         eyesBoth.tooltip = "Both eyes together: one look marker";
         let eyesLeft = this.CreateSmallButton(rotation, "eyes:1", "Left", 462.0, 4.0, 78.0, 26.0);
@@ -876,6 +884,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.AddHelpLine(help, "Ctrl + drag", "twist", y);
         y = this.AddHelpLine(help, "Shift + drag", "move (hips, held items) or rotate (hands / feet with IK)", y);
         y = this.AddHelpLine(help, "Mouse wheel", "while moving: nearer / farther", y);
+        y = this.AddHelpLine(help, "Right-click a marker", "reset that part", y);
         y = this.AddHelpLine(help, "Ctrl + Z  /  Ctrl + Y", "undo / redo", y);
         help.SetSize(width * s, (y + 16.0) * s);
     }
@@ -2242,6 +2251,113 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
+    // Right mouse button pressed over a marker: reset that part. Polled, so it works whatever the button's input action.
+    private func UpdateRightClick() {
+        let down = APM_IsRightMouseDown();
+        let pressed = down && !this.m_rightWasDown;
+        this.m_rightWasDown = down;
+        if !pressed || IsDefined(this.m_dragMarker) || !this.m_gizmosOn || !APM_IsPhotoModeActive() {
+            return;
+        }
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            if this.m_markers[i].isHovered && this.m_markers[i].root.IsVisible() {
+                this.ResetPart(this.m_markers[i].part);
+                return;
+            }
+            i += 1;
+        }
+    }
+
+    // Undoes the edits of one part (selects it), as the panel's Reset button.
+    private func ResetPart(part: Int32) {
+        if part < 0 {
+            return;
+        }
+        let label = APM_ShortPartLabel(APM_UiGetOptionLabel(7701u, part));
+        let resetButton = this.FindButton("partreset");
+        if IsDefined(resetButton) {
+            this.m_lastButton = resetButton; // messages show above the part's Reset button
+        }
+        if APM_GizmoIsPartLocked(part) {
+            this.SetStatus(label + " is turned by Look at camera");
+            return;
+        }
+        APM_UiSetValue(7701u, Cast<Float>(part));
+        if !APM_UiIsPartEdited(part) {
+            this.SetStatus(label + " has no edits");
+            APM_UiRequestRefresh();
+            this.Refresh();
+            return;
+        }
+        APM_HistoryCheckpoint();
+        APM_UiSetValue(7721u, 1.0);
+        this.SetStatus(label + " reset");
+        APM_UiRequestRefresh();
+        this.Refresh();
+    }
+
+    // Small mark in the top right corner of a button, hidden until SetDot.
+    private func AddDot(button: ref<APM_Button>) {
+        let s = APM_UiScale();
+        let dot = new inkRectangle();
+        dot.SetAnchor(inkEAnchor.TopLeft);
+        dot.SetMargin((button.w - 12.0) * s, 5.0 * s, 0.0, 0.0);
+        dot.SetSize(7.0 * s, 7.0 * s);
+        dot.SetInteractive(false);
+        dot.SetVisible(false);
+        dot.Reparent(button.root);
+        button.dot = dot;
+    }
+
+    private func SetDot(button: ref<APM_Button>, on: Bool) {
+        if !IsDefined(button) || !IsDefined(button.dot) {
+            return;
+        }
+        button.dot.SetVisible(on);
+        button.dot.SetTintColor(button.isSelected ? APM_ColorDark() : APM_ColorAccent());
+    }
+
+    // Marks the edited parts and the tabs that hold them; enables the part's Reset button.
+    private func RefreshEditMarks(part: Int32) {
+        let count = APM_UiGetOptionCount(7701u);
+        let edited: array<Bool>;
+        let i = 0;
+        while i < count {
+            ArrayPush(edited, APM_UiIsPartEdited(i));
+            i += 1;
+        }
+        let g = 0;
+        while g < ArraySize(this.m_groupButtons) {
+            let any = false;
+            i = 0;
+            while i < count && !any {
+                any = edited[i] && Equals(APM_UiGetOptionGroup(7701u, i), this.m_groupNames[g]);
+                i += 1;
+            }
+            this.SetDot(this.m_groupButtons[g], any);
+            g += 1;
+        }
+        let slot = 0;
+        while slot < ArraySize(this.m_partButtons) {
+            let index = this.m_partIndices[slot];
+            let on = index >= 0 && index < count && edited[index];
+            if index >= 0 && Equals(APM_UiGetOptionLabel(7701u, index), "Eyes (both)") {
+                on = on || (this.m_leftEyePart >= 0 && edited[this.m_leftEyePart]) || (this.m_rightEyePart >= 0 && edited[this.m_rightEyePart]);
+            }
+            this.SetDot(this.m_partButtons[slot], on);
+            slot += 1;
+        }
+        let resetButton = this.FindButton("partreset");
+        if IsDefined(resetButton) {
+            let eyePart = this.IsSingleEye(part) || Equals(APM_UiGetOptionLabel(7701u, part), "Eyes (both)");
+            // The eye switch takes the right side of the title row: the button moves left of it.
+            resetButton.root.SetMargin((eyePart ? 284.0 : 530.0) * APM_UiScale(), 4.0 * APM_UiScale(), 0.0, 0.0);
+            resetButton.isEnabled = part >= 0 && part < count && edited[part] && !APM_GizmoIsPartLocked(part);
+            resetButton.UpdateLook();
+        }
+    }
+
     // --- Refresh -------------------------------------------------------------------------------------------------
 
     public func Refresh() {
@@ -2292,6 +2408,7 @@ public class APM_PoseEditor extends IScriptable {
             slot += 1;
         }
         this.m_partTitle.SetText(APM_UiGetOptionLabel(7701u, part));
+        this.RefreshEditMarks(part);
         // Eyes: both together, or one at a time
         let eyePart = this.IsSingleEye(part) || Equals(APM_UiGetOptionLabel(7701u, part), "Eyes (both)");
         let e = 0;
@@ -2725,6 +2842,9 @@ public class APM_PoseEditor extends IScriptable {
             } else {
                 text += "   (Ctrl: twist)";
             }
+        }
+        if !IsDefined(this.m_dragMarker) && APM_UiIsPartEdited(marker.part) && !APM_GizmoIsPartLocked(marker.part) {
+            text += "   Right-click: reset";
         }
         this.m_hint.SetText(text);
         this.m_hint.SetMargin(marker.screenX + 16.0 * s, marker.screenY - 30.0 * s, 0.0, 0.0);
@@ -3503,9 +3623,8 @@ public class APM_PoseEditor extends IScriptable {
             if !APM_SetNeutralPose(armsDown) {
                 this.SetStatus("Neutral pose not available");
             }
-        } else if Equals(id, "resetpart") {
-            APM_HistoryCheckpoint();
-            APM_UiSetValue(7721u, 1.0);
+        } else if Equals(id, "partreset") {
+            this.ResetPart(Cast<Int32>(APM_UiGetValue(7701u)));
         } else if Equals(id, "resetall") {
             if this.m_confirmResetAll {
                 APM_UiSetValue(7722u, 1.0);

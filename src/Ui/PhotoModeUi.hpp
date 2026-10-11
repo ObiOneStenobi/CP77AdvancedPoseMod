@@ -69,6 +69,9 @@ bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
 // Hand presets (0 open, 1 relaxed, 2 fist, 3 point, 4 grip): sets the fingers of one hand. Returns false if unknown.
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset);
 // Mirror mode: edits of a left / right part are copied, mirrored, to the other side.
+// True if the body part (catalog index) has edits of ours: rotations / moves, or its IK pin moved away from the pose
+// (offset or elbow / knee turn). A loaded full pose or T / A pose alone does not count.
+bool IsPartEdited(int32_t aPart);
 // New Photo Mode session: Mirror off, default eye focus.
 void ResetSession();
 void SetMirror(bool aMirror);

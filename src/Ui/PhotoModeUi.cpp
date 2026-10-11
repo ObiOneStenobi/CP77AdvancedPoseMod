@@ -1468,6 +1468,55 @@ void MirrorCurrentChain()
 
 namespace APM::Ui::PhotoModeUi
 {
+bool IsPartEdited(int32_t aPart)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()))
+    {
+        return false;
+    }
+    // IK chains: upper bone, middle bone, end bone (as in ResetCurrentPart).
+    constexpr const char* chainBones[4][3] = {{"LeftArm", "LeftForeArm", "LeftHand"},
+                                              {"RightArm", "RightForeArm", "RightHand"},
+                                              {"LeftUpLeg", "LeftLeg", "LeftFoot"},
+                                              {"RightUpLeg", "RightLeg", "RightFoot"}};
+    const auto snapshot = Pose::PoseOverrides::GetSnapshot();
+    for (const auto* name : catalog[aPart].bones)
+    {
+        const uint64_t hash = RED4ext::CName(name).hash;
+        for (const auto& bone : snapshot->bones)
+        {
+            if (bone.boneHash != hash)
+            {
+                continue;
+            }
+            const bool turned = bone.hasRotation && std::fabs(bone.rotation.r) < 0.99999f;
+            const bool moved = bone.hasTranslation &&
+                               (bone.translation[0] != 0.f || bone.translation[1] != 0.f || bone.translation[2] != 0.f);
+            if (turned || moved)
+            {
+                return true;
+            }
+        }
+        for (size_t c = 0; c < 4; ++c)
+        {
+            const auto& chain = snapshot->ik[c];
+            if (!chain.enabled)
+            {
+                continue;
+            }
+            const bool offset = chain.offset[0] != 0.f || chain.offset[1] != 0.f || chain.offset[2] != 0.f;
+            const std::string_view bone(name);
+            if ((bone == chainBones[c][2] && offset) ||
+                ((bone == chainBones[c][0] || bone == chainBones[c][1]) && chain.swivel != 0.f))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void ResetSession()
 {
     g_mirror = false;

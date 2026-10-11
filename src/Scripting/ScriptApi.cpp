@@ -406,6 +406,14 @@ void IsAltDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, (GetAsyncKeyState(VK_MENU) & 0x8000) != 0);
 }
 
+void IsRightMouseDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    // GetAsyncKeyState reads the physical buttons: with swapped buttons the "right" one is VK_LBUTTON.
+    const int key = GetSystemMetrics(SM_SWAPBUTTON) ? VK_LBUTTON : VK_RBUTTON;
+    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0);
+}
+
 void ApplyHandPreset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     bool right = true;
@@ -518,6 +526,14 @@ void FaceControlIsAngle(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &control);
     aFrame->code++;
     Return(aOut, control >= 0 && APM::Pose::FaceRig::ControlIsAngle(static_cast<size_t>(control)));
+}
+
+void UiIsPartEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsPartEdited(part));
 }
 
 void FaceIsEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1248,6 +1264,7 @@ void Register()
     ::Register("APM_SessionGet", &SessionGet, "Float", {{"String", "key"}, {"Float", "fallback"}});
     ::Register("APM_SessionSet", &SessionSet, nullptr, {{"String", "key"}, {"Float", "value"}});
     ::Register("APM_IsAltDown", &IsAltDown, "Bool", {});
+    ::Register("APM_IsRightMouseDown", &IsRightMouseDown, "Bool", {});
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
     ::Register("APM_ApplyHandPreset", &ApplyHandPreset, "Bool", {{"Bool", "rightHand"}, {"Int32", "preset"}});
     ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});
@@ -1315,6 +1332,7 @@ void Register()
     ::Register("APM_UiRequestRefresh", &UiRequestRefresh, nullptr, {});
     ::Register("APM_UiGetOptionCount", &UiGetOptionCount, "Int32", {{"Uint32", "attribute"}});
     ::Register("APM_UiGetOptionLabel", &UiGetOptionLabel, "String", {{"Uint32", "attribute"}, {"Int32", "index"}});
+    ::Register("APM_UiIsPartEdited", &UiIsPartEdited, "Bool", {{"Int32", "part"}});
     ::Register("APM_UiGetOptionGroup", &UiGetOptionGroup, "String", {{"Uint32", "attribute"}, {"Int32", "index"}});
     ::Register("APM_UiGetSlotCount", &UiGetSlotCount, "Int32", {});
     ::Register("APM_UiIsSlotSaved", &UiIsSlotSaved, "Bool", {{"Int32", "slot"}});

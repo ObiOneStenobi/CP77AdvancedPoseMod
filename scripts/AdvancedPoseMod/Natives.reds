@@ -74,6 +74,7 @@ public native func APM_CanRedo() -> Bool
 public native func APM_PollHotkey() -> Int32
 // Alt key held: free (trackball) rotation while dragging a gizmo
 public native func APM_IsAltDown() -> Bool
+public native func APM_IsRightMouseDown() -> Bool
 // Copies one side onto the other, mirrored; group "Left arm" etc. or "" for the whole body. Returns parts copied.
 public native func APM_MirrorParts(fromLeft: Bool, group: String) -> Int32
 // Hand presets: 0 open, 1 relaxed, 2 fist, 3 point, 4 grip
@@ -124,6 +125,8 @@ public native func APM_TextEntryGetText() -> String
 
 // Writes a line to the plugin log (red4ext/logs/advancedposemod-*.log)
 public native func APM_LogInfo(text: String) -> Bool
+// True if the body part has edits (rotations / moves, or its IK pin moved away from the pose)
+public native func APM_UiIsPartEdited(part: Int32) -> Bool
 
 // Panel preferences (panel.ini)
 public native func APM_PrefGet(key: String, fallback: Float) -> Float
