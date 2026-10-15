@@ -172,7 +172,8 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
 - No face controls or saved expressions yet; the face keeps the Photo Mode expression.
 - No automatic feet on the ground: place the feet with IK.
 - Built for game version 2.31; on another version the game still starts, but the mod stays off and the panel reports
-  an unsupported version until the mod is updated.
+  an unsupported version until the mod is updated. `config.ini` `[Compatibility] AllowUnknownGameVersion=1` tries it
+  anyway (at your own risk: if the update moved what the mod reads, the game can crash).
 
 ## Translations
 

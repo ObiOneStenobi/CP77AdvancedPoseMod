@@ -1,3 +1,4 @@
+#include "Core/Config.hpp"
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
@@ -75,8 +76,15 @@ bool CheckGameVersion()
     }
     if (!std::equal(std::begin(version), std::end(version), std::begin(Supported)))
     {
+        if (APM::Config::Get().allowUnknownGameVersion)
+        {
+            APM::Log::Warn("Game version %u.%u.%u.%u is not the one AdvancedPoseMod was built for (2.31 = 3.0.80.51928); "
+                           "AllowUnknownGameVersion=1: hooks installed anyway. If the game crashes, set it back to 0.",
+                           version[0], version[1], version[2], version[3]);
+            return true;
+        }
         APM::Log::Error("Game version %u.%u.%u.%u is not supported (built for 2.31 = 3.0.80.51928): Photo Mode hooks "
-                        "are off. Update AdvancedPoseMod.",
+                        "are off. Update AdvancedPoseMod (or try [Compatibility] AllowUnknownGameVersion=1 in config.ini).",
                         version[0], version[1], version[2], version[3]);
         return false;
     }
@@ -113,6 +121,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
 
         APM::Log::Info("AdvancedPoseMod %s is loading", APM_VERSION_STRING);
 
+        APM::Config::Load(); // the debug log and the version check need it from the start
         g_runtime.gameSupported = CheckGameVersion();
         g_runtime.trackerReady = g_runtime.gameSupported && APM::PhotoModeTracker::Install();
         RED4ext::CRTTISystem::Get()->AddPostRegisterCallback(&OnPostRegisterTypes);

@@ -34,6 +34,7 @@ void Load()
     v.probeScanBudget = ReadUInt(file, L"Probe", L"ScanBudget", v.probeScanBudget);
     v.probeDumpRig = ReadBool(file, L"Probe", L"DumpRig", v.probeDumpRig);
     v.debugLog = ReadBool(file, L"Debug", L"Log", v.debugLog);
+    v.allowUnknownGameVersion = ReadBool(file, L"Compatibility", L"AllowUnknownGameVersion", v.allowUnknownGameVersion);
     Log::g_verbose = v.debugLog;
 
     {
@@ -41,8 +42,9 @@ void Load()
         g_values = v;
     }
 
-    Log::Info("Config loaded: probe=%d budget=%u dumpRig=%d debugLog=%d", v.probeEnabled ? 1 : 0, v.probeScanBudget,
-              v.probeDumpRig ? 1 : 0, v.debugLog ? 1 : 0);
+    Log::Info("Config loaded: probe=%d budget=%u dumpRig=%d debugLog=%d allowUnknownGameVersion=%d",
+              v.probeEnabled ? 1 : 0, v.probeScanBudget, v.probeDumpRig ? 1 : 0, v.debugLog ? 1 : 0,
+              v.allowUnknownGameVersion ? 1 : 0);
 }
 
 Values Get()
