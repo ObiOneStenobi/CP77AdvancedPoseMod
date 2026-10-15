@@ -128,6 +128,8 @@ public native func APM_IsReady() -> Bool
 public native func APM_OpenFolder(kind: Int32) -> Bool
 public native func APM_SetWheelCapture(capture: Bool)
 public native func APM_ConsumeWheel() -> Int32
+// Game window size in pixels: x = width, y = height, w = 1 when known.
+public native func APM_GetViewportSize() -> Vector4
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
 public native func APM_TextEntryBegin(text: String) -> Bool
 public native func APM_TextEntryEnd()

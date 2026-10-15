@@ -26,12 +26,25 @@ public func APM_PanelHeight() -> Float {
     return 1022.0;
 }
 
+// Size of the ink canvas that covers the whole screen. The game's interface is laid out on 3840x2160 and keeps that
+// size on 16:9 screens; on wider ones (21:9, 32:9) it keeps the height and gets wider, on narrower ones (16:10, 4:3) it
+// keeps the width and gets taller.
+public func APM_ScreenAspect() -> Float {
+    let size = APM_GetViewportSize();
+    if size.W < 0.5 || size.X < 1.0 || size.Y < 1.0 {
+        return 16.0 / 9.0;
+    }
+    return size.X / size.Y;
+}
+
 public func APM_ScreenWidth() -> Float {
-    return 3840.0;
+    let aspect = APM_ScreenAspect();
+    return aspect >= 16.0 / 9.0 ? 2160.0 * aspect : 3840.0;
 }
 
 public func APM_ScreenHeight() -> Float {
-    return 2160.0;
+    let aspect = APM_ScreenAspect();
+    return aspect >= 16.0 / 9.0 ? 2160.0 : 3840.0 / aspect;
 }
 
 public func APM_PosesPerPage() -> Int32 {
@@ -319,6 +332,8 @@ public class APM_PoseEditor extends IScriptable {
 
     private let m_markers: array<ref<APM_Marker>>;
     private let m_lineLayer: wref<inkCanvas>;
+    private let m_canvasWidth: Float;
+    private let m_canvasHeight: Float;
     private let m_hipsPart: Int32;
     private let m_autoIk: Bool;
     private let m_eyesTogether: Bool; // one look marker for both eyes (else one per eye) // dragging a hand / foot uses IK (else it rotates; Shift swaps)
@@ -466,6 +481,29 @@ public class APM_PoseEditor extends IScriptable {
         this.m_dragMarker = null;
     }
 
+    // The gizmo layers cover the whole screen: they follow the screen size (resolution or window changes).
+    private func UpdateCanvasSize(active: Bool) {
+        let width = APM_ScreenWidth();
+        let height = APM_ScreenHeight();
+        if AbsF(width - this.m_canvasWidth) < 0.5 && AbsF(height - this.m_canvasHeight) < 0.5 {
+            return;
+        }
+        this.m_canvasWidth = width;
+        this.m_canvasHeight = height;
+        if IsDefined(this.m_gizmoLayer) {
+            this.m_gizmoLayer.SetSize(width, height);
+        }
+        if IsDefined(this.m_lineLayer) {
+            this.m_lineLayer.SetSize(width, height);
+        }
+        let size = APM_GetViewportSize();
+        let camera = GameInstance.GetCameraSystem(GetGameInstance());
+        let cameraAspect = IsDefined(camera) ? camera.GetAspectRatio() : 0.0;
+        APM_LogInfo("Screen " + FloatToStringPrec(size.X, 0) + "x" + FloatToStringPrec(size.Y, 0) + ": gizmo canvas "
+            + FloatToStringPrec(width, 0) + "x" + FloatToStringPrec(height, 0) + ", camera aspect "
+            + FloatToStringPrec(cameraAspect, 3));
+    }
+
     public func Update(timeDelta: Float) {
         let active = APM_IsPhotoModeActive();
         if active && !this.m_wasActive {
@@ -475,6 +513,7 @@ public class APM_PoseEditor extends IScriptable {
         if active {
             this.FollowSelectedCharacter();
         }
+        this.UpdateCanvasSize(active);
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
@@ -3115,7 +3154,7 @@ public class APM_PoseEditor extends IScriptable {
         this.DrawWorldLine(camera, this.m_rootLine, APM_Vector(rootWorld.X, rootWorld.Y, rootWorld.Z, 1.0), APM_Vector(hipsWorld.X, hipsWorld.Y, hipsWorld.Z, 1.0), APM_ColorDimText(), 1.5 * APM_UiScale(), 0.6);
     }
 
-    // Perspective projection of a world point to the 3840x2160 ink canvas (X, Y); W = 1 when on screen.
+    // Perspective projection of a world point to the full-screen ink canvas (X, Y); W = 1 when on screen.
     // Done by hand from the camera axes and field of view (CameraSystem.ProjectPoint did not give screen
     // coordinates). Assumes a vertical field of view.
     private func ProjectToScreen(camera: ref<CameraSystem>, world: Vector4) -> Vector4 {
@@ -3175,7 +3214,7 @@ public class APM_PoseEditor extends IScriptable {
         return 0.6;
     }
 
-    // Degrees of rotation per canvas unit dragged (the ink canvas is 3840 units wide).
+    // Degrees of rotation per canvas unit dragged (the ink canvas is at least 3840 units wide).
     private func DegreesPerCanvasUnit() -> Float {
         return 0.12;
     }

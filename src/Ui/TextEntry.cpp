@@ -323,6 +323,36 @@ std::string GetText()
     return g_text;
 }
 
+bool GetViewportSize(int32_t& aWidth, int32_t& aHeight)
+{
+    static std::mutex s_mutex;
+    static uint64_t s_lastCheck = 0;
+    static int32_t s_width = 0;
+    static int32_t s_height = 0;
+    std::scoped_lock lock(s_mutex);
+    const uint64_t now = GetTickCount64();
+    if (s_lastCheck == 0 || now - s_lastCheck >= 500)
+    {
+        s_lastCheck = now;
+        HWND window = g_window;
+        if (!window)
+        {
+            std::pair<HWND, LONG> best{nullptr, 0};
+            EnumWindows(&FindGameWindow, reinterpret_cast<LPARAM>(&best));
+            window = best.first;
+        }
+        RECT rect{};
+        if (window && GetClientRect(window, &rect) && rect.right - rect.left > 0 && rect.bottom - rect.top > 0)
+        {
+            s_width = rect.right - rect.left;
+            s_height = rect.bottom - rect.top;
+        }
+    }
+    aWidth = s_width;
+    aHeight = s_height;
+    return s_width > 0 && s_height > 0;
+}
+
 void Shutdown()
 {
     g_state = State::Inactive;

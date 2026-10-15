@@ -34,6 +34,9 @@ int32_t ConsumeWheel();
 // GetAsyncKeyState can miss them while the game reads the mouse through raw input.
 bool IsRawMouseButtonDown(int32_t aPhysicalButton);
 
+// Size of the game window's client area in pixels (refreshed at most twice a second); false while it is not known.
+bool GetViewportSize(int32_t& aWidth, int32_t& aHeight);
+
 // Restores the game window's message handler (plugin unload).
 void Shutdown();
 } // namespace APM::Ui::TextEntry

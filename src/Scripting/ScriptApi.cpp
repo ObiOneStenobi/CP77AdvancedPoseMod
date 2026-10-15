@@ -754,6 +754,20 @@ void SetWheelCapture(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Ui::TextEntry::SetWheelCapture(capture);
 }
 
+// Game window size in pixels: x = width, y = height, w = 1 when known.
+void GetViewportSize(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    int32_t width = 0;
+    int32_t height = 0;
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    if (APM::Ui::TextEntry::GetViewportSize(width, height))
+    {
+        result = {static_cast<float>(width), static_cast<float>(height), 0.f, 1.f};
+    }
+    Return(aOut, result);
+}
+
 void ConsumeWheel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -1390,6 +1404,7 @@ void Register()
     ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
+    ::Register("APM_GetViewportSize", &GetViewportSize, "Vector4", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});
     ::Register("APM_TextEntryEnd", &TextEntryEnd, nullptr, {});
     ::Register("APM_TextEntryGetState", &TextEntryGetState, "Int32", {});

@@ -21,6 +21,7 @@ Install with Vortex, or extract the zip into the game folder (the one containing
 - [Codeware](https://github.com/psiberx/cp2077-codeware) (interface translations)
 
 Windows only so far: Linux / Steam Deck (Proton) has not been tested.
+Any screen shape is supported (16:9, 16:10, ultrawide 21:9 / 32:9): the gizmos follow the game window's size.
 
 To build from source:
 
