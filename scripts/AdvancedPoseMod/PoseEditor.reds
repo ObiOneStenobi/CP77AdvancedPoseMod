@@ -334,6 +334,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_waitPanel: Bool;
     private let m_waitRoot: Bool;
     private let m_ownsHover: Bool; // the camera ignores the mouse because of one of our widgets
+    private let m_traceLeft: Bool;  // diagnostics: last logged button states
+    private let m_traceRight: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -3743,7 +3745,19 @@ public class APM_PoseEditor extends IScriptable {
         return IsDefined(this.m_waitMarker) || IsDefined(this.m_waitButton) || this.m_waitPanel || this.m_waitRoot;
     }
 
+    // Diagnostics (written only with [Debug] Log=1): button presses / releases, to compare with the hover lines.
+    private func TraceButtons() {
+        let left = APM_IsLeftMouseDown();
+        let right = APM_IsRightMouseDown();
+        if NotEquals(left, this.m_traceLeft) || NotEquals(right, this.m_traceRight) {
+            this.m_traceLeft = left;
+            this.m_traceRight = right;
+            APM_LogInfo("Mouse:" + APM_MouseState() + " ownHover=" + ToString(this.m_ownsHover));
+        }
+    }
+
     private func UpdateWaitingHover() {
+        this.TraceButtons();
         if this.IsUiHidden() && !IsDefined(this.m_dragMarker) && !IsDefined(this.m_dragRow) {
             // The UI was hidden under the cursor: give the mouse back to the camera until it is shown again.
             this.ParkHovers();

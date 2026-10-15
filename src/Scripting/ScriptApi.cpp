@@ -410,16 +410,18 @@ void IsRightMouseDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
     // GetAsyncKeyState reads the physical buttons: with swapped buttons the "right" one is VK_LBUTTON.
-    const int key = GetSystemMetrics(SM_SWAPBUTTON) ? VK_LBUTTON : VK_RBUTTON;
-    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0);
+    const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+    const int key = swapped ? VK_LBUTTON : VK_RBUTTON;
+    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0 || APM::Ui::TextEntry::IsRawMouseButtonDown(swapped ? 0 : 1));
 }
 
 // Left (primary) button held: Photo Mode moves the camera while it is down.
 void IsLeftMouseDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
-    const int key = GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON;
-    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0);
+    const bool swapped = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+    const int key = swapped ? VK_RBUTTON : VK_LBUTTON;
+    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0 || APM::Ui::TextEntry::IsRawMouseButtonDown(swapped ? 1 : 0));
 }
 
 void ApplyHandPreset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)

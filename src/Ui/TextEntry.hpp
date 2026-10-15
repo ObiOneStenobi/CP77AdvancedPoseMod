@@ -30,6 +30,10 @@ int32_t ConsumeHotkey();
 void SetWheelCapture(bool aCapture);
 int32_t ConsumeWheel();
 
+// Mouse buttons held, as the game window's raw input reports them (physical buttons: 0 = left, 1 = right).
+// GetAsyncKeyState can miss them while the game reads the mouse through raw input.
+bool IsRawMouseButtonDown(int32_t aPhysicalButton);
+
 // Restores the game window's message handler (plugin unload).
 void Shutdown();
 } // namespace APM::Ui::TextEntry

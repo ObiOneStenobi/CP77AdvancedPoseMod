@@ -42,6 +42,30 @@ bool CaptureRawWheel(LPARAM aParam)
 }
 WNDPROC g_originalProc = nullptr;
 
+// Physical mouse buttons held (raw input), read by the editor to know when the camera is being moved.
+std::atomic<bool> g_rawButtons[2]{};
+
+void TrackRawButtons(LPARAM aParam)
+{
+    RAWINPUT input{};
+    UINT size = sizeof(input);
+    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(aParam), RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) ==
+            static_cast<UINT>(-1) ||
+        input.header.dwType != RIM_TYPEMOUSE)
+    {
+        return;
+    }
+    const USHORT flags = input.data.mouse.usButtonFlags;
+    if (flags & RI_MOUSE_LEFT_BUTTON_DOWN)
+        g_rawButtons[0] = true;
+    if (flags & RI_MOUSE_LEFT_BUTTON_UP)
+        g_rawButtons[0] = false;
+    if (flags & RI_MOUSE_RIGHT_BUTTON_DOWN)
+        g_rawButtons[1] = true;
+    if (flags & RI_MOUSE_RIGHT_BUTTON_UP)
+        g_rawButtons[1] = false;
+}
+
 // Characters a pose name (file name) may contain.
 bool IsAllowed(wchar_t aChar)
 {
@@ -109,6 +133,15 @@ bool SwallowRawKeyboard(LPARAM aParam)
 
 LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM aLParam)
 {
+    if (aMessage == WM_INPUT)
+    {
+        TrackRawButtons(aLParam);
+    }
+    else if (aMessage == WM_KILLFOCUS || (aMessage == WM_ACTIVATEAPP && aWParam == FALSE))
+    {
+        g_rawButtons[0] = false; // a release outside the window would never arrive
+        g_rawButtons[1] = false;
+    }
     if (aMessage == WM_INPUT && (IsTyping() || !g_keysDown.empty()) && SwallowRawKeyboard(aLParam))
     {
         return DefWindowProcW(aWindow, aMessage, aWParam, aLParam);
@@ -253,6 +286,11 @@ void SetWheelCapture(bool aCapture)
     }
     g_wheelCapture = aCapture;
     g_wheel = 0;
+}
+
+bool IsRawMouseButtonDown(int32_t aPhysicalButton)
+{
+    return aPhysicalButton >= 0 && aPhysicalButton < 2 && g_rawButtons[aPhysicalButton];
 }
 
 int32_t ConsumeWheel()
