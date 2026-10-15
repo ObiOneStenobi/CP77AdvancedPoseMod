@@ -17,6 +17,7 @@ Install with Vortex, or extract the zip into the game folder (the one containing
 - Cyberpunk 2077 2.31 (PC)
 - [RED4ext](https://docs.red4ext.com) 1.30+
 - [redscript](https://github.com/jac3km4/redscript)
+- [Codeware](https://github.com/psiberx/cp2077-codeware) (interface translations)
 
 Windows only so far: Linux / Steam Deck (Proton) has not been tested.
 
@@ -170,7 +171,26 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
 - No face controls or saved expressions yet; the face keeps the Photo Mode expression.
 - No automatic feet on the ground: place the feet with IK.
-- Built for game version 2.31; after a game update the panel reports an unsupported version until the mod is updated.
+- Built for game version 2.31; on another version the game still starts, but the mod stays off and the panel reports
+  an unsupported version until the mod is updated.
+
+## Translations
+
+The panel is in English; translations are separate mods that need no change to AdvancedPoseMod. Every text has a
+key, and the panel shows the translation that Codeware's localization system has for the game's interface language
+(English for the texts a translation leaves out).
+
+To translate:
+
+1. Copy [`tools/translation_template.reds`](tools/translation_template.reds) to
+   `r6\scripts\AdvancedPoseMod_<language>\Translation.reds` (e.g. `AdvancedPoseMod_it`).
+2. Rename the module and the two classes (`xx` -> your language) and set the language code in `GetPackage`
+   (`it-it`, `fr-fr`, `de-de`, `es-es`, `pl-pl`, `pt-br`, `ru-ru`, `zh-cn`, ...).
+3. Translate the second text of every line, keeping `{0}` (a name goes there).
+4. Reopen Photo Mode to see it; publish the file as a mod that requires AdvancedPoseMod and Codeware.
+
+Texts on fixed-size buttons shrink to fit when they are longer than the English ones. The template lists every key
+in use; developers regenerate it with `python tools/gen_loc_template.py` after changing a text.
 
 ## Pose file format
 
@@ -202,12 +222,12 @@ src/Game      engine hooks (Photo Mode, animation graph)
 src/Math      quaternion helpers
 src/Pose      pose targets, override layer, pose files (later: IK)
 src/Scripting native functions exposed to redscript / CET (APM_*)
-scripts/      redscript: native declarations + pose editor panel and gizmos
+scripts/      redscript: native declarations + pose editor panel and gizmos, interface texts (Localization.reds)
 src/Ui        menu state, body part catalog
 cet/          developer debug window for Cyber Engine Tweaks
 data/         files shipped next to the DLL
 docs/         research notes
-tools/        developer scripts
+tools/        developer scripts, translation template (gen_loc_template.py builds it)
 ```
 
 ## Credits

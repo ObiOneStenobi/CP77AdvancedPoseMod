@@ -15,5 +15,5 @@ done
 wait
 cat obj/app_*.log
 lld-link /dll /out:AdvancedPoseMod.dll /machine:x64 /libpath:winsdk/crt/lib/x86_64 /libpath:winsdk/sdk/lib/um/x86_64 \
-  /libpath:winsdk/sdk/lib/ucrt/x86_64 obj/*.obj kernel32.lib user32.lib advapi32.lib shell32.lib
+  /libpath:winsdk/sdk/lib/ucrt/x86_64 obj/*.obj kernel32.lib user32.lib advapi32.lib shell32.lib version.lib
 echo "Built $APM_BUILD/AdvancedPoseMod.dll ($VERSION)"

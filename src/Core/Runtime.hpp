@@ -12,6 +12,7 @@ struct Runtime
     RED4ext::v1::PluginHandle handle = nullptr;
     const RED4ext::v1::Sdk* sdk = nullptr;
     std::filesystem::path pluginDir; // red4ext/plugins/AdvancedPoseMod
+    bool gameSupported = false;      // the game version the plugin was built for (2.31): hooks are only installed then
     bool trackerReady = false;       // Photo Mode hooks installed
     bool animationReady = false;     // animation hook installed (false after an incompatible game update)
 };

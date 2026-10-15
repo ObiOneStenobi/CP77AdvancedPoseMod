@@ -48,7 +48,7 @@ file(GLOB_RECURSE APM_SOURCES CONFIGURE_DEPENDS
 add_library(AdvancedPoseMod SHARED ${APM_SOURCES})
 
 target_include_directories(AdvancedPoseMod PRIVATE "${PROJECT_SOURCE_DIR}/src")
-target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK nlohmann_json::nlohmann_json shell32)
+target_link_libraries(AdvancedPoseMod PRIVATE RED4ext::SDK nlohmann_json::nlohmann_json shell32 version)
 
 target_compile_definitions(AdvancedPoseMod PRIVATE
   WIN32_LEAN_AND_MEAN

@@ -9,6 +9,8 @@ source "$(dirname "$0")/env.sh"
 work=$(mktemp -d)
 mkdir -p "$work/src/AdvancedPoseMod"
 cp "$APM_PROJECT"/scripts/AdvancedPoseMod/*.reds "$work/src/AdvancedPoseMod/"
+# Codeware (required by the mod: localization, text overflow) compiles with them, as in the game.
+cp -r "$APM_BUILD/ext/cp2077-codeware/scripts" "$work/src/Codeware"
 for bundle in "$@"; do
   echo "== $bundle"
   "$APM_BUILD/ext/redscript05/target/release/redscript-cli" compile -s "$work/src" -b "$bundle" -o "$work/out.redscripts" 2>&1 \
