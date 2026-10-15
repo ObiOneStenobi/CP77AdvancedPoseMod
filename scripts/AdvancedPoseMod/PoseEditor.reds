@@ -334,6 +334,18 @@ public class APM_PoseEditor extends IScriptable {
     private let m_waitPanel: Bool;
     private let m_waitRoot: Bool;
     private let m_ownsHover: Bool; // the camera ignores the mouse because of one of our widgets
+    // Texts and tooltips set when the panel is built, translated again when Photo Mode opens (the translations may
+    // not be loaded yet when the panel is built). L() queues a text until the widget showing it is created.
+    private let m_pendingKeys: array<String>;
+    private let m_pendingEnglish: array<String>;
+    private let m_pendingShown: array<String>;
+    private let m_locTexts: array<wref<inkText>>;
+    private let m_locTextKeys: array<String>;
+    private let m_locTextEnglish: array<String>;
+    private let m_locTips: array<ref<APM_Button>>;
+    private let m_locTipKeys: array<String>;
+    private let m_locTipEnglish: array<String>;
+    private let m_wasActive: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -406,7 +418,7 @@ public class APM_PoseEditor extends IScriptable {
         this.BuildMarkers();
         this.BuildHint();
 
-        this.m_openButton = this.CreateButton(layer, "open", APM_Text("APM-Button-PoseEditor", "Pose editor"), 0.0, 0.0, 160.0, 32.0);
+        this.m_openButton = this.CreateButton(layer, "open", this.L("APM-Button-PoseEditor", "Pose editor"), 0.0, 0.0, 160.0, 32.0);
         this.BuildPanel();
         this.SetOpen(false);
         this.ApplyDock();
@@ -415,6 +427,13 @@ public class APM_PoseEditor extends IScriptable {
         controller.RegisterToGlobalInputCallback(n"OnPostOnRelative", this, n"OnGlobalRelative");
         controller.RegisterToGlobalInputCallback(n"OnPostOnRelease", this, n"OnGlobalRelease");
         controller.RegisterToGlobalInputCallback(n"OnPostOnPress", this, n"OnGlobalPress");
+        // Texts queued but not shown by a widget (none expected).
+        if ArraySize(this.m_pendingKeys) > 0 {
+            APM_LogInfo("Texts: " + IntToString(ArraySize(this.m_pendingKeys)) + " not registered, first " + this.m_pendingKeys[0]);
+        }
+        ArrayClear(this.m_pendingKeys);
+        ArrayClear(this.m_pendingEnglish);
+        ArrayClear(this.m_pendingShown);
     }
 
     public func Uninitialize() {
@@ -438,6 +457,11 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     public func Update(timeDelta: Float) {
+        let active = APM_IsPhotoModeActive();
+        if active && !this.m_wasActive {
+            this.Retranslate();
+        }
+        this.m_wasActive = active;
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
@@ -499,26 +523,26 @@ public class APM_PoseEditor extends IScriptable {
         let header = this.CreateSection(n"APM_Header");
         this.m_sectionHeader = header;
         if APM_IsReady() {
-            this.CreateText(header, APM_Text("APM-Title", "Advanced pose"), 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
+            this.CreateText(header, this.L("APM-Title", "Advanced pose"), 16.0, 8.0, 170.0, 32.0, 20, APM_ColorAccent());
         } else {
             // The game was updated and the mod could not hook into it: nothing would work.
-            this.CreateText(header, APM_Text("APM-Msg-UnsupportedVersion", "Unsupported game version - see the log"), 16.0, 10.0, 260.0, 32.0, 13, APM_ColorWarning());
+            this.CreateText(header, this.L("APM-Msg-UnsupportedVersion", "Unsupported game version - see the log"), 16.0, 10.0, 260.0, 32.0, 13, APM_ColorWarning());
         }
-        let enabledButton = this.CreateButton(header, "enabled", APM_Text("APM-Button-PoseOff", "Pose off"), 280.0, 8.0, 92.0, 32.0);
-        enabledButton.tooltip = APM_Text("APM-Tip-PoseOnOff", "Turn your edits on V on / off");
-        let gizmosButton = this.CreateButton(header, "gizmos", APM_Text("APM-Button-Gizmos", "Gizmos"), 376.0, 8.0, 92.0, 32.0);
-        gizmosButton.tooltip = APM_Text("APM-Tip-Gizmos", "Show / hide the markers on V");
+        let enabledButton = this.CreateButton(header, "enabled", this.L("APM-Button-PoseOff", "Pose off"), 280.0, 8.0, 92.0, 32.0);
+        this.TipL(enabledButton, "APM-Tip-PoseOnOff", "Turn your edits on V on / off");
+        let gizmosButton = this.CreateButton(header, "gizmos", this.L("APM-Button-Gizmos", "Gizmos"), 376.0, 8.0, 92.0, 32.0);
+        this.TipL(gizmosButton, "APM-Tip-Gizmos", "Show / hide the markers on V");
         let opacityButton = this.CreateButton(header, "opacity", "100%", 472.0, 8.0, 64.0, 32.0);
-        opacityButton.tooltip = APM_Text("APM-Tip-Opacity", "Panel opacity");
-        this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, APM_Text("APM-Tip-Help", "Info: markers and shortcuts"), 32.0);
-        this.CreateIconButton(header, "hide", "x", 584.0, 8.0, APM_Text("APM-Tip-HidePanel", "Hide the panel"), 32.0);
-        this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, APM_Text("APM-Tip-Undo", "Undo (Ctrl+Z)"));
-        this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, APM_Text("APM-Tip-Redo", "Redo (Ctrl+Y)"));
-        this.CreateIconButton(header, "mirror", "flip-vertical-2", 116.0, 46.0, APM_Text("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed"));
-        this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, APM_Text("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
-        this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, APM_Text("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
-        this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, APM_Text("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
-        this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, APM_Text("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
+        this.TipL(opacityButton, "APM-Tip-Opacity", "Panel opacity");
+        this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, this.L("APM-Tip-Help", "Info: markers and shortcuts"), 32.0);
+        this.CreateIconButton(header, "hide", "x", 584.0, 8.0, this.L("APM-Tip-HidePanel", "Hide the panel"), 32.0);
+        this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, this.L("APM-Tip-Undo", "Undo (Ctrl+Z)"));
+        this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, this.L("APM-Tip-Redo", "Redo (Ctrl+Y)"));
+        this.CreateIconButton(header, "mirror", "flip-vertical-2", 116.0, 46.0, this.L("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed"));
+        this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, this.L("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
+        this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
+        this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
+        this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -537,7 +561,7 @@ public class APM_PoseEditor extends IScriptable {
         while i < ArraySize(this.m_groupNames) {
             let x = 16.0 + Cast<Float>(i % 4) * 152.0;
             let y = 10.0 + Cast<Float>(i / 4) * 36.0;
-            let groupButton = this.CreateButton(partSection, "group:" + IntToString(i), APM_GroupText(this.m_groupNames[i]), x, y, 146.0, 32.0);
+            let groupButton = this.CreateButton(partSection, "group:" + IntToString(i), this.LGroup(this.m_groupNames[i]), x, y, 146.0, 32.0);
             this.AddDot(groupButton);
             ArrayPush(this.m_groupButtons, groupButton);
             i += 1;
@@ -560,13 +584,14 @@ public class APM_PoseEditor extends IScriptable {
         presetRow.SetSize(APM_PanelWidth() * APM_UiScale(), 36.0 * APM_UiScale());
         presetRow.Reparent(partSection);
         this.m_handPresets = presetRow;
-        this.CreateText(presetRow, APM_Text("APM-Label-Preset", "Preset"), 16.0, 0.0, 90.0, 30.0, 15, APM_ColorDimText());
-        let presetNames: array<String> = [APM_Text("APM-Preset-Open", "Open"), APM_Text("APM-Preset-Relaxed", "Relaxed"), APM_Text("APM-Preset-Fist", "Fist"), APM_Text("APM-Preset-Point", "Point"), APM_Text("APM-Preset-Grip", "Grip")];
-        let presetTips: array<String> = [APM_Text("APM-Tip-PresetOpen", "Straight fingers"), APM_Text("APM-Tip-PresetRelaxed", "Slightly curled, at rest"), APM_Text("APM-Tip-PresetFist", "Closed fist"), APM_Text("APM-Tip-PresetPoint", "Index finger pointing"), APM_Text("APM-Tip-PresetGrip", "Fingers around a handle")];
+        this.CreateText(presetRow, this.L("APM-Label-Preset", "Preset"), 16.0, 0.0, 90.0, 30.0, 15, APM_ColorDimText());
+        let presetNames: array<String> = [this.L("APM-Preset-Open", "Open"), this.L("APM-Preset-Relaxed", "Relaxed"), this.L("APM-Preset-Fist", "Fist"), this.L("APM-Preset-Point", "Point"), this.L("APM-Preset-Grip", "Grip")];
+        let presetTipKeys: array<String> = ["APM-Tip-PresetOpen", "APM-Tip-PresetRelaxed", "APM-Tip-PresetFist", "APM-Tip-PresetPoint", "APM-Tip-PresetGrip"];
+        let presetTipTexts: array<String> = ["Straight fingers", "Slightly curled, at rest", "Closed fist", "Index finger pointing", "Fingers around a handle"];
         let p = 0;
         while p < 5 {
             let presetButton = this.CreateSmallButton(presetRow, "preset:" + IntToString(p), presetNames[p], 108.0 + Cast<Float>(p) * 103.0, 0.0, 99.0, 30.0);
-            presetButton.tooltip = presetTips[p];
+            this.TipL(presetButton, presetTipKeys[p], presetTipTexts[p]);
             p += 1;
         }
 
@@ -575,47 +600,47 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionRotation = rotation;
         this.AddSeparator(rotation);
         this.m_partTitle = this.CreateText(rotation, "", 16.0, 6.0, 360.0, 26.0, 18, APM_ColorAccent());
-        let partReset = this.CreateSmallButton(rotation, "partreset", APM_Text("APM-Button-Reset", "Reset"), 530.0, 4.0, 92.0, 26.0);
-        partReset.tooltip = APM_Text("APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
-        let eyesBoth = this.CreateSmallButton(rotation, "eyes:0", APM_Text("APM-Button-EyesBoth", "Both"), 380.0, 4.0, 78.0, 26.0);
-        eyesBoth.tooltip = APM_Text("APM-Tip-EyesBoth", "Both eyes together: one look marker");
-        let eyesLeft = this.CreateSmallButton(rotation, "eyes:1", APM_Text("APM-Button-EyeLeft", "Left"), 462.0, 4.0, 78.0, 26.0);
-        eyesLeft.tooltip = APM_Text("APM-Tip-EyeLeft", "Left eye on its own (one marker per eye)");
-        let eyesRight = this.CreateSmallButton(rotation, "eyes:2", APM_Text("APM-Button-EyeRight", "Right"), 544.0, 4.0, 78.0, 26.0);
-        eyesRight.tooltip = APM_Text("APM-Tip-EyeRight", "Right eye on its own (one marker per eye)");
-        this.CreateRow(rotation, 7702u, APM_Text("APM-Row-BendForwardBack", "Bend forward / back"), 34.0, -180.0, 180.0, 1.0, 0.2, "");
-        this.CreateRow(rotation, 7703u, APM_Text("APM-Row-BendSideways", "Bend sideways"), 70.0, -180.0, 180.0, 1.0, 0.2, "");
-        this.CreateRow(rotation, 7704u, APM_Text("APM-Row-Twist", "Twist"), 106.0, -180.0, 180.0, 1.0, 0.2, "");
+        let partReset = this.CreateSmallButton(rotation, "partreset", this.L("APM-Button-Reset", "Reset"), 530.0, 4.0, 92.0, 26.0);
+        this.TipL(partReset, "APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
+        let eyesBoth = this.CreateSmallButton(rotation, "eyes:0", this.L("APM-Button-EyesBoth", "Both"), 380.0, 4.0, 78.0, 26.0);
+        this.TipL(eyesBoth, "APM-Tip-EyesBoth", "Both eyes together: one look marker");
+        let eyesLeft = this.CreateSmallButton(rotation, "eyes:1", this.L("APM-Button-EyeLeft", "Left"), 462.0, 4.0, 78.0, 26.0);
+        this.TipL(eyesLeft, "APM-Tip-EyeLeft", "Left eye on its own (one marker per eye)");
+        let eyesRight = this.CreateSmallButton(rotation, "eyes:2", this.L("APM-Button-EyeRight", "Right"), 544.0, 4.0, 78.0, 26.0);
+        this.TipL(eyesRight, "APM-Tip-EyeRight", "Right eye on its own (one marker per eye)");
+        this.CreateRow(rotation, 7702u, this.L("APM-Row-BendForwardBack", "Bend forward / back"), 34.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateRow(rotation, 7703u, this.L("APM-Row-BendSideways", "Bend sideways"), 70.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateRow(rotation, 7704u, this.L("APM-Row-Twist", "Twist"), 106.0, -180.0, 180.0, 1.0, 0.2, "");
 
         // Position (only parts that can move: hips, held items)
         let move = this.CreateSection(n"APM_Move");
         this.m_sectionMove = move;
         this.AddSeparator(move);
-        this.CreateText(move, APM_Text("APM-Title-Move", "Move (cm)"), 16.0, 6.0, 300.0, 26.0, 18, APM_ColorAccent());
-        this.CreateRow(move, 7705u, APM_Text("APM-Row-LeftRight", "Left / right"), 34.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
-        this.CreateRow(move, 7706u, APM_Text("APM-Row-ForwardBack", "Forward / back"), 70.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
-        this.CreateRow(move, 7707u, APM_Text("APM-Row-UpDown", "Up / down"), 106.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateText(move, this.L("APM-Title-Move", "Move (cm)"), 16.0, 6.0, 300.0, 26.0, 18, APM_ColorAccent());
+        this.CreateRow(move, 7705u, this.L("APM-Row-LeftRight", "Left / right"), 34.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7706u, this.L("APM-Row-ForwardBack", "Forward / back"), 70.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(move, 7707u, this.L("APM-Row-UpDown", "Up / down"), 106.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
 
         // IK: limb + pin; the rows only while that limb is pinned
         let ik = this.CreateSection(n"APM_Ik");
         this.m_sectionIk = ik;
         this.AddSeparator(ik);
-        this.CreateText(ik, APM_Text("APM-Title-Ik", "IK"), 16.0, 8.0, 40.0, 30.0, 18, APM_ColorAccent());
+        this.CreateText(ik, this.L("APM-Title-Ik", "IK"), 16.0, 8.0, 40.0, 30.0, 18, APM_ColorAccent());
         let limbs = APM_UiGetOptionCount(7710u);
         i = 0;
         while i < limbs {
-            let limbButton = this.CreateButton(ik, "ik:" + IntToString(i), APM_PartText(APM_UiGetOptionLabel(7710u, i)), 60.0 + Cast<Float>(i) * 142.0, 8.0, 138.0, 30.0);
-            limbButton.tooltip = APM_Text("APM-Tip-IkLimb", "IK limb: the frame lights up while it is pinned");
+            let limbButton = this.CreateButton(ik, "ik:" + IntToString(i), this.LPart(APM_UiGetOptionLabel(7710u, i)), 60.0 + Cast<Float>(i) * 142.0, 8.0, 138.0, 30.0);
+            this.TipL(limbButton, "APM-Tip-IkLimb", "IK limb: the frame lights up while it is pinned");
             this.AddOutline(limbButton, APM_ColorIk());
             i += 1;
         }
         // Pin of the selected limb, on its own row
-        let pinOff = this.CreateSmallButton(ik, "pin:0", APM_Text("APM-Button-PinOff", "Off"), 60.0, 44.0, 180.0, 28.0);
-        pinOff.tooltip = APM_Text("APM-Tip-PinOff", "Pin off: the hand / foot follows the arm / leg rotations");
-        let pinWorld = this.CreateSmallButton(ik, "pin:1", APM_Text("APM-Button-PinWorld", "World"), 246.0, 44.0, 180.0, 28.0);
-        pinWorld.tooltip = APM_Text("APM-Tip-PinWorld", "Pin world: the hand / foot stays in its place in the scene, whatever the body does");
-        let pinBody = this.CreateSmallButton(ik, "pin:2", APM_Text("APM-Button-PinBody", "Body"), 432.0, 44.0, 180.0, 28.0);
-        pinBody.tooltip = APM_Text("APM-Tip-PinBody", "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them");
+        let pinOff = this.CreateSmallButton(ik, "pin:0", this.L("APM-Button-PinOff", "Off"), 60.0, 44.0, 180.0, 28.0);
+        this.TipL(pinOff, "APM-Tip-PinOff", "Pin off: the hand / foot follows the arm / leg rotations");
+        let pinWorld = this.CreateSmallButton(ik, "pin:1", this.L("APM-Button-PinWorld", "World"), 246.0, 44.0, 180.0, 28.0);
+        this.TipL(pinWorld, "APM-Tip-PinWorld", "Pin world: the hand / foot stays in its place in the scene, whatever the body does");
+        let pinBody = this.CreateSmallButton(ik, "pin:2", this.L("APM-Button-PinBody", "Body"), 432.0, 44.0, 180.0, 28.0);
+        this.TipL(pinBody, "APM-Tip-PinBody", "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them");
         let ikRows = new inkCanvas();
         ikRows.SetName(n"APM_IkRows");
         ikRows.SetAnchor(inkEAnchor.TopLeft);
@@ -623,21 +648,21 @@ public class APM_PoseEditor extends IScriptable {
         ikRows.SetSize(width * s, 148.0 * s);
         ikRows.Reparent(ik);
         this.m_ikRows = ikRows;
-        this.CreateRow(ikRows, 7712u, APM_Text("APM-Row-RightLeft", "Right / left"), 0.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
-        this.CreateRow(ikRows, 7713u, APM_Text("APM-Row-ForwardBack", "Forward / back"), 36.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
-        this.CreateRow(ikRows, 7714u, APM_Text("APM-Row-UpDown", "Up / down"), 72.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
-        this.CreateRow(ikRows, 7715u, APM_Text("APM-Row-ElbowKnee", "Elbow / knee"), 108.0, -180.0, 180.0, 1.0, 0.2, "");
+        this.CreateRow(ikRows, 7712u, this.L("APM-Row-RightLeft", "Right / left"), 0.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7713u, this.L("APM-Row-ForwardBack", "Forward / back"), 36.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7714u, this.L("APM-Row-UpDown", "Up / down"), 72.0, -1000.0, 1000.0, 0.5, 0.05, " cm");
+        this.CreateRow(ikRows, 7715u, this.L("APM-Row-ElbowKnee", "Elbow / knee"), 108.0, -180.0, 180.0, 1.0, 0.2, "");
 
         // Pose library (folds)
         let poses = this.CreateSection(n"APM_Poses");
         this.m_sectionPoses = poses;
         this.AddSeparator(poses);
-        this.m_posesTitle = this.CreateText(poses, APM_Text("APM-Title-Poses", "Poses"), 16.0, 6.0, 290.0, 28.0, 16, APM_ColorAccent());
-        this.CreateSmallButton(poses, "neutral:t", APM_Text("APM-Button-TPose", "T pose"), 314.0, 6.0, 100.0, 28.0);
-        this.CreateSmallButton(poses, "neutral:a", APM_Text("APM-Button-APose", "A pose"), 418.0, 6.0, 100.0, 28.0);
-        this.CreateIconButton(poses, "poses:folder", "folder-open", 538.0, 6.0, APM_Text("APM-Tip-PosesFolder", "Open the folder of the saved poses (to share them; in full screen the game is minimized)"));
-        this.CreateIconButton(poses, "poses:open", "chevron-down", 584.0, 6.0, APM_Text("APM-Tip-PosesShow", "Show the saved poses"));
-        this.CreateIconButton(poses, "poses:close", "chevron-up", 584.0, 6.0, APM_Text("APM-Tip-PosesHide", "Hide the saved poses"));
+        this.m_posesTitle = this.CreateText(poses, this.L("APM-Title-Poses", "Poses"), 16.0, 6.0, 290.0, 28.0, 16, APM_ColorAccent());
+        this.CreateSmallButton(poses, "neutral:t", this.L("APM-Button-TPose", "T pose"), 314.0, 6.0, 100.0, 28.0);
+        this.CreateSmallButton(poses, "neutral:a", this.L("APM-Button-APose", "A pose"), 418.0, 6.0, 100.0, 28.0);
+        this.CreateIconButton(poses, "poses:folder", "folder-open", 538.0, 6.0, this.L("APM-Tip-PosesFolder", "Open the folder of the saved poses (to share them; in full screen the game is minimized)"));
+        this.CreateIconButton(poses, "poses:open", "chevron-down", 584.0, 6.0, this.L("APM-Tip-PosesShow", "Show the saved poses"));
+        this.CreateIconButton(poses, "poses:close", "chevron-up", 584.0, 6.0, this.L("APM-Tip-PosesHide", "Hide the saved poses"));
         let posesBody = new inkCanvas();
         posesBody.SetName(n"APM_PosesBody");
         posesBody.SetAnchor(inkEAnchor.TopLeft);
@@ -652,11 +677,11 @@ public class APM_PoseEditor extends IScriptable {
             ArrayPush(this.m_poseButtons, poseButton);
             i += 1;
         }
-        this.CreateButton(posesBody, "savenew", APM_Text("APM-Button-SaveNew", "Save new"), 446.0, 0.0, 178.0, 30.0);
-        this.CreateButton(posesBody, "overwrite", APM_Text("APM-Button-Overwrite", "Overwrite"), 446.0, 34.0, 178.0, 30.0);
-        this.CreateButton(posesBody, "load", APM_Text("APM-Button-Load", "Load"), 446.0, 68.0, 86.0, 30.0);
-        this.CreateButton(posesBody, "rename", APM_Text("APM-Button-Rename", "Rename"), 538.0, 68.0, 86.0, 30.0);
-        this.CreateButton(posesBody, "delete", APM_Text("APM-Button-Delete", "Delete"), 446.0, 102.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "savenew", this.L("APM-Button-SaveNew", "Save new"), 446.0, 0.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "overwrite", this.L("APM-Button-Overwrite", "Overwrite"), 446.0, 34.0, 178.0, 30.0);
+        this.CreateButton(posesBody, "load", this.L("APM-Button-Load", "Load"), 446.0, 68.0, 86.0, 30.0);
+        this.CreateButton(posesBody, "rename", this.L("APM-Button-Rename", "Rename"), 538.0, 68.0, 86.0, 30.0);
+        this.CreateButton(posesBody, "delete", this.L("APM-Button-Delete", "Delete"), 446.0, 102.0, 178.0, 30.0);
         this.CreateButton(posesBody, "pageprev", "<", 446.0, 136.0, 86.0, 30.0);
         this.CreateButton(posesBody, "pagenext", ">", 538.0, 136.0, 86.0, 30.0);
 
@@ -664,27 +689,27 @@ public class APM_PoseEditor extends IScriptable {
         let items = this.CreateSection(n"APM_Items");
         this.m_sectionItems = items;
         this.AddSeparator(items);
-        this.CreateText(items, APM_Text("APM-Title-InHand", "In hand"), 16.0, 8.0, 100.0, 30.0, 16, APM_ColorAccent());
-        this.CreateText(items, APM_Text("APM-Label-RightHand", "Right"), 116.0, 8.0, 60.0, 30.0, 14, APM_ColorDimText());
+        this.CreateText(items, this.L("APM-Title-InHand", "In hand"), 16.0, 8.0, 100.0, 30.0, 16, APM_ColorAccent());
+        this.CreateText(items, this.L("APM-Label-RightHand", "Right"), 116.0, 8.0, 60.0, 30.0, 14, APM_ColorDimText());
         this.CreateButton(items, "prop:open:r", "", 176.0, 8.0, 356.0, 30.0);
-        this.CreateIconButton(items, "prop:restore:r", "rotate-ccw", 538.0, 9.0, APM_Text("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
-        this.CreateIconButton(items, "prop:clear:r", "x", 584.0, 9.0, APM_Text("APM-Tip-ItemClearRight", "Empty the right hand"));
-        this.CreateText(items, APM_Text("APM-Label-LeftHand", "Left"), 116.0, 44.0, 60.0, 30.0, 14, APM_ColorDimText());
+        this.CreateIconButton(items, "prop:restore:r", "rotate-ccw", 538.0, 9.0, this.L("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
+        this.CreateIconButton(items, "prop:clear:r", "x", 584.0, 9.0, this.L("APM-Tip-ItemClearRight", "Empty the right hand"));
+        this.CreateText(items, this.L("APM-Label-LeftHand", "Left"), 116.0, 44.0, 60.0, 30.0, 14, APM_ColorDimText());
         this.CreateButton(items, "prop:open:l", "", 176.0, 44.0, 356.0, 30.0);
-        this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, APM_Text("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
-        this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, APM_Text("APM-Tip-ItemClearLeft", "Empty the left hand"));
+        this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, this.L("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
+        this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, this.L("APM-Tip-ItemClearLeft", "Empty the left hand"));
 
         // Face (folds): controls on top of the expression shown, and the saved expressions
         let face = this.CreateSection(n"APM_Face");
         this.m_sectionFace = face;
         this.AddSeparator(face);
-        this.CreateText(face, APM_Text("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
+        this.CreateText(face, this.L("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
         this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 350.0, 26.0, 13, APM_ColorDimText());
-        this.CreateIconButton(face, "face:unload", "x", 446.0, 6.0, APM_Text("APM-Tip-FaceUnload", "Back to the Photo Mode expression"));
-        this.CreateIconButton(face, "face:folder", "folder-open", 492.0, 6.0, APM_Text("APM-Tip-FaceFolder", "Open the folder of the saved expressions (to share them; in full screen the game is minimized)"));
-        this.CreateIconButton(face, "face:reset", "eraser", 538.0, 6.0, APM_Text("APM-Tip-FaceReset", "Reset the face: no changes, the Photo Mode expression"));
-        this.CreateIconButton(face, "face:open", "chevron-down", 584.0, 6.0, APM_Text("APM-Tip-FaceShow", "Show the face controls"));
-        this.CreateIconButton(face, "face:close", "chevron-up", 584.0, 6.0, APM_Text("APM-Tip-FaceHide", "Hide the face controls"));
+        this.CreateIconButton(face, "face:unload", "x", 446.0, 6.0, this.L("APM-Tip-FaceUnload", "Back to the Photo Mode expression"));
+        this.CreateIconButton(face, "face:folder", "folder-open", 492.0, 6.0, this.L("APM-Tip-FaceFolder", "Open the folder of the saved expressions (to share them; in full screen the game is minimized)"));
+        this.CreateIconButton(face, "face:reset", "eraser", 538.0, 6.0, this.L("APM-Tip-FaceReset", "Reset the face: no changes, the Photo Mode expression"));
+        this.CreateIconButton(face, "face:open", "chevron-down", 584.0, 6.0, this.L("APM-Tip-FaceShow", "Show the face controls"));
+        this.CreateIconButton(face, "face:close", "chevron-up", 584.0, 6.0, this.L("APM-Tip-FaceHide", "Hide the face controls"));
         let faceBody = new inkCanvas();
         faceBody.SetName(n"APM_FaceBody");
         faceBody.SetAnchor(inkEAnchor.TopLeft);
@@ -695,7 +720,7 @@ public class APM_PoseEditor extends IScriptable {
         let zones: array<String> = ["Jaw", "Mouth", "Brows", "Eyelids", "Cheeks"];
         let z = 0;
         while z < ArraySize(zones) {
-            this.CreateButton(faceBody, "facezone:" + zones[z], APM_FaceZoneText(zones[z]), 16.0 + Cast<Float>(z) * 122.0, 0.0, 118.0, 32.0);
+            this.CreateButton(faceBody, "facezone:" + zones[z], this.LFaceZone(zones[z]), 16.0 + Cast<Float>(z) * 122.0, 0.0, 118.0, 32.0);
             z += 1;
         }
         let controlCount = APM_FaceControlCount();
@@ -713,9 +738,9 @@ public class APM_PoseEditor extends IScriptable {
             }
             let attribute = 7740u + Cast<Uint32>(c);
             if APM_FaceControlIsAngle(c) {
-                this.CreateRow(faceBody, attribute, APM_FaceControlText(APM_FaceControlLabel(c)), 40.0 + Cast<Float>(slot) * 36.0, -60.0, 60.0, 1.0, 0.2, "");
+                this.CreateRow(faceBody, attribute, this.LFaceControl(APM_FaceControlLabel(c)), 40.0 + Cast<Float>(slot) * 36.0, -60.0, 60.0, 1.0, 0.2, "");
             } else {
-                this.CreateRow(faceBody, attribute, APM_FaceControlText(APM_FaceControlLabel(c)), 40.0 + Cast<Float>(slot) * 36.0, -3.0, 3.0, 0.1, 0.004, " cm");
+                this.CreateRow(faceBody, attribute, this.LFaceControl(APM_FaceControlLabel(c)), 40.0 + Cast<Float>(slot) * 36.0, -3.0, 3.0, 0.1, 0.004, " cm");
             }
             ArrayPush(this.m_faceRows, this.m_rows[ArraySize(this.m_rows) - 1]);
             c += 1;
@@ -725,10 +750,10 @@ public class APM_PoseEditor extends IScriptable {
         let pickButton = this.CreateButton(faceBody, "facelist:next", "", 60.0, 300.0, 300.0, 30.0);
         pickButton.label.SetLetterCase(textLetterCase.OriginalCase);
         this.CreateButton(faceBody, "facelist:next", ">", 364.0, 300.0, 40.0, 30.0);
-        this.CreateButton(faceBody, "facelist:load", APM_Text("APM-Button-Load", "Load"), 410.0, 300.0, 104.0, 30.0);
-        this.CreateButton(faceBody, "facelist:delete", APM_Text("APM-Button-Delete", "Delete"), 520.0, 300.0, 104.0, 30.0);
-        this.CreateButton(faceBody, "facelist:savenew", APM_Text("APM-Button-SaveNew", "Save new"), 16.0, 336.0, 300.0, 30.0);
-        this.CreateButton(faceBody, "facelist:overwrite", APM_Text("APM-Button-Overwrite", "Overwrite"), 324.0, 336.0, 300.0, 30.0);
+        this.CreateButton(faceBody, "facelist:load", this.L("APM-Button-Load", "Load"), 410.0, 300.0, 104.0, 30.0);
+        this.CreateButton(faceBody, "facelist:delete", this.L("APM-Button-Delete", "Delete"), 520.0, 300.0, 104.0, 30.0);
+        this.CreateButton(faceBody, "facelist:savenew", this.L("APM-Button-SaveNew", "Save new"), 16.0, 336.0, 300.0, 30.0);
+        this.CreateButton(faceBody, "facelist:overwrite", this.L("APM-Button-Overwrite", "Overwrite"), 324.0, 336.0, 300.0, 30.0);
 
         this.BuildPicker();
         this.BuildHelp();
@@ -826,10 +851,10 @@ public class APM_PoseEditor extends IScriptable {
         search.SetInteractive(false);
         this.m_pickerSearch = search;
         this.CreateIconButton(picker, "pick:close", "x", 404.0, 10.0, "");
-        this.CreateSmallButton(picker, "pick:tab0", APM_Text("APM-Picker-All", "All"), 16.0, 44.0, 104.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab1", APM_Text("APM-Picker-Weapons", "Weapons"), 124.0, 44.0, 104.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab2", APM_Text("APM-Picker-Food", "Food"), 232.0, 44.0, 104.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab3", APM_Text("APM-Picker-Other", "Other"), 340.0, 44.0, 104.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 104.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 124.0, 44.0, 104.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 232.0, 44.0, 104.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 340.0, 44.0, 104.0, 28.0);
         let i = 0;
         while i < this.PickerRows() {
             let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, 80.0 + Cast<Float>(i) * 34.0, 428.0, 30.0);
@@ -871,15 +896,15 @@ public class APM_PoseEditor extends IScriptable {
         accent.SetTintColor(APM_ColorAccent());
         accent.Reparent(help);
 
-        this.CreateText(help, APM_Text("APM-Help-Title", "Info"), 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
+        this.CreateText(help, this.L("APM-Help-Title", "Info"), 20.0, 10.0, 400.0, 36.0, 22, APM_ColorAccent());
         this.CreateIconButton(help, "helpclose", "x", width - 56.0, 14.0, "");
         // Marker legend: the shape shows what dragging it does right now (it changes with Shift / Ctrl / Alt).
         let y = 60.0;
-        y = this.AddHelpShape(help, 0, APM_ColorText(), APM_Text("APM-Help-ShapeRotate", "rotate"), y);
-        y = this.AddHelpShape(help, 1, APM_ColorText(), APM_Text("APM-Help-ShapeMove", "move"), y);
-        y = this.AddHelpShape(help, 2, APM_ColorText(), APM_Text("APM-Help-ShapeTwist", "twist"), y);
-        y = this.AddHelpShape(help, 1, APM_ColorIk(), APM_Text("APM-Help-ShapeIk", "IK: moves the hand / foot, the arm / leg follows"), y);
-        y = this.AddHelpShape(help, 1, APM_ColorRoot(), APM_Text("APM-Help-ShapeHips", "hips: V's root, moves the whole body"), y);
+        y = this.AddHelpShape(help, 0, APM_ColorText(), this.L("APM-Help-ShapeRotate", "rotate"), y);
+        y = this.AddHelpShape(help, 1, APM_ColorText(), this.L("APM-Help-ShapeMove", "move"), y);
+        y = this.AddHelpShape(help, 2, APM_ColorText(), this.L("APM-Help-ShapeTwist", "twist"), y);
+        y = this.AddHelpShape(help, 1, APM_ColorIk(), this.L("APM-Help-ShapeIk", "IK: moves the hand / foot, the arm / leg follows"), y);
+        y = this.AddHelpShape(help, 1, APM_ColorRoot(), this.L("APM-Help-ShapeHips", "hips: V's root, moves the whole body"), y);
         let divider = new inkRectangle();
         divider.SetAnchor(inkEAnchor.TopLeft);
         divider.SetMargin(20.0 * s, (y + 8.0) * s, 0.0, 0.0);
@@ -888,12 +913,12 @@ public class APM_PoseEditor extends IScriptable {
         divider.SetOpacity(0.5);
         divider.Reparent(help);
         y += 20.0;
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyAltDrag", "Alt + drag"), APM_Text("APM-Help-RotateFreely", "rotate freely"), y);
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyCtrlDrag", "Ctrl + drag"), APM_Text("APM-Help-Twist", "twist"), y);
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyShiftDrag", "Shift + drag"), APM_Text("APM-Help-ShiftDrag", "move (hips, held items) or rotate (hands / feet with IK)"), y);
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyWheel", "Mouse wheel"), APM_Text("APM-Help-Wheel", "while moving: nearer / farther"), y);
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyRightClick", "Right-click a marker"), APM_Text("APM-Help-RightClick", "reset that part"), y);
-        y = this.AddHelpLine(help, APM_Text("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y"), APM_Text("APM-Help-UndoRedo", "undo / redo"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyAltDrag", "Alt + drag"), this.L("APM-Help-RotateFreely", "rotate freely"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyCtrlDrag", "Ctrl + drag"), this.L("APM-Help-Twist", "twist"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyShiftDrag", "Shift + drag"), this.L("APM-Help-ShiftDrag", "move (hips, held items) or rotate (hands / feet with IK)"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyWheel", "Mouse wheel"), this.L("APM-Help-Wheel", "while moving: nearer / farther"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyRightClick", "Right-click a marker"), this.L("APM-Help-RightClick", "reset that part"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y"), this.L("APM-Help-UndoRedo", "undo / redo"), y);
         help.SetSize(width * s, (y + 16.0) * s);
     }
 
@@ -962,7 +987,7 @@ public class APM_PoseEditor extends IScriptable {
         rootDot.SetVisible(false);
         rootDot.Reparent(this.m_lineLayer);
         this.m_rootDot = rootDot;
-        let rootLabel = this.CreateText(this.m_lineLayer, APM_Text("APM-Label-Root", "V's root (Photo Mode position)"), 0.0, 0.0, 400.0, 24.0, 13, APM_ColorDimText());
+        let rootLabel = this.CreateText(this.m_lineLayer, this.L("APM-Label-Root", "V's root (Photo Mode position)"), 0.0, 0.0, 400.0, 24.0, 13, APM_ColorDimText());
         rootLabel.SetLetterCase(textLetterCase.OriginalCase);
         rootLabel.SetInteractive(false);
         rootLabel.SetVisible(false);
@@ -1107,6 +1132,7 @@ public class APM_PoseEditor extends IScriptable {
         label.SetOverflowPolicy(textOverflowPolicy.AdjustToSize); // longer translations shrink to fit
         label.SetText(text);
         label.Reparent(parent);
+        this.RegisterText(label, text);
         return label;
     }
 
@@ -1122,6 +1148,7 @@ public class APM_PoseEditor extends IScriptable {
         let h = height > 0.0 ? height : 28.0;
         let button = this.CreateButton(parent, id, "", x, y, 40.0, h);
         button.tooltip = tooltip;
+        this.RegisterTip(button, tooltip);
         // 24 x 24 grid drawn 22 x 22 units, centered.
         let cell = 22.0 / 24.0;
         let left = 9.0;
@@ -1230,6 +1257,7 @@ public class APM_PoseEditor extends IScriptable {
         label.SetOverflowPolicy(textOverflowPolicy.AdjustToSize); // longer translations shrink to fit the button
         label.SetText(text);
         label.Reparent(root);
+        this.RegisterText(label, text);
 
         root.RegisterToCallback(n"OnPress", this, n"OnButtonPress");
         root.RegisterToCallback(n"OnRelease", this, n"OnButtonRelease");
@@ -3710,6 +3738,98 @@ public class APM_PoseEditor extends IScriptable {
         this.m_confirmResetAll = keepResetConfirm;
         this.m_confirmDelete = keepDeleteConfirm;
         APM_UiRequestRefresh(); // keeps the Photo Mode menu items in sync
+        this.Refresh();
+    }
+
+    // --- Translated texts ---------------------------------------------------------------------------------------
+
+    private func L(key: String, english: String) -> String {
+        let shown = APM_Text(key, english);
+        ArrayPush(this.m_pendingKeys, key);
+        ArrayPush(this.m_pendingEnglish, english);
+        ArrayPush(this.m_pendingShown, shown);
+        return shown;
+    }
+
+    private func LGroup(group: String) -> String {
+        return this.L("APM-Group-" + APM_KeyName(group), group);
+    }
+
+    private func LPart(label: String) -> String {
+        return this.L("APM-Part-" + APM_KeyName(label), label);
+    }
+
+    private func LFaceZone(zone: String) -> String {
+        return this.L("APM-FaceZone-" + APM_KeyName(zone), zone);
+    }
+
+    private func LFaceControl(label: String) -> String {
+        return this.L("APM-FaceControl-" + APM_KeyName(label), label);
+    }
+
+    // Index of the queued text shown as aText (-1 when the text is not a translated one).
+    private func TakePending(text: String) -> Int32 {
+        let i = 0;
+        while i < ArraySize(this.m_pendingShown) {
+            if Equals(this.m_pendingShown[i], text) {
+                return i;
+            }
+            i += 1;
+        }
+        return -1;
+    }
+
+    private func DropPending(index: Int32) {
+        ArrayErase(this.m_pendingKeys, index);
+        ArrayErase(this.m_pendingEnglish, index);
+        ArrayErase(this.m_pendingShown, index);
+    }
+
+    private func RegisterText(widget: wref<inkText>, text: String) {
+        if StrLen(text) == 0 {
+            return;
+        }
+        let index = this.TakePending(text);
+        if index >= 0 {
+            ArrayPush(this.m_locTexts, widget);
+            ArrayPush(this.m_locTextKeys, this.m_pendingKeys[index]);
+            ArrayPush(this.m_locTextEnglish, this.m_pendingEnglish[index]);
+            this.DropPending(index);
+        }
+    }
+
+    private func RegisterTip(button: ref<APM_Button>, text: String) {
+        if StrLen(text) == 0 {
+            return;
+        }
+        let index = this.TakePending(text);
+        if index >= 0 {
+            this.TipL(button, this.m_pendingKeys[index], this.m_pendingEnglish[index]);
+            this.DropPending(index);
+        }
+    }
+
+    private func TipL(button: ref<APM_Button>, key: String, english: String) {
+        button.tooltip = APM_Text(key, english);
+        ArrayPush(this.m_locTips, button);
+        ArrayPush(this.m_locTipKeys, key);
+        ArrayPush(this.m_locTipEnglish, english);
+    }
+
+    // Photo Mode opened: texts in the current interface language.
+    private func Retranslate() {
+        let i = 0;
+        while i < ArraySize(this.m_locTexts) {
+            if IsDefined(this.m_locTexts[i]) {
+                this.m_locTexts[i].SetText(APM_Text(this.m_locTextKeys[i], this.m_locTextEnglish[i]));
+            }
+            i += 1;
+        }
+        i = 0;
+        while i < ArraySize(this.m_locTips) {
+            this.m_locTips[i].tooltip = APM_Text(this.m_locTipKeys[i], this.m_locTipEnglish[i]);
+            i += 1;
+        }
         this.Refresh();
     }
 

@@ -21,7 +21,9 @@ HIDDEN_PREFIXES = ("APM-Face", "APM-Tip-Face", "APM-Title-Face", "APM-Msg-Expres
 HIDDEN_KEYS = {"APM-Label-PhotoModeExpression", "APM-Label-NoExpressions", "APM-Button-Confirm", "APM-Msg-ClickAgainDelete"}
 
 STRING = r'"((?:[^"\\]|\\.)*)"'
-CALL = re.compile(r'APM_Text(?:With)?\(' + STRING + r',\s*' + STRING)
+CALL = re.compile(r'(?:APM_Text(?:With)?\(|this\.L\(|TipL\([^,()]+,\s*)' + STRING + r',\s*' + STRING)
+# Keys and English texts kept in two parallel arrays (hand preset tooltips).
+ARRAYS = re.compile(r'let (\w+)Keys: array<String> = \[([^\]]*)\];\s*let \1Texts: array<String> = \[([^\]]*)\];')
 
 
 def key_name(label):
@@ -54,8 +56,12 @@ def main():
             sections.setdefault(section, []).append(key)
 
     for path in sorted(SCRIPTS.glob("*.reds")):
-        for match in CALL.finditer(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        for match in CALL.finditer(text):
             add(match.group(1), match.group(2).replace('\\"', '"'), "Panel")
+        for match in ARRAYS.finditer(text):
+            for key, english in zip(re.findall(STRING, match.group(2)), re.findall(STRING, match.group(3))):
+                add(key, english, "Panel")
 
     catalog = (ROOT / "src" / "Ui" / "BoneCatalog.cpp").read_text(encoding="utf-8")
     parts = re.findall(r'\{"([^"]+)", "([^"]+)", \{"', catalog)

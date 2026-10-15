@@ -51,11 +51,6 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Preset-Fist", "Fist");
         this.Text("APM-Preset-Point", "Point");
         this.Text("APM-Preset-Grip", "Grip");
-        this.Text("APM-Tip-PresetOpen", "Straight fingers");
-        this.Text("APM-Tip-PresetRelaxed", "Slightly curled, at rest");
-        this.Text("APM-Tip-PresetFist", "Closed fist");
-        this.Text("APM-Tip-PresetPoint", "Index finger pointing");
-        this.Text("APM-Tip-PresetGrip", "Fingers around a handle");
         this.Text("APM-Button-Reset", "Reset");
         this.Text("APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
         this.Text("APM-Button-EyesBoth", "Both");
@@ -152,6 +147,11 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-ResetAllConfirm", "Click again to reset everything (items in hand stay)");
         this.Text("APM-Msg-PoseSaveFailed", "Could not save the pose");
         this.Text("APM-Msg-PoseLoadFailed", "Could not load {0}");
+        this.Text("APM-Tip-PresetOpen", "Straight fingers");
+        this.Text("APM-Tip-PresetRelaxed", "Slightly curled, at rest");
+        this.Text("APM-Tip-PresetFist", "Closed fist");
+        this.Text("APM-Tip-PresetPoint", "Index finger pointing");
+        this.Text("APM-Tip-PresetGrip", "Fingers around a handle");
 
         // Body part groups (tabs)
         this.Text("APM-Group-Torso", "Torso");
