@@ -156,6 +156,10 @@ Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); th
 | 58 | Look at camera of the selected added character | as 15 |
 | 78 | Look at camera target of the selected added character | as 74 |
 | 68 | Character selected in the NPC page (0-2 = scene slot) | index |
+| 5 / 6 | V's Photo Mode pose: category / pose in that category | index |
+| 56 / 57 | Pose of the character selected in the NPC page: category / pose | index |
+| 55 | NPC page: scene slot a character is being added to | 0-2 |
+| 63 | NPC page: which character is added (list index) | index |
 | 79-81 | Custom look-at values of the selected added character (V: 75-77) | |
 
 ## Eyelids follow the eyes (1.1.0)
@@ -190,5 +194,9 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
   (child of `RightHand`, reference local translation (-0.087 0.042 0.021)) is animated far from the hand by his poses.
   Possible fix: when the animated `WeaponRight` / `WeaponLeft` is more than ~20 cm from its hand, start from the
   reference local transform (the user's item offset applies on top as now).
-- **Look at camera on the torso** also turns the hips and legs by ~3.8 degrees (V and added characters): the check that
-  tells a new Photo Mode pose apart (hips and legs, `RemoveGameLookAt`) tolerates 10 degrees.
+- **Look at camera on the torso** also turns the hips and thighs (`Hips`, `LeftUpLeg`, `RightUpLeg`) by ~4-10 degrees,
+  depending on the camera (V and added characters). `RemoveGameLookAt` remembers and puts back those bones too, and
+  tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 56 / 57), not by the bones.
+- **Adding a character resets V's Look at camera target to the head** (the game sends attribute 74 = 1 just before the
+  new character appears, and the torso option disappears from the menu until Look at camera is turned off and on
+  again). Game behaviour: the plugin only reads these attributes.

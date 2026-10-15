@@ -601,32 +601,25 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     }
 }
 
-// The bones Photo Mode's "Look at camera" turns (head / torso). IK pins are measured on the pose without that turn,
-// so a camera move does not drag a world-pinned hand along, and body-pinned hands follow the turn like a manual one.
-constexpr const char* LookAtChain[] = {"Spine", "Spine1", "Spine2", "Spine3", "Neck", "Neck1", "Head"};
-constexpr const char* PoseSignature[] = {"Hips", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"};
+// The bones Photo Mode's "Look at camera" turns (head / torso; on the torso it also turns the hips and thighs a little,
+// ~4-10 degrees depending on the camera). IK pins are measured on the pose without that turn, so a camera move does not
+// drag a world-pinned hand along, and body-pinned hands follow the turn like a manual one.
+constexpr const char* LookAtChain[] = {"Hips", "LeftUpLeg", "RightUpLeg", "Spine", "Spine1", "Spine2",
+                                       "Spine3", "Neck", "Neck1", "Head"};
 
 struct NoLookAtCache
 {
     bool valid = false;
+    uint32_t poseGeneration = 0; // Photo Mode pose the bones belong to (LookAtCamera::PoseGeneration)
     std::array<Quat, std::size(LookAtChain)> chain{};
-    std::array<Quat, std::size(PoseSignature)> signature{};
 };
 std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
-bool SameRotation(const Quat& a, const Quat& b)
-{
-    // Within ~10 degrees: breathing, and the game's look at the camera on the torso (it also turns the hips and legs
-    // by ~4 degrees). Another Photo Mode pose differs by far more.
-    return std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r) > 0.9962f;
-}
-
 // Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,
-// puts them back in aBones (a copy) if the pose underneath is still the same one.
+// puts them back in aBones (a copy) if the Photo Mode pose is still the same one (its pose selector did not change).
 bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     std::array<int32_t, std::size(LookAtChain)> chain{};
-    std::array<int32_t, std::size(PoseSignature)> signature{};
     for (size_t i = 0; i < chain.size(); ++i)
     {
         chain[i] = IndexOf(aTarget, Hash(LookAtChain[i]));
@@ -635,25 +628,16 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
             return false;
         }
     }
-    for (size_t i = 0; i < signature.size(); ++i)
-    {
-        signature[i] = IndexOf(aTarget, Hash(PoseSignature[i]));
-        if (signature[i] < 0 || static_cast<uint32_t>(signature[i]) >= aCount)
-        {
-            return false;
-        }
-    }
-    auto& g_noLookAt = g_noLookAtCaches[CharacterOf(aTarget)];
-    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(CharacterOf(aTarget))) < 2)
+    const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
+    const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(character);
+    auto& g_noLookAt = g_noLookAtCaches[character];
+    if (APM::Pose::LookAtCamera::Reach(character) < 2)
     {
         for (size_t i = 0; i < chain.size(); ++i)
         {
             g_noLookAt.chain[i] = GetRotation(aBones[chain[i]]);
         }
-        for (size_t i = 0; i < signature.size(); ++i)
-        {
-            g_noLookAt.signature[i] = GetRotation(aBones[signature[i]]);
-        }
+        g_noLookAt.poseGeneration = generation;
         g_noLookAt.valid = true;
         return false;
     }
@@ -661,30 +645,12 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     {
         return false;
     }
-    for (size_t i = 0; i < signature.size(); ++i)
+    if (g_noLookAt.poseGeneration != generation)
     {
-        if (!SameRotation(GetRotation(aBones[signature[i]]), g_noLookAt.signature[i]))
-        {
-            {
-                // Diagnostics: once per character, which bone told the pose apart while the game looks at the camera.
-                static std::mutex s_logMutex;
-                static std::array<bool, CharacterCount> s_logged{};
-                std::scoped_lock lock(s_logMutex);
-                const size_t character = CharacterOf(aTarget);
-                if (!s_logged[character])
-                {
-                    s_logged[character] = true;
-                    const Quat a = GetRotation(aBones[signature[i]]);
-                    const Quat b = g_noLookAt.signature[i];
-                    const float dot = std::min(1.f, std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r));
-                    APM::Log::Info("Character %zu: look at camera on, %s differs by %.1f degrees from the pose remembered "
-                                   "without it; remembered pose dropped",
-                                   character, PoseSignature[i], 2.f * std::acos(dot) * 57.2958f);
-                }
-            }
-            g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
-            return false;
-        }
+        g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
+        APM::Log::Verbose("Character %u: Photo Mode pose changed while Look at camera is on; remembered pose dropped",
+                          character);
+        return false;
     }
     for (size_t i = 0; i < chain.size(); ++i)
     {

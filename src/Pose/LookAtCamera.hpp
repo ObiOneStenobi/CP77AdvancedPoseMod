@@ -18,6 +18,23 @@ inline std::array<std::atomic<int32_t>, 4> g_target{}; // V: attribute 74, added
 // The added character the Photo Mode NPC page works on (attribute 68, its character selector): attributes 58 / 78
 // belong to that character.
 inline std::atomic<int32_t> g_selectedNpc{0};
+// Photo Mode pose of each character (V: attributes 5 category / 6 pose, added characters: 56 / 57): the generation
+// goes up when it changes, so data remembered for one pose is not used on another.
+inline std::array<std::array<std::atomic<int32_t>, 2>, 4> g_pose{};
+inline std::array<std::atomic<uint32_t>, 4> g_poseGeneration{};
+
+inline void SetPose(size_t aCharacter, size_t aField, int32_t aValue)
+{
+    if (aCharacter < g_pose.size() && g_pose[aCharacter][aField].exchange(aValue) != aValue)
+    {
+        ++g_poseGeneration[aCharacter];
+    }
+}
+
+inline uint32_t PoseGeneration(uint32_t aCharacter)
+{
+    return aCharacter < g_poseGeneration.size() ? g_poseGeneration[aCharacter].load() : 0;
+}
 
 inline void Reset()
 {
@@ -25,6 +42,9 @@ inline void Reset()
     {
         g_mode[i] = 0;
         g_target[i] = 1;
+        g_pose[i][0] = -1;
+        g_pose[i][1] = -1;
+        ++g_poseGeneration[i];
     }
     g_selectedNpc = 0;
 }
@@ -38,7 +58,7 @@ inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
         return;
     }
     const int32_t npc = g_selectedNpc;
-    if ((aAttribute == 58 || aAttribute == 78) && (npc < 0 || npc >= 3))
+    if ((aAttribute == 58 || aAttribute == 78 || aAttribute == 56 || aAttribute == 57) && (npc < 0 || npc >= 3))
     {
         return; // no added character selected in the NPC page
     }
@@ -49,13 +69,18 @@ inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
     case 74: g_target[0] = value; break;
     case 58: g_mode[character] = value; break;
     case 78: g_target[character] = value; break;
+    case 5: SetPose(0, 0, value); break;
+    case 6: SetPose(0, 1, value); break;
+    case 56: SetPose(character, 0, value); break;
+    case 57: SetPose(character, 1, value); break;
     default: break;
     }
 }
 
 inline bool IsLookAtAttribute(uint32_t aAttribute)
 {
-    return aAttribute == 15 || aAttribute == 74 || aAttribute == 58 || aAttribute == 78 || aAttribute == 68;
+    return aAttribute == 15 || aAttribute == 74 || aAttribute == 58 || aAttribute == 78 || aAttribute == 68 ||
+           aAttribute == 5 || aAttribute == 6 || aAttribute == 56 || aAttribute == 57;
 }
 
 // 0 nothing, 1 eyes, 2 head and eyes, 3 torso, head and eyes.
@@ -138,6 +163,9 @@ inline void ResetCharacter(uint32_t aCharacter)
     }
     g_mode[aCharacter] = 0;
     g_target[aCharacter] = 1;
+    g_pose[aCharacter][0] = -1;
+    g_pose[aCharacter][1] = -1;
+    ++g_poseGeneration[aCharacter];
     std::scoped_lock lock(g_cameraMutex);
     g_cameras[aCharacter].valid = false;
 }
