@@ -1407,7 +1407,7 @@ public class APM_PoseEditor extends IScriptable {
                 this.FinishRename(true);
             }
             this.m_panelHovered = false;
-            this.SetHover(false);
+            this.SetHover(false, "SetOpen");
             if this.m_pickerOpen {
                 this.ClosePicker();
             }
@@ -1464,9 +1464,12 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Only a hover we took is released: leaving one of our widgets must not take the hover from the game's menu.
-    private func SetHover(hover: Bool) {
+    private func SetHover(hover: Bool, reason: String) {
         if !hover && !this.m_ownsHover {
             return;
+        }
+        if NotEquals(hover, this.m_ownsHover) {
+            APM_LogInfo("Hover: " + (hover ? "take" : "release") + " by " + reason + APM_MouseState());
         }
         this.m_ownsHover = hover;
         if IsDefined(this.m_controller) {
@@ -3770,7 +3773,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_rootHovered = true;
             this.m_waitRoot = false;
         }
-        this.SetHover(true);
+        this.SetHover(true, "UpdateWaitingHover");
     }
 
     // Moves the active hovers to the waiting ones and releases the mouse.
@@ -3807,7 +3810,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         if any {
             this.m_tipButton = null;
-            this.SetHover(false);
+            this.SetHover(false, "ParkHovers");
         }
     }
 
@@ -3819,14 +3822,14 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         this.m_panelHovered = true;
-        this.SetHover(true);
+        this.SetHover(true, "OnPanelHoverOver");
     }
 
     protected cb func OnPanelHoverOut(e: ref<inkPointerEvent>) -> Bool {
         this.m_waitPanel = false;
         this.m_panelHovered = false;
         if !IsDefined(this.m_dragRow) && !IsDefined(this.m_dragMarker) {
-            this.SetHover(false);
+            this.SetHover(false, "OnPanelHoverOut");
         }
     }
 
@@ -3844,7 +3847,7 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_tipTimer = 0.0;
             }
         }
-        this.SetHover(true);
+        this.SetHover(true, "OnButtonHoverOver");
     }
 
     protected cb func OnButtonHoverOut(e: ref<inkPointerEvent>) -> Bool {
@@ -3862,7 +3865,7 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
             if Equals(button.id, "open") {
-                this.SetHover(false); // the open button lives outside the panel
+                this.SetHover(false, "OnButtonHoverOut"); // the open button lives outside the panel
             }
         }
     }
@@ -3881,7 +3884,7 @@ public class APM_PoseEditor extends IScriptable {
                 APM_HistoryCheckpoint();
                 this.m_dragRow = row;
                 this.m_dragValue = APM_UiGetValue(row.attribute);
-                this.SetHover(true);
+                this.SetHover(true, "OnButtonPress");
             }
         }
     }
@@ -3912,14 +3915,14 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         this.m_rootHovered = true;
-        this.SetHover(true);
+        this.SetHover(true, "OnRootHoverOver");
     }
 
     protected cb func OnRootHoverOut(e: ref<inkPointerEvent>) -> Bool {
         this.m_waitRoot = false;
         this.m_rootHovered = false;
         if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
-            this.SetHover(false);
+            this.SetHover(false, "OnRootHoverOut");
         }
     }
 
@@ -3932,7 +3935,7 @@ public class APM_PoseEditor extends IScriptable {
         if IsDefined(marker) {
             marker.isHovered = true;
         }
-        this.SetHover(true);
+        this.SetHover(true, "OnMarkerHoverOver");
     }
 
     protected cb func OnMarkerHoverOut(e: ref<inkPointerEvent>) -> Bool {
@@ -3944,7 +3947,7 @@ public class APM_PoseEditor extends IScriptable {
             marker.isHovered = false;
         }
         if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
-            this.SetHover(false);
+            this.SetHover(false, "OnMarkerHoverOut");
         }
     }
 
@@ -3974,7 +3977,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         APM_HistoryCheckpoint();
         this.BeginMarkerDrag(marker, e.IsShiftDown(), e.IsControlDown());
-        this.SetHover(true);
+        this.SetHover(true, "OnMarkerPress");
         APM_UiRequestRefresh();
         this.Refresh();
     }
@@ -4046,7 +4049,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_dragMode = 0;
             APM_SetWheelCapture(false);
             if !this.m_panelHovered {
-                this.SetHover(false);
+                this.SetHover(false, "OnGlobalRelease");
             }
             APM_UiRequestRefresh();
             this.Refresh();
@@ -4095,22 +4098,31 @@ private let m_apmMenuHoverWaiting: Bool;
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnMenuHovered(e: ref<inkPointerEvent>) -> Bool {
     if APM_IsLeftMouseDown() || APM_IsRightMouseDown() {
+        APM_LogInfo("Hover: game menu waits" + APM_MouseState());
         this.m_apmMenuHoverWaiting = true;
         return false;
     }
+    APM_LogInfo("Hover: game menu takes" + APM_MouseState());
     return wrappedMethod(e);
 }
 
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnMenuHoverOut(e: ref<inkPointerEvent>) -> Bool {
+    APM_LogInfo("Hover: game menu releases" + APM_MouseState());
     this.m_apmMenuHoverWaiting = false;
     return wrappedMethod(e);
+}
+
+// Diagnostics (written only with [Debug] Log=1).
+public func APM_MouseState() -> String {
+    return " (left=" + ToString(APM_IsLeftMouseDown()) + " right=" + ToString(APM_IsRightMouseDown()) + ")";
 }
 
 @addMethod(gameuiPhotoModeMenuController)
 public final func APM_UpdatePoseEditor(timeDelta: Float) {
     if this.m_apmMenuHoverWaiting && !APM_IsLeftMouseDown() && !APM_IsRightMouseDown() {
         this.m_apmMenuHoverWaiting = false;
+        APM_LogInfo("Hover: game menu takes after release" + APM_MouseState());
         if !this.m_IsHoverOver {
             this.OnHoverStateChanged(true);
             this.SetCursorContext(n"Hover");
