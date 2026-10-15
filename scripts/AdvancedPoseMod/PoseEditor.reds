@@ -4090,7 +4090,44 @@ protected cb func OnChangeAspectRatioRate(aspectRatioRate: Float) -> Bool {
     if IsDefined(this.m_apmPoseEditor) {
         this.m_apmPoseEditor.OnFrameChanged();
     }
+    this.APM_LogWidgetTree();
     return result;
+}
+
+// Diagnostics (written only with [Debug] Log=1): where the black bars and our layer sit in the widget tree.
+@addMethod(gameuiPhotoModeMenuController)
+private final func APM_LogWidgetTree() {
+    let root = this.GetRootCompoundWidget();
+    let i = 0;
+    while i < root.GetNumChildren() {
+        let child = root.GetWidgetByIndex(i);
+        APM_LogInfo("Frame: root child " + ToString(i) + " " + NameToString(child.GetName()) + " visible=" + ToString(child.IsVisible()));
+        i += 1;
+    }
+    let bar = inkWidgetRef.Get(this.m_LeftBlackBar);
+    APM_LogInfo("Frame: left black bar at" + APM_FindWidgetPath(root, bar, 0));
+    APM_LogInfo("Frame: menu area at" + APM_FindWidgetPath(root, inkWidgetRef.Get(this.m_menuArea), 0));
+}
+
+// Path of indices / names from aRoot down to aWidget ("" when not found).
+public func APM_FindWidgetPath(node: wref<inkCompoundWidget>, widget: wref<inkWidget>, depth: Int32) -> String {
+    if !IsDefined(node) || !IsDefined(widget) || depth > 12 {
+        return "";
+    }
+    let i = 0;
+    while i < node.GetNumChildren() {
+        let child = node.GetWidgetByIndex(i);
+        let step = " > " + ToString(i) + ":" + NameToString(child.GetName());
+        if child == widget {
+            return step;
+        }
+        let rest = APM_FindWidgetPath(child as inkCompoundWidget, widget, depth + 1);
+        if StrLen(rest) > 0 {
+            return step + rest;
+        }
+        i += 1;
+    }
+    return "";
 }
 
 @wrapMethod(gameuiPhotoModeMenuController)

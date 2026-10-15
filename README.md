@@ -18,6 +18,8 @@ Install with Vortex, or extract the zip into the game folder (the one containing
 - [RED4ext](https://docs.red4ext.com) 1.30+
 - [redscript](https://github.com/jac3km4/redscript)
 
+Windows only so far: Linux / Steam Deck (Proton) has not been tested.
+
 To build from source:
 
 - Visual Studio 2022 with the **Desktop development with C++** workload (includes CMake and Git)
