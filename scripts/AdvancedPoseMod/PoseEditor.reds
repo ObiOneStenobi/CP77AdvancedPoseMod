@@ -333,6 +333,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_waitButton: ref<APM_Button>;
     private let m_waitPanel: Bool;
     private let m_waitRoot: Bool;
+    private let m_ownsHover: Bool; // the camera ignores the mouse because of one of our widgets
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -1462,7 +1463,12 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
+    // Only a hover we took is released: leaving one of our widgets must not take the hover from the game's menu.
     private func SetHover(hover: Bool) {
+        if !hover && !this.m_ownsHover {
+            return;
+        }
+        this.m_ownsHover = hover;
         if IsDefined(this.m_controller) {
             this.m_controller.APM_SetHover(hover);
         }
@@ -4081,8 +4087,36 @@ public final func APM_SetHover(hover: Bool) {
     this.SetCursorContext(hover ? n"Hover" : n"Default");
 }
 
+// The game's own menu takes the mouse from the camera the same way: not while a button is held to move the camera
+// (the hidden cursor crossing the menu stopped the rotation); the hover is taken once the buttons are released.
+@addField(gameuiPhotoModeMenuController)
+private let m_apmMenuHoverWaiting: Bool;
+
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnMenuHovered(e: ref<inkPointerEvent>) -> Bool {
+    if APM_IsLeftMouseDown() || APM_IsRightMouseDown() {
+        this.m_apmMenuHoverWaiting = true;
+        return false;
+    }
+    return wrappedMethod(e);
+}
+
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnMenuHoverOut(e: ref<inkPointerEvent>) -> Bool {
+    this.m_apmMenuHoverWaiting = false;
+    return wrappedMethod(e);
+}
+
 @addMethod(gameuiPhotoModeMenuController)
 public final func APM_UpdatePoseEditor(timeDelta: Float) {
+    if this.m_apmMenuHoverWaiting && !APM_IsLeftMouseDown() && !APM_IsRightMouseDown() {
+        this.m_apmMenuHoverWaiting = false;
+        if !this.m_IsHoverOver {
+            this.OnHoverStateChanged(true);
+            this.SetCursorContext(n"Hover");
+        }
+        this.m_IsHoverOver = true;
+    }
     if IsDefined(this.m_apmPoseEditor) {
         this.m_apmPoseEditor.Update(timeDelta);
     }
