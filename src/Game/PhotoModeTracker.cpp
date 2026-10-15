@@ -408,6 +408,14 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
         }
 
         auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
+        if (aCharacter != 0 && animated->clientForcedLod != 0)
+        {
+            // Added characters are animated with a reduced skeleton (animation LOD: e.g. 28 of the 71 bones) when
+            // the game thinks they matter less; a posed character needs every bone, as V has.
+            Log::Verbose("PhotoMode: character %u component %s animation LOD forced to 0 (was %d)", aCharacter,
+                         CNameToString(component->name).c_str(), animated->clientForcedLod);
+            animated->clientForcedLod = 0;
+        }
         RED4ext::anim::Rig* rig = nullptr;
         if (animated->rig.IsLoaded())
         {

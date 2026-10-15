@@ -313,11 +313,15 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
         const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
         if (boneCount != aTarget.boneNames.size())
         {
-            bool expected = false;
-            if (g_countMismatchLogged.compare_exchange_strong(expected, true))
+            // Once per character and skeleton size (an animation LOD samples fewer bones than the rig has).
+            static std::mutex s_mismatchMutex;
+            static std::unordered_set<uint64_t> s_mismatchLogged;
+            const uint64_t key = (static_cast<uint64_t>(aTarget.photoModeSlot) << 32) | boneCount;
+            std::scoped_lock lock(s_mismatchMutex);
+            if (s_mismatchLogged.insert(key).second)
             {
-                APM::Log::Warn("Pose bone count (%u) differs from rig bone count (%zu) on %s; skipped", boneCount,
-                               aTarget.boneNames.size(), aTarget.debugName.c_str());
+                APM::Log::Warn("Character %u: pose bone count (%u) differs from rig bone count (%zu) on %s; skipped",
+                               aTarget.photoModeSlot, boneCount, aTarget.boneNames.size(), aTarget.debugName.c_str());
             }
             return;
         }
