@@ -82,7 +82,8 @@ Open Photo Mode and click **Pose editor** (top left).
   header: the panel, the gizmos, undo / redo and the items in hand work on the character shown there. Every
   character keeps its own pose; replacing a character in a slot starts it from the game's pose. Saved poses work on
   any of them (V and human characters share the same skeleton). Look at camera works for them as for V (Photo Mode
-  NPC page). Only human characters can be posed (animals and objects have other skeletons).
+  NPC page). Only human characters can be posed (animals and objects have other skeletons). The NPC page's facial
+  expressions work only on some characters (e.g. Wakako): that is the game, the same happens without this mod.
 - A saved pose stores the **whole visible pose** (every body bone, edits and IK included), not just the edits:
   loading it replaces the Photo Mode pose underneath, whatever pose is selected there, and new edits go on top of
   it. The face keeps its Photo Mode expression. **Reset all** goes back to the Photo Mode pose. Poses saved by

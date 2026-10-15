@@ -1,5 +1,4 @@
 #include "Pose/TargetRegistry.hpp"
-#include "Core/Log.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/PoseProcessor.hpp"
 
@@ -8,8 +7,6 @@
 #include <Windows.h>
 
 #include <algorithm>
-#include <unordered_set>
-#include <mutex>
 
 namespace
 {
@@ -245,23 +242,6 @@ bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
         }
         const Math::Vec3 face = PoseProcessor::ReferenceFaceForward(target);
         aOut = Math::Normalize(Math::Rotate(Math::Conjugate(target.refRotationsMS[index]), face));
-        {
-            // Diagnostics: once per character and bone.
-            static std::mutex s_logMutex;
-            static std::unordered_set<uint64_t> s_logged;
-            std::scoped_lock lock(s_logMutex);
-            if (s_logged.insert(aBoneHash ^ (static_cast<uint64_t>(target.photoModeSlot) << 60)).second)
-            {
-                const auto& q = target.refRotationsMS[index];
-                const auto& t = index < target.refTranslationsLS.size() ? target.refTranslationsLS[index] : Math::Vec3{};
-                const int16_t parent = index < target.parents.size() ? target.parents[index] : int16_t(-1);
-                Log::Info("Character %u: %s reference: face (%.3f %.3f %.3f), local forward (%.3f %.3f %.3f), "
-                          "rotation MS (%.3f %.3f %.3f %.3f), translation LS (%.3f %.3f %.3f), parent %s",
-                          target.photoModeSlot, RED4ext::CName(aBoneHash).ToString(), face.x, face.y, face.z, aOut.x,
-                          aOut.y, aOut.z, q.i, q.j, q.k, q.r, t.x, t.y, t.z,
-                          parent >= 0 ? RED4ext::CName(target.boneNames[parent]).ToString() : "-");
-            }
-        }
         return true;
     }
     return false;

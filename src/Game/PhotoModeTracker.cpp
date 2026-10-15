@@ -21,8 +21,6 @@
 #include <RED4ext/Scripting/Natives/Generated/anim/Rig.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/AnimatedComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/Entity.hpp>
-#include <RED4ext/Scripting/Natives/Generated/ent/HardTransformBinding.hpp>
-#include <RED4ext/Scripting/Natives/Generated/ent/SlotComponent.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -390,9 +388,6 @@ void ProbeLists(void* aSystem, void* aCharacterList = nullptr, uint8_t aGroup = 
     }
 }
 
-void LogWeaponSlots(RED4ext::ent::Entity* aEntity, uint32_t aCharacter, const std::vector<APM::Pose::Target>& aTargets,
-                    uint64_t aPuppet);
-
 // Adds the animated components of one Photo Mode puppet (aCharacter: 0 = V, 1-3 = added characters).
 void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, uint32_t aCharacter, uint32_t aCharacterType,
                       RED4ext::CClass* animatedCls, const APM::Config::Values& config)
@@ -456,101 +451,6 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
         }
 
         targets.push_back(std::move(target));
-    }
-    LogWeaponSlots(entity, aCharacter, targets, puppet);
-}
-
-// Diagnostics: the hand item slots of a puppet (slot component, what it is bound to, bone, offset) and the rig's
-// weapon bones. Logged once per character and puppet, when its main skeleton is there.
-void LogWeaponSlots(RED4ext::ent::Entity* aEntity, uint32_t aCharacter, const std::vector<APM::Pose::Target>& aTargets,
-                    uint64_t aPuppet)
-{
-    using namespace APM;
-    const Pose::Target* root = nullptr;
-    for (const auto& target : aTargets)
-    {
-        if (target.entity == aPuppet && target.debugName == "root")
-        {
-            root = &target;
-        }
-    }
-    if (!root)
-    {
-        return;
-    }
-    static std::set<std::pair<uint64_t, uint32_t>> s_logged;
-    if (!s_logged.insert({aPuppet, aCharacter}).second)
-    {
-        return;
-    }
-
-    for (const char* name : {"WeaponRight", "WeaponLeft", "RightHand", "LeftHand"})
-    {
-        const uint64_t hash = RED4ext::CName(name).hash;
-        const auto it = std::find(root->boneNames.begin(), root->boneNames.end(), hash);
-        if (it == root->boneNames.end())
-        {
-            Log::Info("Slots: character %u rig has no %s", aCharacter, name);
-            continue;
-        }
-        const size_t i = static_cast<size_t>(std::distance(root->boneNames.begin(), it));
-        const auto t = i < root->refTranslationsLS.size() ? root->refTranslationsLS[i] : Math::Vec3{};
-        const auto q = i < root->refRotationsLS.size() ? root->refRotationsLS[i] : Math::Quat{};
-        const int16_t parent = i < root->parents.size() ? root->parents[i] : int16_t(-1);
-        Log::Info("Slots: character %u rig bone %s index %zu parent %s reference LS t=(%.3f %.3f %.3f) "
-                  "r=(%.3f %.3f %.3f %.3f)",
-                  aCharacter, name, i, parent >= 0 ? CNameToString(RED4ext::CName(root->boneNames[parent])).c_str() : "-",
-                  t.x, t.y, t.z, q.i, q.j, q.k, q.r);
-    }
-
-    auto* slotCls = RED4ext::CRTTISystem::Get()->GetClass("entSlotComponent");
-    if (!slotCls)
-    {
-        return;
-    }
-    for (auto& handle : aEntity->components)
-    {
-        auto* component = handle.GetPtr();
-        if (!component || !component->GetType() || !component->GetType()->IsA(slotCls))
-        {
-            continue;
-        }
-        auto* slots = reinterpret_cast<RED4ext::ent::SlotComponent*>(component);
-        std::string binding = "-";
-        if (auto* parent = slots->parentTransform.GetPtr())
-        {
-            binding = (parent->GetType() ? CNameToString(parent->GetType()->GetName()) : std::string("?")) + " " +
-                      CNameToString(parent->bindName);
-            if (parent->GetType() && parent->GetType()->IsA(RED4ext::CRTTISystem::Get()->GetClass("entHardTransformBinding")))
-            {
-                binding += " slot " + CNameToString(reinterpret_cast<RED4ext::ent::HardTransformBinding*>(parent)->slotName);
-            }
-        }
-        for (uint32_t i = 0; i < slots->slots.Size(); ++i)
-        {
-            const auto& slot = slots->slots[i];
-            const std::string slotName = CNameToString(slot.slotName);
-            if (slotName.find("Weapon") == std::string::npos)
-            {
-                continue;
-            }
-            Log::Info("Slots: character %u component %s (bound to %s): %s -> bone %s pos=(%.3f %.3f %.3f) "
-                      "rot=(%.3f %.3f %.3f %.3f)",
-                      aCharacter, CNameToString(component->name).c_str(), binding.c_str(), slotName.c_str(),
-                      CNameToString(slot.boneName).c_str(), slot.relativePosition.X, slot.relativePosition.Y,
-                      slot.relativePosition.Z, slot.relativeRotation.i, slot.relativeRotation.j,
-                      slot.relativeRotation.k, slot.relativeRotation.r);
-        }
-        for (uint32_t i = 0; i < slots->fallbackSlots.Size(); ++i)
-        {
-            const auto& slot = slots->fallbackSlots[i];
-            const std::string slotName = CNameToString(slot.slotName);
-            if (slotName.find("Weapon") != std::string::npos)
-            {
-                Log::Info("Slots: character %u component %s fallback %s -> bone %s", aCharacter,
-                          CNameToString(component->name).c_str(), slotName.c_str(), CNameToString(slot.boneName).c_str());
-            }
-        }
     }
 }
 

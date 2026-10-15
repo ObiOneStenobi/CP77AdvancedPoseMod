@@ -200,6 +200,8 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
 - **Look at camera on the torso** also turns the hips and thighs (`Hips`, `LeftUpLeg`, `RightUpLeg`) by ~4-10 degrees,
   depending on the camera (V and added characters). `RemoveGameLookAt` remembers and puts back those bones too, and
   tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 57), not by the bones.
+- **NPC page facial expressions (attribute 56) show only on some characters** (Wakako yes, most others no), also
+  without the mod: the game. The eyelids still follow the expression chosen there.
 - **Adding a character resets V's Look at camera target to the head** (the game sends attribute 74 = 1 just before the
   new character appears, and the torso option disappears from the menu until Look at camera is turned off and on
   again). Game behaviour: the plugin only reads these attributes.
