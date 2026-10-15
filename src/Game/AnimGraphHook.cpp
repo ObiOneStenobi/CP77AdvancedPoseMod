@@ -24,7 +24,9 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 #include <malloc.h>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -297,7 +299,146 @@ bool AllFinite(const RED4ext::QsTransform* aBones, uint32_t aCount)
     return true;
 }
 
-void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPointer)
+// ---------------------------------------------------------------------------------------------------------------------
+// Diagnostics for added characters whose sampled pose does not match the component rig
+// ---------------------------------------------------------------------------------------------------------------------
+constexpr uintptr_t RigBoneNames = 0x50; // DynArray<CName>: entries at +0x00, size at +0x0C
+
+// Poses sampled per (character, bone count) for added characters, logged with the stats.
+std::mutex g_charPoseMutex;
+std::map<uint64_t, uint64_t> g_charPoseCounts;
+
+void RecordCharacterPose(uint32_t aSlot, uint32_t aBoneCount)
+{
+    if (aSlot == 0)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_charPoseMutex);
+    ++g_charPoseCounts[(static_cast<uint64_t>(aSlot) << 32) | aBoneCount];
+}
+
+std::string CharacterPoseCounts()
+{
+    std::scoped_lock lock(g_charPoseMutex);
+    std::string text;
+    for (const auto& [key, count] : g_charPoseCounts)
+    {
+        text += (text.empty() ? "" : ",") + std::to_string(key >> 32) + ":" + std::to_string(key & 0xFFFFFFFF) +
+                "x" + std::to_string(count);
+    }
+    return text.empty() ? "-" : text;
+}
+
+// "bones=72 first=Root last=X added=[..] missing=[..]" when aRig looks like an anim::Rig, otherwise empty.
+std::string DescribeRig(uintptr_t aRig, const APM::Pose::Target& aTarget)
+{
+    uint64_t entries = 0;
+    uint32_t size = 0;
+    if (aRig < 0x10000 || !APM::SafeMemory::ReadU64(aRig + RigBoneNames, entries) ||
+        !APM::SafeMemory::ReadU32(aRig + RigBoneNames + 0x0C, size) || entries < 0x10000 || size == 0 ||
+        size > MaxBones)
+    {
+        return {};
+    }
+    std::vector<uint64_t> names(size);
+    if (!APM::SafeMemory::ReadBytes(entries, names.data(), size * sizeof(uint64_t)))
+    {
+        return {};
+    }
+    auto nameOf = [](uint64_t aHash) {
+        const char* text = RED4ext::CName(aHash).ToString();
+        return std::string(text ? text : "?");
+    };
+    std::string text = "bones=" + std::to_string(size) + " first=" + nameOf(names.front()) +
+                       " last=" + nameOf(names.back());
+    if (aRig == aTarget.rig)
+    {
+        return text + " (component rig)";
+    }
+    std::string added;
+    std::string missing;
+    int addedCount = 0;
+    int missingCount = 0;
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        if (std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), names[i]) == aTarget.boneNames.end() &&
+            addedCount++ < 12)
+        {
+            added += (added.empty() ? "" : ",") + std::to_string(i) + ":" + nameOf(names[i]);
+        }
+    }
+    for (const uint64_t hash : aTarget.boneNames)
+    {
+        if (std::find(names.begin(), names.end(), hash) == names.end() && missingCount++ < 12)
+        {
+            missing += (missing.empty() ? "" : ",") + nameOf(hash);
+        }
+    }
+    // Same order as the component rig for the shared bones?
+    bool sameOrder = true;
+    size_t previous = 0;
+    bool first = true;
+    for (const uint64_t hash : names)
+    {
+        const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), hash);
+        if (it == aTarget.boneNames.end())
+        {
+            continue;
+        }
+        const size_t index = static_cast<size_t>(std::distance(aTarget.boneNames.begin(), it));
+        if (!first && index < previous)
+        {
+            sameOrder = false;
+        }
+        previous = index;
+        first = false;
+    }
+    return text + " added(" + std::to_string(addedCount) + ")=[" + added + "] missing(" +
+           std::to_string(missingCount) + ")=[" + missing + "] sameOrder=" + (sameOrder ? "yes" : "no");
+}
+
+void LogMismatchDetails(uintptr_t aContext, const SampleOutput* aOut, const APM::Pose::Target& aTarget)
+{
+    auto logRig = [&](const char* aLabel, uintptr_t aPointer) {
+        const std::string description = DescribeRig(aPointer, aTarget);
+        APM::Log::Info("  %s = %p %s", aLabel, reinterpret_cast<void*>(aPointer),
+                       description.empty() ? "(not a rig)" : description.c_str());
+    };
+    uint64_t value = 0;
+    uint64_t inner = 0;
+    if (APM::SafeMemory::ReadU64(aContext + 0x40, value))
+    {
+        APM::SafeMemory::ReadU64(value + 0x00, inner);
+        logRig("ctx+0x40->+0x00", inner);
+    }
+    if (APM::SafeMemory::ReadU64(aContext + 0x108, value))
+    {
+        logRig("ctx+0x108", value);
+    }
+    if (APM::SafeMemory::ReadU64(aContext + 0x140, value))
+    {
+        logRig("ctx+0x140", value);
+    }
+    for (uintptr_t offset = 0x00; offset < 0x30; offset += 0x08)
+    {
+        if (!APM::SafeMemory::ReadU64(aOut->pose + offset, value))
+        {
+            continue;
+        }
+        char label[32];
+        std::snprintf(label, sizeof(label), "pose+0x%02X", static_cast<unsigned>(offset));
+        logRig(label, value);
+        inner = 0;
+        if (value >= 0x10000 && APM::SafeMemory::ReadU64(value, inner) && !DescribeRig(inner, aTarget).empty())
+        {
+            std::snprintf(label, sizeof(label), "pose+0x%02X->+0x00", static_cast<unsigned>(offset));
+            logRig(label, inner);
+        }
+    }
+}
+
+void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     uint32_t boneCount = 0;
     uint64_t bonesAddress = 0;
@@ -311,6 +452,7 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
         // Each character (V, added characters) has its own pose.
         const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
         const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
+        RecordCharacterPose(aTarget.photoModeSlot, boneCount);
         if (boneCount != aTarget.boneNames.size())
         {
             // Once per character and skeleton size (an animation LOD samples fewer bones than the rig has).
@@ -322,6 +464,7 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
             {
                 APM::Log::Warn("Character %u: pose bone count (%u) differs from rig bone count (%zu) on %s; skipped",
                                aTarget.photoModeSlot, boneCount, aTarget.boneNames.size(), aTarget.debugName.c_str());
+                LogMismatchDetails(aContext, aOut, aTarget);
             }
             return;
         }
@@ -472,6 +615,7 @@ void LogStatsPeriodically()
                    static_cast<unsigned long long>(g_statCandidates.load()),
                    g_contextPath.load() == PathUnknown ? "unknown" : "known", BoneCountsSeen().c_str());
     APM::Log::Verbose("Stats: mappingHits=%u mappingMisses=%u", g_pathHits.load(), g_pathMisses.load());
+    APM::Log::Verbose("Stats: added character poses (character:bones x count) = %s", CharacterPoseCounts().c_str());
 }
 
 void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aReturnAddress, uintptr_t aStackPointer)
@@ -545,7 +689,7 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aR
         }
     }
 
-    ApplyOverrides(aNode, aOut, targetPointer);
+    ApplyOverrides(aNode, context, aOut, targetPointer);
 }
 
 void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
@@ -664,6 +808,10 @@ void OnPhotoModeActivated()
     {
         std::scoped_lock lock(g_boneCountsMutex);
         g_boneCountsSeenSize = 0;
+    }
+    {
+        std::scoped_lock lock(g_charPoseMutex);
+        g_charPoseCounts.clear();
     }
 
     // Keep a mapping learned in a previous session; it does not change while the game runs.
