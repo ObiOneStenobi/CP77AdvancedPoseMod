@@ -48,6 +48,7 @@ constexpr std::array<uint8_t, 13> SamplePrologue = {0x40, 0x53, 0x48, 0x83, 0xEC
 // Pose buffer (pointed to by SampleOutput::pose)
 constexpr uintptr_t PoseBoneCount = 0x24; // uint32
 constexpr uintptr_t PoseBones = 0x30;     // QsTransform* (local space)
+constexpr uintptr_t PoseRigBoneCount = 0x00; // uint32, bones of the rig (the transforms can be more)
 constexpr uint32_t MaxBones = 2048;
 
 struct SampleOutput
@@ -438,6 +439,43 @@ void LogMismatchDetails(uintptr_t aContext, const SampleOutput* aOut, const APM:
     }
 }
 
+// Once per character and size: how many of the first rig bones have the reference bone length, to check that the
+// extra transforms are after the rig's bones (an extra one in the middle would shift the bones after it).
+void LogExtraTransforms(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    static std::mutex s_mutex;
+    static std::unordered_set<uint64_t> s_logged;
+    {
+        std::scoped_lock lock(s_mutex);
+        if (!s_logged.insert((static_cast<uint64_t>(aTarget.photoModeSlot) << 32) | aCount).second)
+        {
+            return;
+        }
+    }
+    const size_t rigCount = aTarget.boneNames.size();
+    size_t matching = 0;
+    size_t compared = 0;
+    for (size_t i = 0; i < rigCount && i < aTarget.refTranslationsLS.size(); ++i)
+    {
+        const auto& ref = aTarget.refTranslationsLS[i];
+        const float refLength = std::sqrt(ref.x * ref.x + ref.y * ref.y + ref.z * ref.z);
+        if (refLength < 0.01f)
+        {
+            continue;
+        }
+        const auto& t = aBones[i].Translation;
+        const float length = std::sqrt(t.X * t.X + t.Y * t.Y + t.Z * t.Z);
+        ++compared;
+        if (std::fabs(length - refLength) < 0.01f + refLength * 0.05f)
+        {
+            ++matching;
+        }
+    }
+    APM::Log::Info("Character %u: pose has %u transforms for %zu rig bones on %s; using the first %zu (%zu of %zu "
+                   "bones have the reference length)",
+                   aTarget.photoModeSlot, aCount, rigCount, aTarget.debugName.c_str(), rigCount, matching, compared);
+}
+
 void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     uint32_t boneCount = 0;
@@ -453,6 +491,14 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
         const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
         const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
         RecordCharacterPose(aTarget.photoModeSlot, boneCount);
+        uint32_t rigBoneCount = 0;
+        if (boneCount > aTarget.boneNames.size() && APM::SafeMemory::ReadU32(aOut->pose + PoseRigBoneCount, rigBoneCount) &&
+            rigBoneCount == aTarget.boneNames.size())
+        {
+            // Added characters' graphs append extra transforms after the rig's bones: only the rig's bones are used.
+            LogExtraTransforms(aTarget, reinterpret_cast<const RED4ext::QsTransform*>(bonesAddress), boneCount);
+            boneCount = rigBoneCount;
+        }
         if (boneCount != aTarget.boneNames.size())
         {
             // Once per character and skeleton size (an animation LOD samples fewer bones than the rig has).
