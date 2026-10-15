@@ -616,7 +616,9 @@ std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
 bool SameRotation(const Quat& a, const Quat& b)
 {
-    return std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r) > 0.9995f; // within ~3.6 degrees (breathing)
+    // Within ~10 degrees: breathing, and the game's look at the camera on the torso (it also turns the hips and legs
+    // by ~4 degrees). Another Photo Mode pose differs by far more.
+    return std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r) > 0.9962f;
 }
 
 // Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,

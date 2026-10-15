@@ -175,3 +175,20 @@ down / sideways, every base game expression). The eye bones `l/r_J_eye_JNT` turn
 - `tools/eyelid_follow_fit.py` turns probe logs into `src/Pose/EyelidFollowData.inc` (per bone slopes, per expression
   shares). Predicting "eyes straight -> 30 degrees down" from the table matches the game within 2-6 % of the lid
   movement.
+
+## Known character-specific issues (not handled)
+
+Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so far has the same 71-bone rig as V
+(same reference pose for the eyes and the weapon bones) and the same hand item slots (`Item_Attachment_Slot`, bound to
+`root`: `WeaponRight` / `WeaponLeft` -> bones of the same name, no offset).
+
+- **Jackie: eye gizmos point the wrong way.** The rig's eye reference is the same as V's, so the animation itself must
+  turn the main skeleton's `LeftEye` / `RightEye` oddly (the eyes shown are the `face_rig` ones). Possible fix: take
+  the gizmo's gaze from the `face_rig` eyes, or check first how far the animated eye is from the head compared with
+  the reference.
+- **Dexter DeShawn: right hand item far from the hand (near the feet), it still follows the hand.** `WeaponRight`
+  (child of `RightHand`, reference local translation (-0.087 0.042 0.021)) is animated far from the hand by his poses.
+  Possible fix: when the animated `WeaponRight` / `WeaponLeft` is more than ~20 cm from its hand, start from the
+  reference local transform (the user's item offset applies on top as now).
+- **Look at camera on the torso** also turns the hips and legs by ~3.8 degrees (V and added characters): the check that
+  tells a new Photo Mode pose apart (hips and legs, `RemoveGameLookAt`) tolerates 10 degrees.
