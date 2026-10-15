@@ -334,11 +334,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_waitPanel: Bool;
     private let m_waitRoot: Bool;
     private let m_ownsHover: Bool; // the camera ignores the mouse because of one of our widgets
-    // Photo Mode frame (aspect ratio): the black bars' width / height, so the panel stays inside the visible frame.
-    private let m_frameX: Float;
-    private let m_frameY: Float;
-    private let m_aspectRate: Float;
-    private let m_blackBars: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -414,7 +409,6 @@ public class APM_PoseEditor extends IScriptable {
         this.m_openButton = this.CreateButton(layer, "open", "Pose editor", 0.0, 0.0, 160.0, 32.0);
         this.BuildPanel();
         this.SetOpen(false);
-        this.m_blackBars = true;
         this.ApplyDock();
         this.ApplyOpacity();
 
@@ -1429,49 +1423,28 @@ public class APM_PoseEditor extends IScriptable {
     // The panel sits on the left (the Photo Mode menu is on the right); the item list and the help open beside it.
     private func ApplyDock() {
         let s = APM_UiScale();
-        let x = this.m_blackBars ? this.m_frameX : 0.0;
-        let y = this.m_blackBars ? this.m_frameY : 0.0;
         this.m_panel.SetAnchor(inkEAnchor.TopLeft);
         this.m_panel.SetAnchorPoint(0.0, 0.0);
-        this.m_panel.SetMargin(x + 24.0 * s, y + 60.0 * s, 0.0, 0.0);
+        this.m_panel.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
         this.m_openButton.root.SetAnchor(inkEAnchor.TopLeft);
         this.m_openButton.root.SetAnchorPoint(0.0, 0.0);
-        this.m_openButton.root.SetMargin(x + 24.0 * s, y + 60.0 * s, 0.0, 0.0);
+        this.m_openButton.root.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
         this.m_picker.SetAnchor(inkEAnchor.TopLeft);
         this.m_picker.SetAnchorPoint(0.0, 0.0);
-        this.m_picker.SetMargin(x + (24.0 + APM_PanelWidth() + 8.0) * s, y + 60.0 * s, 0.0, 0.0);
+        this.m_picker.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
         this.m_help.SetAnchor(inkEAnchor.TopLeft);
         this.m_help.SetAnchorPoint(0.0, 0.0);
-        this.m_help.SetMargin(x + (24.0 + APM_PanelWidth() + 8.0) * s, y + 60.0 * s, 0.0, 0.0);
+        this.m_help.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
     }
 
-    // Photo Mode changed the frame (aspect ratio) or turned its black bars on / off: the panel moves inside the
-    // visible frame (same sizes as gameuiPhotoModeMenuController.OnChangeAspectRatioRate) and is drawn above the bars.
-    public func OnFrameChanged(aspectRate: Float, blackBars: Bool) {
-        this.m_aspectRate = aspectRate;
-        this.m_blackBars = blackBars;
+    // Photo Mode changed the frame (aspect ratio) or turned its black bars on / off: the panel stays at the screen's
+    // edges, drawn above the black bars like Photo Mode's own menu.
+    public func OnFrameChanged() {
         let root = this.m_controller.GetRootCompoundWidget();
-        if !IsDefined(root) || !IsDefined(this.m_panel) {
-            return;
+        if IsDefined(root) && IsDefined(this.m_layer) {
+            root.ReorderChild(this.m_layer, root.GetNumChildren() - 1);
         }
-        this.m_frameX = 0.0;
-        this.m_frameY = 0.0;
-        let screen = root.GetSize();
-        if aspectRate > 0.0 && screen.X > 1.0 && screen.Y > 1.0 {
-            if screen.X / screen.Y < aspectRate {
-                this.m_frameY = MaxF((screen.Y - screen.X / aspectRate) / 2.0, 0.0);
-            } else {
-                this.m_frameX = MaxF((screen.X - screen.Y * aspectRate) / 2.0, 0.0);
-            }
-        }
-        this.ApplyDock();
-        root.ReorderChild(this.m_layer, root.GetNumChildren() - 1);
     }
-
-    public func GetAspectRate() -> Float {
-        return this.m_aspectRate;
-    }
-
 
     // Panel transparency: background 85/60/35/15 %, controls slightly faded at the lowest steps.
     private func ApplyOpacity() {
@@ -4115,26 +4088,16 @@ protected cb func OnUninitialize() -> Bool {
 protected cb func OnChangeAspectRatioRate(aspectRatioRate: Float) -> Bool {
     let result = wrappedMethod(aspectRatioRate);
     if IsDefined(this.m_apmPoseEditor) {
-        this.m_apmPoseEditor.OnFrameChanged(aspectRatioRate, this.APM_BlackBarsOn());
+        this.m_apmPoseEditor.OnFrameChanged();
     }
     return result;
-}
-
-// Photo Mode's black bars: on unless the game turns them off.
-@addField(gameuiPhotoModeMenuController)
-private let m_apmBlackBarsOff: Bool;
-
-@addMethod(gameuiPhotoModeMenuController)
-private final func APM_BlackBarsOn() -> Bool {
-    return !this.m_apmBlackBarsOff;
 }
 
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnSetBlackBars(enabled: Bool) -> Bool {
     let result = wrappedMethod(enabled);
-    this.m_apmBlackBarsOff = !enabled;
     if IsDefined(this.m_apmPoseEditor) {
-        this.m_apmPoseEditor.OnFrameChanged(this.m_apmPoseEditor.GetAspectRate(), enabled);
+        this.m_apmPoseEditor.OnFrameChanged();
     }
     return result;
 }
