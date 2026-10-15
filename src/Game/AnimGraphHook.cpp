@@ -21,11 +21,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <malloc.h>
 #include <mutex>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace
 {
@@ -274,6 +276,26 @@ void LogPoseInfo(void* aNode, uintptr_t aContext, const SampleOutput* aOut, cons
 }
 
 // Applies the user's bone overrides (additive) to the final local-space pose of a target.
+std::atomic<bool> g_invalidPoseLogged{false};
+
+bool AllFinite(const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        const auto& t = aBones[i];
+        const float values[] = {t.Translation.X, t.Translation.Y, t.Translation.Z, t.Rotation.i, t.Rotation.j,
+                                t.Rotation.k,    t.Rotation.r,    t.Scale.X,       t.Scale.Y,    t.Scale.Z};
+        for (const float v : values)
+        {
+            if (!std::isfinite(v))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
@@ -311,7 +333,19 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
         }
         if (applyPose)
         {
+            // A frame with invalid values (NaN / infinite, e.g. a degenerate IK case) keeps the game's pose instead.
+            thread_local std::vector<RED4ext::QsTransform> before;
+            before.assign(bones, bones + boneCount);
             APM::Pose::PoseProcessor::Process(aTarget, bones, boneCount, *snapshot);
+            if (!AllFinite(bones, boneCount))
+            {
+                std::copy(before.begin(), before.end(), bones);
+                bool expected = false;
+                if (g_invalidPoseLogged.compare_exchange_strong(expected, true))
+                {
+                    APM::Log::Warn("Invalid bone values on %s: frame left as the game animated it", aTarget.debugName.c_str());
+                }
+            }
         }
         // The gizmos follow the final pose, edited or not.
         APM::Pose::GizmoState::Publish(aTarget, bones, boneCount, reinterpret_cast<uintptr_t>(aNode));

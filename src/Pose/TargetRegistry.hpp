@@ -3,6 +3,9 @@
 #include "Math/Quat.hpp"
 #include "Math/Vec3.hpp"
 
+#include <RED4ext/Handle.hpp>
+#include <RED4ext/ISerializable.hpp>
+
 #include <array>
 #include <functional>
 #include <cstdint>
@@ -27,8 +30,12 @@ struct LinkedBone
 
 struct Target
 {
-    uintptr_t entity = 0;            // ent::Entity*
+    uintptr_t entity = 0;            // ent::Entity* (identity only: may point to a destroyed object, see entityRef)
     uintptr_t animatedComponent = 0; // ent::AnimatedComponent*
+    // Weak references taken while the objects were alive: they turn empty when the game destroys them (e.g. when
+    // Photo Mode closes), so scripts never get an object that is gone.
+    RED4ext::WeakHandle<RED4ext::ISerializable> entityRef;
+    RED4ext::WeakHandle<RED4ext::ISerializable> componentRef;
     uintptr_t rig = 0;               // anim::Rig* (resource)
     uint32_t photoModeSlot = 0;      // index in the Photo Mode player list
     uint32_t characterType = 0;      // 1 = PlayerFemale, 2 = PlayerMale, 4 = NPC
@@ -55,6 +62,9 @@ bool ContainsPointer(uintptr_t aPointer);
 
 // Pointers (entities, animated components, rigs) the research probe looks for.
 size_t GetProbePointers(std::array<uintptr_t, 64>& aOut);
+
+// Strong handle to the entity or animated component known by that pointer; empty if unknown or already destroyed.
+RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer);
 
 // Calls aVisitor with the target that owns the pointer, under a shared lock (no copy). Returns false if not found.
 bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor);

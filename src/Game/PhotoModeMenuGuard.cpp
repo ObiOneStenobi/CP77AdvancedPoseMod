@@ -40,6 +40,11 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
         APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
         APM::Pose::EyelidFollow::SetExpression(static_cast<int32_t>(aValue + 0.5f));
     }
+    else
+    {
+        // Research (debug log): which attributes the Photo Mode menu changes (e.g. the added characters' options).
+        APM::Log::Verbose("Photo Mode attribute %u = %.3f", aAttribute, aValue);
+    }
     APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
     g_origForward(aCallback, aAttribute, aValue, aApply);
 }

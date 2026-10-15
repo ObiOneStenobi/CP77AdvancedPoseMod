@@ -62,6 +62,12 @@ void IsPhotoModeActive(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::PhotoModeTracker::IsActive());
 }
 
+void OnPhotoModeExit(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    APM::PhotoModeTracker::OnExitRequested();
+}
+
 void GetBoneCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -838,12 +844,8 @@ void GizmoGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     aFrame->code++;
 
     RED4ext::Handle<RED4ext::ISerializable> handle;
-    const auto entity = APM::Pose::GizmoState::GetEntity();
-    if (entity && APM::Pose::TargetRegistry::ContainsPointer(entity))
-    {
-        // Share the entity's existing reference count instead of creating a new one.
-        handle = reinterpret_cast<RED4ext::ISerializable*>(entity)->ref.Lock();
-    }
+    // Through the registry's weak reference: empty once the game has destroyed the puppet.
+    handle = APM::Pose::TargetRegistry::LockObject(APM::Pose::GizmoState::GetEntity());
     if (aOut)
     {
         new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
@@ -856,11 +858,7 @@ void GizmoGetComponent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     aFrame->code++;
 
     RED4ext::Handle<RED4ext::ISerializable> handle;
-    const auto component = APM::Pose::GizmoState::GetComponent();
-    if (component && APM::Pose::TargetRegistry::ContainsPointer(component))
-    {
-        handle = reinterpret_cast<RED4ext::ISerializable*>(component)->ref.Lock();
-    }
+    handle = APM::Pose::TargetRegistry::LockObject(APM::Pose::GizmoState::GetComponent());
     if (aOut)
     {
         new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
@@ -1232,6 +1230,7 @@ namespace APM::ScriptApi
 void Register()
 {
     ::Register("APM_IsPhotoModeActive", &IsPhotoModeActive, "Bool", {});
+    ::Register("APM_OnPhotoModeExit", &OnPhotoModeExit, nullptr, {});
     ::Register("APM_GetBoneCount", &GetBoneCount, "Int32", {});
     ::Register("APM_GetBoneName", &GetBoneName, "CName", {{"Int32", "index"}});
 

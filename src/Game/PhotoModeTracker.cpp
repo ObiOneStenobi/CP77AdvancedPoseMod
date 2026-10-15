@@ -451,6 +451,8 @@ void RefreshTargets(void* aSystem)
             Pose::Target target;
             target.entity = puppet;
             target.animatedComponent = reinterpret_cast<uintptr_t>(animated);
+            target.entityRef = entity->ref;
+            target.componentRef = component->ref;
             target.rig = reinterpret_cast<uintptr_t>(rig);
             target.photoModeSlot = slot;
             target.characterType = characterType;
@@ -613,6 +615,18 @@ void Uninstall()
 bool IsActive()
 {
     return g_active.load();
+}
+
+void OnExitRequested()
+{
+    if (!g_active.exchange(false))
+    {
+        return;
+    }
+    APM::Pose::TargetRegistry::Clear();
+    APM::Pose::GizmoState::Clear();
+    APM::Ui::TextEntry::End();
+    APM::Log::Info("PhotoMode: leaving (edits no longer applied)");
 }
 
 uint32_t GetSessionId()

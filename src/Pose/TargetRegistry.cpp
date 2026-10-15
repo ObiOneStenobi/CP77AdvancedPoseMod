@@ -120,6 +120,27 @@ bool ContainsPointer(uintptr_t aPointer)
     return false;
 }
 
+RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer)
+{
+    if (!aPointer)
+    {
+        return {};
+    }
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.entity == aPointer)
+        {
+            return target.entityRef.Lock();
+        }
+        if (target.animatedComponent == aPointer)
+        {
+            return target.componentRef.Lock();
+        }
+    }
+    return {};
+}
+
 size_t GetProbePointers(std::array<uintptr_t, 64>& aOut)
 {
     SharedGuard guard;

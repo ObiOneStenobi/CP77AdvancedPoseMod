@@ -4190,6 +4190,25 @@ protected cb func OnUninitialize() -> Bool {
 }
 
 // Same as hovering the game's own menu: the camera ignores the mouse while the cursor is over the panel.
+// Leaving Photo Mode (without the confirmation, or once it is confirmed): the pose stops being applied before the game
+// tears Photo Mode down, as users did by resetting their edits before leaving (exits with edits crashed for some).
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnTryExitPhotomode() -> Bool {
+    if !this.m_anyOptionChanged {
+        APM_OnPhotoModeExit();
+    }
+    return wrappedMethod();
+}
+
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnExitConfirm(data: ref<inkGameNotificationData>) -> Bool {
+    let resultData = data as GenericMessageNotificationCloseData;
+    if IsDefined(resultData) && Equals(resultData.result, GenericMessageNotificationResult.Confirm) {
+        APM_OnPhotoModeExit();
+    }
+    return wrappedMethod(data);
+}
+
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnChangeAspectRatioRate(aspectRatioRate: Float) -> Bool {
     let result = wrappedMethod(aspectRatioRate);

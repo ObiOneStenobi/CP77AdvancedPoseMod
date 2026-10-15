@@ -5,6 +5,8 @@
 // Bone names: see probe/rig_*.txt (V's main skeleton is the "root" component, 71 bones).
 
 public native func APM_IsPhotoModeActive() -> Bool
+// The player confirmed leaving Photo Mode: the plugin stops applying the pose before the game tears it down.
+public native func APM_OnPhotoModeExit() -> Void
 public native func APM_GetBoneCount() -> Int32
 public native func APM_GetBoneName(index: Int32) -> CName
 

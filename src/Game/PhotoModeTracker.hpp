@@ -11,6 +11,10 @@ void Uninstall();
 
 bool IsActive();
 
+// The player confirmed leaving Photo Mode: the edits stop being applied and the puppets are forgotten right away,
+// before the game starts tearing Photo Mode down (Deactivate comes later).
+void OnExitRequested();
+
 // Incremented every time Photo Mode opens; lets other modules reset per-session state.
 uint32_t GetSessionId();
 } // namespace APM::PhotoModeTracker
