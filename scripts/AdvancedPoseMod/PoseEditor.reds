@@ -297,6 +297,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_faceSelected: String;           // saved expression picked in the list
     private let m_faceConfirmDelete: Bool;
     private let m_posesOpen: Bool;
+    private let m_poseListTimer: Float;
     // Item picker (search list next to the panel)
     private let m_picker: wref<inkCanvas>;
     private let m_help: wref<inkCanvas>; // shortcuts window
@@ -514,6 +515,7 @@ public class APM_PoseEditor extends IScriptable {
             this.FollowSelectedCharacter();
         }
         this.UpdateCanvasSize(active);
+        this.UpdatePoseList(timeDelta);
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
@@ -1817,6 +1819,31 @@ public class APM_PoseEditor extends IScriptable {
         }
         if !ArrayContains(this.m_poseNames, this.m_selectedPose) {
             this.m_selectedPose = "";
+        }
+    }
+
+    // While the saved poses are shown, the folder is checked every 2 seconds: poses added or removed there (e.g.
+    // shared by someone) appear without reopening the panel.
+    private func UpdatePoseList(timeDelta: Float) {
+        if !this.m_isOpen || !this.m_posesOpen || this.m_renaming {
+            this.m_poseListTimer = 0.0;
+            return;
+        }
+        this.m_poseListTimer += timeDelta;
+        if this.m_poseListTimer < 2.0 {
+            return;
+        }
+        this.m_poseListTimer = 0.0;
+        let count = APM_GetPoseCount();
+        let changed = count != ArraySize(this.m_poseNames);
+        let i = 0;
+        while !changed && i < count {
+            changed = NotEquals(APM_GetPoseName(i), this.m_poseNames[i]);
+            i += 1;
+        }
+        if changed {
+            this.ReloadPoses();
+            this.Refresh();
         }
     }
 

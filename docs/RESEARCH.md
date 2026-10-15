@@ -143,6 +143,8 @@ the 0.4.1 twist-helper code never ran and was removed.
   `OnSetSetSelectedNpc` is not called when the selector changes.
 - An added character's body graph samples 72 transforms for its 71-bone rig (V's: 71): the rig's bones come first,
   in rig order, and one extra transform follows. The pose header keeps the rig's bone count at `+0x00`.
+- Forcing the animation LOD of added characters (`clientForcedLod`) is not needed: their body pose is complete (see
+  the extra transform above).
 
 ## Photo Mode attributes read by the plugin
 
@@ -157,7 +159,8 @@ Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); th
 | 78 | Look at camera target of the selected added character | as 74 |
 | 68 | Character selected in the NPC page (0-2 = scene slot) | index |
 | 5 / 6 | V's Photo Mode pose: category / pose in that category | index |
-| 56 / 57 | Pose of the character selected in the NPC page: category / pose | index |
+| 56 | Facial expression of the character selected in the NPC page | index (0-15) |
+| 57 | Pose of the character selected in the NPC page | index |
 | 55 | NPC page: scene slot a character is being added to | 0-2 |
 | 63 | NPC page: which character is added (list index) | index |
 | 79-81 | Custom look-at values of the selected added character (V: 75-77) | |
@@ -196,7 +199,7 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
   reference local transform (the user's item offset applies on top as now).
 - **Look at camera on the torso** also turns the hips and thighs (`Hips`, `LeftUpLeg`, `RightUpLeg`) by ~4-10 degrees,
   depending on the camera (V and added characters). `RemoveGameLookAt` remembers and puts back those bones too, and
-  tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 56 / 57), not by the bones.
+  tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 57), not by the bones.
 - **Adding a character resets V's Look at camera target to the head** (the game sends attribute 74 = 1 just before the
   new character appears, and the torso option disappears from the menu until Look at camera is turned off and on
   again). Game behaviour: the plugin only reads these attributes.
