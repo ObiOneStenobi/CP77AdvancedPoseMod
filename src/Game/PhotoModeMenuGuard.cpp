@@ -38,7 +38,17 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     else if (aAttribute == 28)
     {
         APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
-        APM::Pose::EyelidFollow::SetExpression(static_cast<int32_t>(aValue + 0.5f));
+        APM::Pose::EyelidFollow::SetExpression(0, static_cast<int32_t>(aValue + 0.5f));
+    }
+    else if (aAttribute == 56)
+    {
+        // Facial expression of the character selected in the NPC page (attribute 68).
+        const int32_t npc = APM::Pose::LookAtCamera::g_selectedNpc.load();
+        APM::Log::Verbose("Photo Mode facial expression of added character %d: %.0f", npc + 1, aValue);
+        if (npc >= 0 && npc < 3)
+        {
+            APM::Pose::EyelidFollow::SetExpression(static_cast<uint32_t>(npc) + 1, static_cast<int32_t>(aValue + 0.5f));
+        }
     }
     else
     {

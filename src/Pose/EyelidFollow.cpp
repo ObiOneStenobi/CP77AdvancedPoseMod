@@ -31,9 +31,9 @@ constexpr float YawMax = 40.f;
 constexpr float DegToRad = 0.0174532925f;
 constexpr float RadToDeg = 57.2957795f;
 
-// Photo Mode facial expression of V (attribute 28). The added characters' expression attribute is not known yet: they
-// follow like the neutral expression.
-std::atomic<int32_t> g_expression{0};
+// Photo Mode facial expression of each character (Pose/Characters.hpp): V attribute 28, added characters attribute 56
+// of the NPC page (same list, same order).
+std::array<std::atomic<int32_t>, 4> g_expressions{};
 
 struct RigBones
 {
@@ -106,14 +106,25 @@ Gaze ToGaze(const Vec3& aTurn)
 
 namespace APM::Pose::EyelidFollow
 {
-void SetExpression(int32_t aExpression)
+void SetExpression(uint32_t aCharacter, int32_t aExpression)
 {
-    g_expression = aExpression;
+    if (aCharacter < g_expressions.size())
+    {
+        g_expressions[aCharacter] = aExpression;
+    }
+}
+
+void ResetCharacter(uint32_t aCharacter)
+{
+    SetExpression(aCharacter, 0);
 }
 
 void ResetSession()
 {
-    g_expression = 0;
+    for (auto& expression : g_expressions)
+    {
+        expression = 0;
+    }
 }
 
 bool ReadEyes(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount,
@@ -160,7 +171,9 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
         return;
     }
 
-    const int32_t expression = aTarget.photoModeSlot == 0 ? g_expression.load(std::memory_order_relaxed) : 0;
+    const int32_t expression = aTarget.photoModeSlot < g_expressions.size()
+                                   ? g_expressions[aTarget.photoModeSlot].load(std::memory_order_relaxed)
+                                   : 0;
     const bool known = expression >= 0 && expression < static_cast<int32_t>(std::size(ExpressionFactors));
     for (size_t b = 0; b < std::size(LidBones); ++b)
     {

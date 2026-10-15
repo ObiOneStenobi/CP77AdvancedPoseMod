@@ -649,6 +649,7 @@ void RefreshTargets(void* aSystem)
         {
             Pose::PoseOverrides::ClearCharacter(c);
             Pose::LookAtCamera::ResetCharacter(c);
+            Pose::EyelidFollow::ResetCharacter(c);
             Pose::PoseProcessor::ResetCharacter(c);
             Log::Info("PhotoMode: character %u %s", c, puppets[c] ? "added (human, can be posed)" : "removed");
             if (!puppets[c] && Pose::Characters::Selected() == c)

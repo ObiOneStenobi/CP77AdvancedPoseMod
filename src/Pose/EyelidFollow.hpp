@@ -14,8 +14,11 @@
 // gaze and for its own, with the share of the current expression (measured in game, see EyelidFollowData.inc).
 namespace APM::Pose::EyelidFollow
 {
-// Photo Mode facial expression (attribute 28); expressions added by other mods follow like the neutral one.
-void SetExpression(int32_t aExpression);
+// Photo Mode facial expression of a character (V: attribute 28, added characters: 56); expressions added by other
+// mods follow like the neutral one.
+void SetExpression(uint32_t aCharacter, int32_t aExpression);
+// A new character took that slot: neutral until the menu says otherwise.
+void ResetCharacter(uint32_t aCharacter);
 void ResetSession();
 
 // Eye bones of the face rig as the game animated them (before our edits): [left, right]. False if the rig has none.
