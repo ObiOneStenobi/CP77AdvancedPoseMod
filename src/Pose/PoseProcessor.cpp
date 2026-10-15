@@ -663,6 +663,23 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     {
         if (!SameRotation(GetRotation(aBones[signature[i]]), g_noLookAt.signature[i]))
         {
+            {
+                // Diagnostics: once per character, which bone told the pose apart while the game looks at the camera.
+                static std::mutex s_logMutex;
+                static std::array<bool, CharacterCount> s_logged{};
+                std::scoped_lock lock(s_logMutex);
+                const size_t character = CharacterOf(aTarget);
+                if (!s_logged[character])
+                {
+                    s_logged[character] = true;
+                    const Quat a = GetRotation(aBones[signature[i]]);
+                    const Quat b = g_noLookAt.signature[i];
+                    const float dot = std::min(1.f, std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r));
+                    APM::Log::Info("Character %zu: look at camera on, %s differs by %.1f degrees from the pose remembered "
+                                   "without it; remembered pose dropped",
+                                   character, PoseSignature[i], 2.f * std::acos(dot) * 57.2958f);
+                }
+            }
             g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
             return false;
         }

@@ -157,6 +157,8 @@ closer.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
+  Every character has its own history: undo works on the character selected in the header, and switching to another
+  character and back keeps it.
 - **Mirror** (toggle): turning it on changes nothing; from then on, every edit of a left / right part makes the other
   side a mirror copy of that whole limb (arm, hand or leg, IK pin included), following it step by step. Eyes are not
   mirrored.

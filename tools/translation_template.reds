@@ -38,8 +38,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-Opacity", "Panel opacity");
         this.Text("APM-Tip-Help", "Info: markers and shortcuts");
         this.Text("APM-Tip-HidePanel", "Hide the panel");
-        this.Text("APM-Tip-Undo", "Undo (Ctrl+Z)");
-        this.Text("APM-Tip-Redo", "Redo (Ctrl+Y)");
+        this.Text("APM-Tip-Undo", "Undo the last change of this character (Ctrl+Z)");
+        this.Text("APM-Tip-Redo", "Redo the last undone change of this character (Ctrl+Y)");
         this.Text("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed");
         this.Text("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock");
         this.Text("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock");

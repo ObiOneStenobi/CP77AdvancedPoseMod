@@ -549,8 +549,8 @@ public class APM_PoseEditor extends IScriptable {
         this.TipL(opacityButton, "APM-Tip-Opacity", "Panel opacity");
         this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, this.L("APM-Tip-Help", "Info: markers and shortcuts"), 32.0);
         this.CreateIconButton(header, "hide", "x", 584.0, 8.0, this.L("APM-Tip-HidePanel", "Hide the panel"), 32.0);
-        this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, this.L("APM-Tip-Undo", "Undo (Ctrl+Z)"));
-        this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, this.L("APM-Tip-Redo", "Redo (Ctrl+Y)"));
+        this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, this.L("APM-Tip-Undo", "Undo the last change of this character (Ctrl+Z)"));
+        this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, this.L("APM-Tip-Redo", "Redo the last undone change of this character (Ctrl+Y)"));
         this.CreateIconButton(header, "mirror", "flip-vertical-2", 116.0, 46.0, this.L("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed"));
         this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, this.L("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
         this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
