@@ -414,6 +414,14 @@ void IsRightMouseDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0);
 }
 
+// Left (primary) button held: Photo Mode moves the camera while it is down.
+void IsLeftMouseDown(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    const int key = GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON;
+    Return(aOut, (GetAsyncKeyState(key) & 0x8000) != 0);
+}
+
 void ApplyHandPreset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     bool right = true;
@@ -1265,6 +1273,7 @@ void Register()
     ::Register("APM_SessionSet", &SessionSet, nullptr, {{"String", "key"}, {"Float", "value"}});
     ::Register("APM_IsAltDown", &IsAltDown, "Bool", {});
     ::Register("APM_IsRightMouseDown", &IsRightMouseDown, "Bool", {});
+    ::Register("APM_IsLeftMouseDown", &IsLeftMouseDown, "Bool", {});
     ::Register("APM_MirrorParts", &MirrorParts, "Int32", {{"Bool", "fromLeft"}, {"String", "group"}});
     ::Register("APM_ApplyHandPreset", &ApplyHandPreset, "Bool", {{"Bool", "rightHand"}, {"Int32", "preset"}});
     ::Register("APM_SetMirror", &SetMirror, nullptr, {{"Bool", "mirror"}});

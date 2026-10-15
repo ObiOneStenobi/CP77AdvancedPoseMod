@@ -327,6 +327,12 @@ public class APM_PoseEditor extends IScriptable {
     private let m_rootLabel: wref<inkText>;
     private let m_rootHit: wref<inkCanvas>;
     private let m_rootHovered: Bool;
+    // Hovers that started while the camera was being moved (a mouse button already held) or while Photo Mode's UI is
+    // hidden: they take effect only once the buttons are released / the UI is shown, so the camera keeps moving.
+    private let m_waitMarker: ref<APM_Marker>;
+    private let m_waitButton: ref<APM_Button>;
+    private let m_waitPanel: Bool;
+    private let m_waitRoot: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -431,6 +437,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     public func Update(timeDelta: Float) {
+        this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
         this.UpdateMarkers();
@@ -3707,14 +3714,110 @@ public class APM_PoseEditor extends IScriptable {
         this.Refresh();
     }
 
+    // --- Hover while the camera moves -----------------------------------------------------------------------------
+
+    // Photo Mode's UI hidden (its root faded out): nothing of ours can be seen, so nothing may take the mouse.
+    private func IsUiHidden() -> Bool {
+        let root = this.m_controller.GetRootWidget();
+        return IsDefined(root) && root.GetOpacity() < 0.1;
+    }
+
+    // A hover may take the mouse from the camera: not while a button is held for the camera, not with the UI hidden.
+    private func CanTakeHover() -> Bool {
+        if IsDefined(this.m_dragMarker) || IsDefined(this.m_dragRow) {
+            return true;
+        }
+        return !this.IsUiHidden() && !APM_IsLeftMouseDown() && !APM_IsRightMouseDown();
+    }
+
+    private func HasWaitingHover() -> Bool {
+        return IsDefined(this.m_waitMarker) || IsDefined(this.m_waitButton) || this.m_waitPanel || this.m_waitRoot;
+    }
+
+    private func UpdateWaitingHover() {
+        if this.IsUiHidden() && !IsDefined(this.m_dragMarker) && !IsDefined(this.m_dragRow) {
+            // The UI was hidden under the cursor: give the mouse back to the camera until it is shown again.
+            this.ParkHovers();
+            return;
+        }
+        if !this.HasWaitingHover() || !this.CanTakeHover() {
+            return;
+        }
+        if IsDefined(this.m_waitMarker) {
+            this.m_waitMarker.isHovered = true;
+            this.m_waitMarker = null;
+        }
+        if IsDefined(this.m_waitButton) {
+            this.m_waitButton.isHovered = true;
+            this.m_waitButton.UpdateLook();
+            if StrLen(this.m_waitButton.tooltip) > 0 {
+                this.m_tipButton = this.m_waitButton;
+                this.m_tipTimer = 0.0;
+            }
+            this.m_waitButton = null;
+        }
+        if this.m_waitPanel {
+            this.m_panelHovered = true;
+            this.m_waitPanel = false;
+        }
+        if this.m_waitRoot {
+            this.m_rootHovered = true;
+            this.m_waitRoot = false;
+        }
+        this.SetHover(true);
+    }
+
+    // Moves the active hovers to the waiting ones and releases the mouse.
+    private func ParkHovers() {
+        let any = false;
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            if this.m_markers[i].isHovered {
+                this.m_markers[i].isHovered = false;
+                this.m_waitMarker = this.m_markers[i];
+                any = true;
+            }
+            i += 1;
+        }
+        i = 0;
+        while i < ArraySize(this.m_buttons) {
+            if this.m_buttons[i].isHovered {
+                this.m_buttons[i].isHovered = false;
+                this.m_buttons[i].UpdateLook();
+                this.m_waitButton = this.m_buttons[i];
+                any = true;
+            }
+            i += 1;
+        }
+        if this.m_panelHovered {
+            this.m_panelHovered = false;
+            this.m_waitPanel = true;
+            any = true;
+        }
+        if this.m_rootHovered {
+            this.m_rootHovered = false;
+            this.m_waitRoot = true;
+            any = true;
+        }
+        if any {
+            this.m_tipButton = null;
+            this.SetHover(false);
+        }
+    }
+
     // --- Callbacks -----------------------------------------------------------------------------------------------
 
     protected cb func OnPanelHoverOver(e: ref<inkPointerEvent>) -> Bool {
+        if !this.CanTakeHover() {
+            this.m_waitPanel = true;
+            return false;
+        }
         this.m_panelHovered = true;
         this.SetHover(true);
     }
 
     protected cb func OnPanelHoverOut(e: ref<inkPointerEvent>) -> Bool {
+        this.m_waitPanel = false;
         this.m_panelHovered = false;
         if !IsDefined(this.m_dragRow) && !IsDefined(this.m_dragMarker) {
             this.SetHover(false);
@@ -3723,6 +3826,10 @@ public class APM_PoseEditor extends IScriptable {
 
     protected cb func OnButtonHoverOver(e: ref<inkPointerEvent>) -> Bool {
         let button = this.FindButtonByWidget(e.GetCurrentTarget());
+        if !this.CanTakeHover() {
+            this.m_waitButton = button;
+            return false;
+        }
         if IsDefined(button) {
             button.isHovered = true;
             button.UpdateLook();
@@ -3736,6 +3843,9 @@ public class APM_PoseEditor extends IScriptable {
 
     protected cb func OnButtonHoverOut(e: ref<inkPointerEvent>) -> Bool {
         let button = this.FindButtonByWidget(e.GetCurrentTarget());
+        if IsDefined(button) && IsDefined(this.m_waitButton) && Equals(this.m_waitButton.id, button.id) {
+            this.m_waitButton = null;
+        }
         if IsDefined(button) {
             button.isHovered = false;
             button.UpdateLook();
@@ -3752,7 +3862,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     protected cb func OnButtonPress(e: ref<inkPointerEvent>) -> Bool {
-        if !e.IsAction(n"click") {
+        if !e.IsAction(n"click") || this.IsUiHidden() {
             return false;
         }
         let button = this.FindButtonByWidget(e.GetCurrentTarget());
@@ -3771,7 +3881,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     protected cb func OnButtonRelease(e: ref<inkPointerEvent>) -> Bool {
-        if !e.IsAction(n"click") {
+        if !e.IsAction(n"click") || this.IsUiHidden() {
             return false;
         }
         let button = this.FindButtonByWidget(e.GetCurrentTarget());
@@ -3791,11 +3901,16 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     protected cb func OnRootHoverOver(e: ref<inkPointerEvent>) -> Bool {
+        if !this.CanTakeHover() {
+            this.m_waitRoot = true;
+            return false;
+        }
         this.m_rootHovered = true;
         this.SetHover(true);
     }
 
     protected cb func OnRootHoverOut(e: ref<inkPointerEvent>) -> Bool {
+        this.m_waitRoot = false;
         this.m_rootHovered = false;
         if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
             this.SetHover(false);
@@ -3804,6 +3919,10 @@ public class APM_PoseEditor extends IScriptable {
 
     protected cb func OnMarkerHoverOver(e: ref<inkPointerEvent>) -> Bool {
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
+        if !this.CanTakeHover() {
+            this.m_waitMarker = marker;
+            return false;
+        }
         if IsDefined(marker) {
             marker.isHovered = true;
         }
@@ -3812,6 +3931,9 @@ public class APM_PoseEditor extends IScriptable {
 
     protected cb func OnMarkerHoverOut(e: ref<inkPointerEvent>) -> Bool {
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
+        if IsDefined(marker) && this.m_waitMarker == marker {
+            this.m_waitMarker = null;
+        }
         if IsDefined(marker) {
             marker.isHovered = false;
         }
@@ -3825,8 +3947,8 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
-        if !IsDefined(marker) {
-            return false;
+        if !IsDefined(marker) || !marker.isHovered {
+            return false; // hover not taken (camera moving, UI hidden): the click belongs to the camera
         }
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
         if APM_GizmoIsPartLocked(marker.part) {
