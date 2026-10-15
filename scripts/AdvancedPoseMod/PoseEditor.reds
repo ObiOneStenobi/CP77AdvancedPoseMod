@@ -1438,11 +1438,12 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Photo Mode changed the frame (aspect ratio) or turned its black bars on / off: the panel stays at the screen's
-    // edges, drawn above the black bars like Photo Mode's own menu.
+    // edges, drawn above the black bars like Photo Mode's own menu. Test: the menu (options_panel) is child 0 and
+    // still drawn above the bars (aspectratio_panel, child 4), while our layer as the last child was below them.
     public func OnFrameChanged() {
         let root = this.m_controller.GetRootCompoundWidget();
         if IsDefined(root) && IsDefined(this.m_layer) {
-            root.ReorderChild(this.m_layer, root.GetNumChildren() - 1);
+            root.ReorderChild(this.m_layer, 0);
         }
     }
 
