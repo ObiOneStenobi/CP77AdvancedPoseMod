@@ -31,6 +31,8 @@ constexpr float YawMax = 40.f;
 constexpr float DegToRad = 0.0174532925f;
 constexpr float RadToDeg = 57.2957795f;
 
+// Photo Mode facial expression of V (attribute 28). The added characters' expression attribute is not known yet: they
+// follow like the neutral expression.
 std::atomic<int32_t> g_expression{0};
 
 struct RigBones
@@ -158,7 +160,7 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
         return;
     }
 
-    const int32_t expression = g_expression.load(std::memory_order_relaxed);
+    const int32_t expression = aTarget.photoModeSlot == 0 ? g_expression.load(std::memory_order_relaxed) : 0;
     const bool known = expression >= 0 && expression < static_cast<int32_t>(std::size(ExpressionFactors));
     for (size_t b = 0; b < std::size(LidBones); ++b)
     {

@@ -1,4 +1,5 @@
 #include "Pose/TargetRegistry.hpp"
+#include "Pose/Characters.hpp"
 
 #include <RED4ext/CName.hpp>
 
@@ -16,7 +17,7 @@ std::array<uintptr_t, 64> g_pointers{};
 size_t g_pointerCount = 0;
 
 // Entities and animated components only: these identify a target unambiguously (rigs are shared).
-std::array<uintptr_t, 64> g_identities{};
+std::array<uintptr_t, 256> g_identities{}; // entities and animated components of up to 4 characters
 size_t g_identityCount = 0;
 
 struct SharedGuard
@@ -141,6 +142,19 @@ RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer)
     return {};
 }
 
+RED4ext::Handle<RED4ext::ISerializable> LockMainComponent(uint32_t aCharacter)
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        if (target.photoModeSlot == aCharacter && target.debugName == "root")
+        {
+            return target.componentRef.Lock();
+        }
+    }
+    return {};
+}
+
 size_t GetProbePointers(std::array<uintptr_t, 64>& aOut)
 {
     SharedGuard guard;
@@ -186,7 +200,7 @@ bool GetReferencePose(ReferencePose& aOut)
     SharedGuard guard;
     for (const auto& target : g_targets)
     {
-        if (target.photoModeSlot != 0 || target.debugName != "root")
+        if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
             continue;
         }
@@ -211,7 +225,7 @@ bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
     SharedGuard guard;
     for (const auto& target : g_targets)
     {
-        if (target.photoModeSlot != 0 || target.debugName != "root")
+        if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
             continue;
         }
@@ -251,7 +265,7 @@ std::vector<uint64_t> GetMainSkeletonBones()
     SharedGuard guard;
     for (const auto& target : g_targets)
     {
-        if (target.photoModeSlot == 0 && target.debugName == "root")
+        if (target.photoModeSlot == Characters::Selected() && target.debugName == "root")
         {
             return target.boneNames;
         }
@@ -268,7 +282,7 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
     SharedGuard guard;
     for (const auto& target : g_targets)
     {
-        if (target.photoModeSlot != 0 || target.debugName != "root")
+        if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
             continue;
         }

@@ -7,6 +7,16 @@
 public native func APM_IsPhotoModeActive() -> Bool
 // The player confirmed leaving Photo Mode: the plugin stops applying the pose before the game tears it down.
 public native func APM_OnPhotoModeExit() -> Void
+// Characters: 0 = V, 1-3 = the characters added in the scene (human ones only). The panel works on the selected one.
+public native func APM_CharacterIsPresent(character: Int32) -> Bool
+public native func APM_CharacterGetSelected() -> Int32
+public native func APM_CharacterSelect(character: Int32) -> Void
+public native func APM_CharacterGetEntity(character: Int32) -> ref<Entity>
+public native func APM_CharacterHasEdits(character: Int32) -> Bool
+// Main skeleton component of a character (its local-to-world is that character's model space).
+public native func APM_CharacterGetComponent(character: Int32) -> ref<IPlacedComponent>
+// The Photo Mode NPC page switched to another added character.
+public native func APM_SetSelectedNpc(index: Int32) -> Void
 public native func APM_GetBoneCount() -> Int32
 public native func APM_GetBoneName(index: Int32) -> CName
 
@@ -95,7 +105,7 @@ public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // Mouse wheel kept from the game while captured; ConsumeWheel returns the sum since the last call (120 per notch)
 // The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
 // Photo Mode's "Look at camera" is on.
-public native func APM_SetCameraModel(position: Vector4, forward: Vector4, up: Vector4)
+public native func APM_SetCameraModel(character: Int32, position: Vector4, forward: Vector4, up: Vector4)
 // Face: controls (UI attributes 7740 + control: value shown = the expression's own + the offset), saved expressions.
 public native func APM_FaceControlCount() -> Int32
 public native func APM_FaceControlLabel(control: Int32) -> String

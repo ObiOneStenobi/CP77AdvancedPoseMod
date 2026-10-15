@@ -2,6 +2,7 @@
 
 #include "Core/Config.hpp"
 #include "Core/Log.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/LookAtCamera.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
@@ -10,6 +11,7 @@
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
+#include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/PhotoModeUi.hpp"
 #include "Ui/TextEntry.hpp"
@@ -386,6 +388,95 @@ void ProbeLists(void* aSystem, void* aCharacterList = nullptr, uint8_t aGroup = 
     }
 }
 
+// Adds the animated components of one Photo Mode puppet (aCharacter: 0 = V, 1-3 = added characters).
+void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, uint32_t aCharacter, uint32_t aCharacterType,
+                      RED4ext::CClass* animatedCls, const APM::Config::Values& config)
+{
+    using namespace APM;
+    auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(puppet);
+    for (auto& handle : entity->components)
+    {
+        auto* component = handle.GetPtr();
+        if (!component)
+        {
+            continue;
+        }
+        auto* cls = component->GetType();
+        if (!cls || !cls->IsA(animatedCls))
+        {
+            continue;
+        }
+
+        auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
+        RED4ext::anim::Rig* rig = nullptr;
+        if (animated->rig.IsLoaded())
+        {
+            rig = animated->rig.Get().GetPtr();
+        }
+
+        Pose::Target target;
+        target.entity = puppet;
+        target.animatedComponent = reinterpret_cast<uintptr_t>(animated);
+        target.entityRef = entity->ref;
+        target.componentRef = component->ref;
+        target.rig = reinterpret_cast<uintptr_t>(rig);
+        target.photoModeSlot = aCharacter;
+        target.characterType = aCharacterType;
+        target.debugName = CNameToString(component->name);
+
+        if (rig)
+        {
+            target.boneNames.reserve(rig->boneNames.Size());
+            target.parents.reserve(rig->boneNames.Size());
+            for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
+            {
+                target.boneNames.push_back(rig->boneNames[i].hash);
+                target.parents.push_back(rig->parentIndices ? rig->parentIndices[i] : int16_t(-1));
+            }
+            target.refRotationsMS = ComputeModelSpaceRotations(rig);
+            if (rig->referencePoseLS)
+            {
+                for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
+                {
+                    const auto& t = rig->referencePoseLS[i];
+                    target.refRotationsLS.push_back({t.Rotation.i, t.Rotation.j, t.Rotation.k, t.Rotation.r});
+                    target.refTranslationsLS.push_back({t.Translation.X, t.Translation.Y, t.Translation.Z});
+                }
+            }
+        }
+
+        if (config.probeEnabled && config.probeDumpRig)
+        {
+            DumpRig(target, rig);
+        }
+
+        targets.push_back(std::move(target));
+    }
+}
+
+// An added character can be posed when its main skeleton is a human one, like V's ("root", 71 bones). Animals and
+// objects have unrelated skeletons.
+bool IsHumanCharacter(const std::vector<APM::Pose::Target>& aTargets, uint64_t aPuppet)
+{
+    static const uint64_t required[] = {RED4ext::CName("Hips").hash, RED4ext::CName("Spine3").hash,
+                                        RED4ext::CName("Head").hash, RED4ext::CName("LeftHand").hash,
+                                        RED4ext::CName("RightFoot").hash};
+    for (const auto& target : aTargets)
+    {
+        if (target.entity != aPuppet || target.debugName != "root" || target.boneNames.size() != 71)
+        {
+            continue;
+        }
+        return std::all_of(std::begin(required), std::end(required), [&](uint64_t aHash) {
+            return std::find(target.boneNames.begin(), target.boneNames.end(), aHash) != target.boneNames.end();
+        });
+    }
+    return false;
+}
+
+// Puppet of each character last time (0 = none): a new puppet in a slot is a new character, whose pose starts empty.
+std::array<uint64_t, APM::Pose::Characters::Count> g_characterPuppets{};
+
 void RefreshTargets(void* aSystem)
 {
     using namespace APM;
@@ -422,71 +513,52 @@ void RefreshTargets(void* aSystem)
         uint32_t characterType = 0;
         SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet);
         SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, characterType);
-        if (!puppet)
+        if (puppet && slot == 0)
+        {
+            AddPuppetTargets(targets, puppet, 0, characterType, animatedCls, config); // V
+        }
+    }
+
+    // Characters added in the scene: the three slots point to their catalog entries; only human ones are posed.
+    std::array<uint64_t, Pose::Characters::Count> puppets{};
+    puppets[0] = targets.empty() ? 0 : targets.front().entity;
+    for (uint32_t i = 0; i + 1 < Pose::Characters::Count; ++i)
+    {
+        uint64_t entry = 0;
+        uint64_t puppet = 0;
+        uint32_t characterType = 0;
+        if (!SafeMemory::ReadU64(system + PhotoModeLayout::SceneSlots + i * sizeof(uint64_t), entry) ||
+            !SafeMemory::LooksLikePointer(entry) ||
+            !SafeMemory::ReadU64(entry + PhotoModeLayout::CharacterPuppet, puppet) || !puppet ||
+            !SafeMemory::ReadU32(entry + PhotoModeLayout::CharacterType, characterType) || characterType != 4)
         {
             continue;
         }
-
-        auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(puppet);
-        for (auto& handle : entity->components)
+        std::vector<Pose::Target> added;
+        AddPuppetTargets(added, puppet, i + 1, characterType, animatedCls, config);
+        if (!IsHumanCharacter(added, puppet))
         {
-            auto* component = handle.GetPtr();
-            if (!component)
+            continue;
+        }
+        puppets[i + 1] = puppet;
+        std::move(added.begin(), added.end(), std::back_inserter(targets));
+    }
+    for (uint32_t c = 1; c < Pose::Characters::Count; ++c)
+    {
+        if (puppets[c] != g_characterPuppets[c])
+        {
+            Pose::PoseOverrides::ClearCharacter(c);
+            Pose::LookAtCamera::ResetCharacter(c);
+            Pose::PoseProcessor::ResetCharacter(c);
+            Log::Info("PhotoMode: character %u %s", c, puppets[c] ? "added (human, can be posed)" : "removed");
+            if (!puppets[c] && Pose::Characters::Selected() == c)
             {
-                continue;
+                Pose::PoseOverrides::SelectCharacter(0);
+                Pose::GizmoState::Clear();
             }
-            auto* cls = component->GetType();
-            if (!cls || !cls->IsA(animatedCls))
-            {
-                continue;
-            }
-
-            auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
-            RED4ext::anim::Rig* rig = nullptr;
-            if (animated->rig.IsLoaded())
-            {
-                rig = animated->rig.Get().GetPtr();
-            }
-
-            Pose::Target target;
-            target.entity = puppet;
-            target.animatedComponent = reinterpret_cast<uintptr_t>(animated);
-            target.entityRef = entity->ref;
-            target.componentRef = component->ref;
-            target.rig = reinterpret_cast<uintptr_t>(rig);
-            target.photoModeSlot = slot;
-            target.characterType = characterType;
-            target.debugName = CNameToString(component->name);
-
-            if (rig)
-            {
-                target.boneNames.reserve(rig->boneNames.Size());
-                target.parents.reserve(rig->boneNames.Size());
-                for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
-                {
-                    target.boneNames.push_back(rig->boneNames[i].hash);
-                    target.parents.push_back(rig->parentIndices ? rig->parentIndices[i] : int16_t(-1));
-                }
-                target.refRotationsMS = ComputeModelSpaceRotations(rig);
-                if (rig->referencePoseLS)
-                {
-                    for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
-                    {
-                        const auto& t = rig->referencePoseLS[i];
-                        target.refRotationsLS.push_back({t.Rotation.i, t.Rotation.j, t.Rotation.k, t.Rotation.r});
-                        target.refTranslationsLS.push_back({t.Translation.X, t.Translation.Y, t.Translation.Z});
-                    }
-                }
-            }
-
-            if (config.probeEnabled && config.probeDumpRig)
-            {
-                DumpRig(target, rig);
-            }
-
-            targets.push_back(std::move(target));
         }
     }
+    g_characterPuppets = puppets;
 
     LinkBones(targets);
 
@@ -526,6 +598,8 @@ bool Detour_Activate(void* aSystem)
     APM::AnimGraphHook::OnPhotoModeActivated();
     g_probedPuppets.clear();
     g_spawnedCharacters.clear();
+    g_characterPuppets = {};
+    APM::Pose::PoseOverrides::SelectCharacter(0);
     g_probedLists.clear();
     g_sessionId.fetch_add(1);
     g_active = true;
@@ -615,6 +689,15 @@ void Uninstall()
 bool IsActive()
 {
     return g_active.load();
+}
+
+uint64_t GetCharacterPuppet(uint32_t aCharacter)
+{
+    if (!g_active || aCharacter >= g_characterPuppets.size())
+    {
+        return 0;
+    }
+    return g_characterPuppets[aCharacter];
 }
 
 void OnExitRequested()

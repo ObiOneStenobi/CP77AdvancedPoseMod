@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
@@ -31,9 +32,17 @@ using APM::Pose::IkChainCount;
 constexpr const char* MainSkeletonName = "root";
 
 std::mutex g_bodyRotationMutex;
-std::array<Quat, IkChainCount> g_bodyRotations{};
-std::array<APM::Pose::PoseProcessor::IkFrame, IkChainCount> g_ikFrames{};
-std::array<bool, IkChainCount> g_ikFrameValid{};
+// Per character (Pose/Characters.hpp).
+constexpr size_t CharacterCount = APM::Pose::Characters::Count;
+std::array<std::array<Quat, IkChainCount>, CharacterCount> g_bodyRotations{};
+std::array<std::array<APM::Pose::PoseProcessor::IkFrame, IkChainCount>, CharacterCount> g_ikFrames{};
+std::array<std::array<bool, IkChainCount>, CharacterCount> g_ikFrameValid{};
+
+// Character of a target (0 = V, 1-3 = added characters).
+size_t CharacterOf(const APM::Pose::Target& aTarget)
+{
+    return aTarget.photoModeSlot < CharacterCount ? aTarget.photoModeSlot : 0;
+}
 
 struct ChainBones
 {
@@ -113,9 +122,9 @@ void ComputeModelPose(const APM::Pose::Target& aTarget, const RED4ext::QsTransfo
 // aSameNameBones: also edit the bones that carry the edited names (main skeleton only, see ProcessSecondarySkeleton).
 // Photo Mode's "Look at camera" is on: our edits of the eyes wait (the game has priority). The head and the chest are
 // left to work as before: the game turns them on top of the pose, and pausing them mixed two poses.
-bool IsLookAtBone(uint64_t aHash)
+bool IsLookAtBone(size_t aCharacter, uint64_t aHash)
 {
-    if (APM::Pose::LookAtCamera::Reach() == 0)
+    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(aCharacter)) == 0)
     {
         return false;
     }
@@ -136,7 +145,7 @@ void ApplyForwardOverrides(const APM::Pose::Target& aTarget, RED4ext::QsTransfor
 {
     for (const auto& bone : aPose.bones)
     {
-        if (IsLookAtBone(bone.boneHash))
+        if (IsLookAtBone(CharacterOf(aTarget), bone.boneHash))
         {
             continue;
         }
@@ -237,12 +246,12 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         }
         {
             std::scoped_lock lock(g_bodyRotationMutex);
-            g_bodyRotations[chainIndex] = body;
+            g_bodyRotations[CharacterOf(aTarget)][chainIndex] = body;
             if (p >= 0 && static_cast<uint32_t>(p) < aCount)
             {
-                g_ikFrames[chainIndex] = {aOriginalPose.positions[c], aOriginalPose.rotations[c],
+                g_ikFrames[CharacterOf(aTarget)][chainIndex] = {aOriginalPose.positions[c], aOriginalPose.rotations[c],
                                           aOriginalPose.positions[p], aCurrentPose.positions[p], body};
-                g_ikFrameValid[chainIndex] = true;
+                g_ikFrameValid[CharacterOf(aTarget)][chainIndex] = true;
             }
         }
 
@@ -313,15 +322,16 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 // ---------------------------------------------------------------------------------------------------------------------
 // Photo Mode's "Look at camera" set to "custom" turns these bones towards a point the plugin does not know: a full
 // saved pose leaves them as the game animates them (with "camera" the plugin turns them itself, see KeepLookAt).
-bool IsCustomLookAtBone(uint64_t aHash)
+bool IsCustomLookAtBone(size_t aCharacter, uint64_t aHash)
 {
-    if (!APM::Pose::LookAtCamera::IsCustom())
+    const auto character = static_cast<uint32_t>(aCharacter);
+    if (!APM::Pose::LookAtCamera::IsCustom(character))
     {
         return false;
     }
     static const uint64_t torso[] = {Hash("Spine"), Hash("Spine1"), Hash("Spine2"), Hash("Spine3")};
     static const uint64_t head[] = {Hash("Neck"), Hash("Neck1"), Hash("Head")};
-    const int32_t reach = APM::Pose::LookAtCamera::Reach();
+    const int32_t reach = APM::Pose::LookAtCamera::Reach(character);
     if (reach >= 2 && std::find(std::begin(head), std::end(head), aHash) != std::end(head))
     {
         return true;
@@ -343,7 +353,7 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
     for (const auto& bone : aBase.bones)
     {
         const auto it = indices.find(bone.boneHash);
-        if (it == indices.end() || IsLookAtBone(bone.boneHash) || IsCustomLookAtBone(bone.boneHash))
+        if (it == indices.end() || IsLookAtBone(CharacterOf(aTarget), bone.boneHash) || IsCustomLookAtBone(CharacterOf(aTarget), bone.boneHash))
         {
             continue;
         }
@@ -390,19 +400,21 @@ Vec3 FaceForward(const APM::Pose::Target& aTarget)
 // Eyes aimed at the camera while Photo Mode's "Look at camera" turns the head or the torso (the game leaves them
 // straight once the head reaches its limit). Final local rotations of LeftEye / RightEye, for the face rig.
 std::mutex g_cameraEyeMutex;
-std::array<Quat, 2> g_cameraEyeLocals{};
-bool g_cameraEyesValid = false;
+std::array<std::array<Quat, 2>, CharacterCount> g_cameraEyeLocals{};
+std::array<bool, CharacterCount> g_cameraEyesValid{};
 
 void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
-    const auto camera = APM::Pose::LookAtCamera::GetCamera();
+    const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
     const int32_t head = IndexOf(aTarget, Hash("Head"));
-    if (APM::Pose::LookAtCamera::Reach() < 2 || !APM::Pose::LookAtCamera::AimsAtCamera() || !camera.valid || head < 0 ||
+    const size_t character = CharacterOf(aTarget);
+    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
+        !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)) || !camera.valid || head < 0 ||
         static_cast<uint32_t>(head) >= aCount ||
         static_cast<size_t>(head) >= aTarget.refRotationsMS.size())
     {
         std::scoped_lock lock(g_cameraEyeMutex);
-        g_cameraEyesValid = false;
+        g_cameraEyesValid[character] = false;
         return;
     }
     constexpr float MaxEyeTurn = 0.52f; // ~30 degrees from where the face looks
@@ -450,8 +462,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
         SetRotation(aBones[eye], locals[e]);
     }
     std::scoped_lock lock(g_cameraEyeMutex);
-    g_cameraEyeLocals = locals;
-    g_cameraEyesValid = ok;
+    g_cameraEyeLocals[character] = locals;
+    g_cameraEyesValid[character] = ok;
 }
 
 // The face rig's eyeballs follow the camera-aimed eyes of the main skeleton.
@@ -460,11 +472,13 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
     std::array<Quat, 2> locals{};
     {
         std::scoped_lock lock(g_cameraEyeMutex);
-        if (!g_cameraEyesValid || APM::Pose::LookAtCamera::Reach() < 2 || !APM::Pose::LookAtCamera::AimsAtCamera())
+        const size_t character = CharacterOf(aTarget);
+        if (!g_cameraEyesValid[character] || APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
+            !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
         {
             return;
         }
-        locals = g_cameraEyeLocals;
+        locals = g_cameraEyeLocals[character];
     }
     static const uint64_t left = Hash("LeftEye");
     static const uint64_t right = Hash("RightEye");
@@ -487,9 +501,10 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
 // The spine (torso only) turns around the vertical, a share per bone; the neck and the head take the rest.
 void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
-    const int32_t reach = APM::Pose::LookAtCamera::Reach();
-    const auto camera = APM::Pose::LookAtCamera::GetCamera();
-    if (reach < 2 || !camera.valid || !APM::Pose::LookAtCamera::AimsAtCamera())
+    const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
+    const int32_t reach = APM::Pose::LookAtCamera::Reach(character);
+    const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
+    if (reach < 2 || !camera.valid || !APM::Pose::LookAtCamera::AimsAtCamera(character))
     {
         return; // "custom": the game's own turn stays (the base pose leaves those bones alone)
     }
@@ -597,7 +612,7 @@ struct NoLookAtCache
     std::array<Quat, std::size(LookAtChain)> chain{};
     std::array<Quat, std::size(PoseSignature)> signature{};
 };
-NoLookAtCache g_noLookAt;
+std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
 bool SameRotation(const Quat& a, const Quat& b)
 {
@@ -626,7 +641,8 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
             return false;
         }
     }
-    if (APM::Pose::LookAtCamera::Reach() < 2)
+    auto& g_noLookAt = g_noLookAtCaches[CharacterOf(aTarget)];
+    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(CharacterOf(aTarget))) < 2)
     {
         for (size_t i = 0; i < chain.size(); ++i)
         {
@@ -730,21 +746,40 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
 
 namespace APM::Pose::PoseProcessor
 {
+void ResetCharacter(uint32_t aCharacter)
+{
+    if (aCharacter >= CharacterCount)
+    {
+        return;
+    }
+    {
+        std::scoped_lock lock(g_bodyRotationMutex);
+        g_ikFrameValid[aCharacter] = {};
+        g_bodyRotations[aCharacter] = {};
+    }
+    {
+        std::scoped_lock lock(g_cameraEyeMutex);
+        g_cameraEyesValid[aCharacter] = false;
+    }
+    g_noLookAtCaches[aCharacter].valid = false;
+}
+
 bool GetIkFrame(size_t aChain, IkFrame& aOut)
 {
     std::scoped_lock lock(g_bodyRotationMutex);
-    if (aChain >= IkChainCount || !g_ikFrameValid[aChain])
+    const uint32_t character = APM::Pose::Characters::Selected();
+    if (aChain >= IkChainCount || !g_ikFrameValid[character][aChain])
     {
         return false;
     }
-    aOut = g_ikFrames[aChain];
+    aOut = g_ikFrames[character][aChain];
     return true;
 }
 
 Math::Quat GetIkBodyRotation(size_t aChain)
 {
     std::scoped_lock lock(g_bodyRotationMutex);
-    return aChain < IkChainCount ? g_bodyRotations[aChain] : Math::Quat{0.f, 0.f, 0.f, 1.f};
+    return aChain < IkChainCount ? g_bodyRotations[APM::Pose::Characters::Selected()][aChain] : Math::Quat{0.f, 0.f, 0.f, 1.f};
 }
 
 void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBoneCount, const OverrideSnapshot& aPose)

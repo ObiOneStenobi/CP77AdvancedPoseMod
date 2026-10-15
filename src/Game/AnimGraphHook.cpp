@@ -6,6 +6,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/FaceRig.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
@@ -298,9 +299,6 @@ bool AllFinite(const RED4ext::QsTransform* aBones, uint32_t aCount)
 
 void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
-    const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot();
-    const bool applyPose = APM::Pose::PoseOverrides::IsEnabled() && !snapshot->IsEmpty();
-
     uint32_t boneCount = 0;
     uint64_t bonesAddress = 0;
     if (!APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount) ||
@@ -310,10 +308,9 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
     }
 
     APM::Pose::TargetRegistry::VisitTarget(aTargetPointer, [&](const APM::Pose::Target& aTarget) {
-        if (aTarget.photoModeSlot != 0)
-        {
-            return; // only V is posed: other Photo Mode characters keep the game's animation
-        }
+        // Each character (V, added characters) has its own pose.
+        const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
+        const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
         if (boneCount != aTarget.boneNames.size())
         {
             bool expected = false;
@@ -326,7 +323,7 @@ void ApplyOverrides(void* aNode, const SampleOutput* aOut, uintptr_t aTargetPoin
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
-        if (aTarget.debugName == "face_rig")
+        if (aTarget.debugName == "face_rig" && aTarget.photoModeSlot == APM::Pose::Characters::Selected())
         {
             // Reads the expression shown (face controls start from it).
             APM::Pose::FaceRig::Observe(aTarget, bones, boneCount, *snapshot);

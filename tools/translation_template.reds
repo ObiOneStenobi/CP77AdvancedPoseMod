@@ -44,6 +44,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock");
         this.Text("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock");
         this.Text("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay");
+        this.Text("APM-Tip-CharacterPrev", "Previous character to pose");
+        this.Text("APM-Tip-CharacterNext", "Next character to pose");
         this.Text("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row");
         this.Text("APM-Label-Preset", "Preset");
         this.Text("APM-Preset-Open", "Open");
@@ -147,6 +149,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-ResetAllConfirm", "Click again to reset everything (items in hand stay)");
         this.Text("APM-Msg-PoseSaveFailed", "Could not save the pose");
         this.Text("APM-Msg-PoseLoadFailed", "Could not load {0}");
+        this.Text("APM-Label-Character", "Character {0}");
         this.Text("APM-Tip-PresetOpen", "Straight fingers");
         this.Text("APM-Tip-PresetRelaxed", "Slightly curled, at rest");
         this.Text("APM-Tip-PresetFist", "Closed fist");

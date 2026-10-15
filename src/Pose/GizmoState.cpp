@@ -1,4 +1,5 @@
 #include "Pose/GizmoState.hpp"
+#include "Pose/Characters.hpp"
 
 #include "Core/Log.hpp"
 
@@ -103,7 +104,7 @@ namespace APM::Pose::GizmoState
 {
 void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t)
 {
-    if (aTarget.photoModeSlot != 0 || aCount != aTarget.boneNames.size())
+    if (aTarget.photoModeSlot != Characters::Selected() || aCount != aTarget.boneNames.size())
     {
         return;
     }
@@ -223,7 +224,7 @@ uintptr_t GetComponent()
 
 void PublishAnimatedPose(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
 {
-    if (aTarget.photoModeSlot != 0 || aCount != aTarget.boneNames.size())
+    if (aTarget.photoModeSlot != Characters::Selected() || aCount != aTarget.boneNames.size())
     {
         return;
     }

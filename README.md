@@ -2,8 +2,9 @@
 
 Bone-by-bone posing with inverse kinematics for Cyberpunk 2077 Photo Mode.
 
-V can be posed bone by bone in Photo Mode from the **Pose editor** panel and with gizmos on the joints (rotation,
-IK for hands and feet, hand presets, eyes, items in hand), and whole poses can be saved, loaded and shared.
+V and the characters added in Photo Mode can be posed bone by bone from the **Pose editor** panel and with gizmos on
+the joints (rotation, IK for hands and feet, hand presets, eyes, items in hand), and whole poses can be saved, loaded
+and shared.
 
 ## Download
 
@@ -74,7 +75,13 @@ Open Photo Mode and click **Pose editor** (top left).
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
   writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
-  previous session are cleared. Save a pose to keep it.
+  previous session are cleared. Save a pose to keep it. While there are edits, leaving Photo Mode asks for
+  confirmation (as the game does for its own options).
+- **Characters**: when characters are added in the scene (Photo Mode NPC page), a selector `< name >` appears in the
+  header: the panel, the gizmos, undo / redo and the items in hand work on the character shown there. Every
+  character keeps its own pose; replacing a character in a slot starts it from the game's pose. Saved poses work on
+  any of them (V and human characters share the same skeleton). Look at camera works for them as for V (Photo Mode
+  NPC page). Only human characters can be posed (animals and objects have other skeletons).
 - A saved pose stores the **whole visible pose** (every body bone, edits and IK included), not just the edits:
   loading it replaces the Photo Mode pose underneath, whatever pose is selected there, and new edits go on top of
   it. The face keeps its Photo Mode expression. **Reset all** goes back to the Photo Mode pose. Poses saved by
@@ -165,8 +172,8 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
 
 ## Known limitations
 
-- Only V is posed. Characters added in Photo Mode (base game or character packs) keep the game's animation; posing
-  them is planned. Non-humanoid characters (animals, objects) have unrelated skeletons and will stay unsupported.
+- Characters added in Photo Mode can be posed when they are human (V's skeleton); animals and objects have unrelated
+  skeletons and stay unsupported. Their eyelids follow edited eyes like the neutral expression.
 - The eyelids follow edited eyes with the share measured for each of the 15 base game expressions; expressions added
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
 - No face controls or saved expressions yet; the face keeps the Photo Mode expression.

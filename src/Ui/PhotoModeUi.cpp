@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
@@ -137,7 +138,7 @@ bool IsPinnedChainEnd(std::string_view aBone)
 // the back and chest for the torso).
 bool IsLookAtLockedBone(std::string_view aBone)
 {
-    const int32_t reach = Pose::LookAtCamera::Reach();
+    const int32_t reach = Pose::LookAtCamera::Reach(Pose::Characters::Selected());
     if (reach >= 1 && (aBone == "LeftEye" || aBone == "RightEye"))
     {
         return true;

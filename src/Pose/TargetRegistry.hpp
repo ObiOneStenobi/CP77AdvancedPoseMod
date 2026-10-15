@@ -65,6 +65,8 @@ size_t GetProbePointers(std::array<uintptr_t, 64>& aOut);
 
 // Strong handle to the entity or animated component known by that pointer; empty if unknown or already destroyed.
 RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer);
+// Strong handle to the main skeleton ("root") component of a character (0 = V, 1-3 = added characters).
+RED4ext::Handle<RED4ext::ISerializable> LockMainComponent(uint32_t aCharacter);
 
 // Calls aVisitor with the target that owns the pointer, under a shared lock (no copy). Returns false if not found.
 bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor);

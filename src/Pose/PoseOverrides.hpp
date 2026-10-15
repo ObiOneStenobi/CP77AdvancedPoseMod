@@ -122,13 +122,22 @@ const char* GetIkChainName(IkChain aChain);
 
 namespace PoseOverrides
 {
-// Master switch. Editing a bone or loading a pose enables it; leaving Photo Mode disables it
-// (the edited pose stays in memory so the player can turn it back on).
+// Master switch of the selected character. Editing a bone or loading a pose enables it; leaving Photo Mode
+// disables it. Every function below works on the selected character (Pose/Characters.hpp).
 void SetEnabled(bool aEnabled);
 bool IsEnabled();
 
-// Snapshot used by the animation hook. Never null.
+// The selected character's snapshot (see Pose/Characters.hpp). Never null.
 std::shared_ptr<const OverrideSnapshot> GetSnapshot();
+// Per character (0 = V, 1-3 = added characters), used by the animation hook. Never null.
+std::shared_ptr<const OverrideSnapshot> GetSnapshot(uint32_t aCharacter);
+bool IsEnabled(uint32_t aCharacter);
+// Edits, a loaded pose or items in hand.
+bool HasEdits(uint32_t aCharacter);
+// Changes the selected character (between two edits, never during one).
+void SelectCharacter(uint32_t aCharacter);
+// Forgets one character's pose (another character took that Photo Mode slot).
+void ClearCharacter(uint32_t aCharacter);
 
 void SetRotation(const std::string& aBone, float aX, float aY, float aZ);
 void SetTranslation(const std::string& aBone, float aX, float aY, float aZ);

@@ -3,6 +3,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/FaceRig.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -60,6 +61,90 @@ void IsPhotoModeActive(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
     Return(aOut, APM::PhotoModeTracker::IsActive());
+}
+
+// --- Characters (0 = V, 1-3 = added human characters) ----------------------------------------------------------
+
+void CharacterIsPresent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
+    aFrame->code++;
+    Return(aOut, character >= 0 && APM::PhotoModeTracker::GetCharacterPuppet(static_cast<uint32_t>(character)) != 0);
+}
+
+void CharacterGetSelected(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(APM::Pose::Characters::Selected()));
+}
+
+void CharacterSelect(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
+    aFrame->code++;
+    if (character < 0 || APM::PhotoModeTracker::GetCharacterPuppet(static_cast<uint32_t>(character)) == 0 ||
+        static_cast<uint32_t>(character) == APM::Pose::Characters::Selected())
+    {
+        return;
+    }
+    APM::Pose::PoseOverrides::SelectCharacter(static_cast<uint32_t>(character));
+    APM::Pose::GizmoState::Clear(); // the markers show the newly selected character from its next frame
+    APM::Ui::PhotoModeUi::RequestRefresh();
+    APM::Log::Verbose("Characters: character %d selected", character);
+}
+
+void CharacterGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
+    aFrame->code++;
+    RED4ext::Handle<RED4ext::ISerializable> handle;
+    if (character >= 0)
+    {
+        handle = APM::Pose::TargetRegistry::LockObject(
+            static_cast<uintptr_t>(APM::PhotoModeTracker::GetCharacterPuppet(static_cast<uint32_t>(character))));
+    }
+    if (aOut)
+    {
+        new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
+    }
+}
+
+// Main skeleton ("root") animated component of a character: its GetLocalToWorld() maps that character's model space.
+void CharacterGetComponent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
+    aFrame->code++;
+    RED4ext::Handle<RED4ext::ISerializable> handle;
+    if (character >= 0)
+    {
+        handle = APM::Pose::TargetRegistry::LockMainComponent(static_cast<uint32_t>(character));
+    }
+    if (aOut)
+    {
+        new (aOut) RED4ext::Handle<RED4ext::ISerializable>(handle);
+    }
+}
+
+void CharacterHasEdits(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
+    aFrame->code++;
+    Return(aOut, character >= 0 && APM::Pose::PoseOverrides::HasEdits(static_cast<uint32_t>(character)));
+}
+
+// The Photo Mode NPC page switched to another added character (its look-at options belong to that one).
+void SetSelectedNpc(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    APM::Pose::LookAtCamera::SetSelectedNpc(index);
+    APM::Log::Verbose("Photo Mode NPC page: character index %d", index);
 }
 
 void OnPhotoModeExit(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -500,6 +585,8 @@ void GizmoAimPart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
+    int32_t character = 0;
+    RED4ext::GetParameter(aFrame, &character);
     RED4ext::Vector4 position{};
     RED4ext::Vector4 forward{};
     RED4ext::Vector4 up{};
@@ -507,7 +594,8 @@ void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     RED4ext::GetParameter(aFrame, &forward);
     RED4ext::GetParameter(aFrame, &up);
     aFrame->code++;
-    APM::Pose::LookAtCamera::SetCamera({position.X, position.Y, position.Z}, {forward.X, forward.Y, forward.Z},
+    APM::Pose::LookAtCamera::SetCamera(static_cast<uint32_t>(std::max(character, 0)), {position.X, position.Y, position.Z},
+                                       {forward.X, forward.Y, forward.Z},
                                        {up.X, up.Y, up.Z});
 }
 
@@ -1231,6 +1319,12 @@ void Register()
 {
     ::Register("APM_IsPhotoModeActive", &IsPhotoModeActive, "Bool", {});
     ::Register("APM_OnPhotoModeExit", &OnPhotoModeExit, nullptr, {});
+    ::Register("APM_CharacterIsPresent", &CharacterIsPresent, "Bool", {{"Int32", "character"}});
+    ::Register("APM_CharacterGetSelected", &CharacterGetSelected, "Int32", {});
+    ::Register("APM_CharacterSelect", &CharacterSelect, nullptr, {{"Int32", "character"}});
+    ::Register("APM_CharacterGetEntity", &CharacterGetEntity, "handle:entEntity", {{"Int32", "character"}});
+    ::Register("APM_CharacterHasEdits", &CharacterHasEdits, "Bool", {{"Int32", "character"}});
+    ::Register("APM_SetSelectedNpc", &SetSelectedNpc, nullptr, {{"Int32", "index"}});
     ::Register("APM_GetBoneCount", &GetBoneCount, "Int32", {});
     ::Register("APM_GetBoneName", &GetBoneName, "CName", {{"Int32", "index"}});
 
@@ -1284,7 +1378,8 @@ void Register()
     ::Register("APM_SetNeutralPose", &SetNeutralPose, "Bool", {{"Bool", "armsDown"}});
     ::Register("APM_GizmoAimPart", &GizmoAimPart, "Bool", {{"Int32", "part"}, {"Vector4", "modelTarget"}});
     ::Register("APM_SetCameraModel", &SetCameraModel, nullptr,
-               {{"Vector4", "position"}, {"Vector4", "forward"}, {"Vector4", "up"}});
+               {{"Int32", "character"}, {"Vector4", "position"}, {"Vector4", "forward"}, {"Vector4", "up"}});
+    ::Register("APM_CharacterGetComponent", &CharacterGetComponent, "handle:entIPlacedComponent", {{"Int32", "character"}});
     ::Register("APM_FaceControlCount", &FaceControlCount, "Int32", {});
     ::Register("APM_FaceControlLabel", &FaceControlLabel, "String", {{"Int32", "control"}});
     ::Register("APM_FaceControlZone", &FaceControlZone, "String", {{"Int32", "control"}});

@@ -4,6 +4,7 @@
 #include "Core/Runtime.hpp"
 #include "Math/Quat.hpp"
 #include "Math/Vec3.hpp"
+#include "Pose/Characters.hpp"
 
 #include <RED4ext/CName.hpp>
 #include <nlohmann/json.hpp>
@@ -600,7 +601,10 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
             aBones[i].Translation.Z += local.z;
         }
     }
-    RememberFaceLocked(rig, aTarget, aBones, aCount, true);
+    if (aTarget.photoModeSlot == APM::Pose::Characters::Selected())
+    {
+        RememberFaceLocked(rig, aTarget, aBones, aCount, true); // "save expression" takes the selected character's face
+    }
 }
 
 std::filesystem::path GetDirectory()

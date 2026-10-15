@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -22,13 +23,7 @@ namespace
 constexpr const char* PoseFormat = "AdvancedPoseMod.Pose";
 constexpr int PoseFormatVersion = 2; // 2: "base" holds the whole pose
 
-std::atomic<bool> g_enabled{false};
-std::mutex g_mutex; // guards g_bones and g_snapshot replacement
-std::vector<APM::Pose::BoneOverride> g_bones;
-std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> g_ik{};
-std::shared_ptr<const APM::Pose::BasePose> g_base;
-APM::Pose::FaceEdits g_faceEdits{};
-std::shared_ptr<const APM::Pose::BasePose> g_faceBase;
+std::mutex g_mutex; // guards the edit state of every character and the replacement of their snapshots
 
 // Undo / redo history (guarded by g_mutex).
 struct EditState
@@ -40,12 +35,31 @@ struct EditState
     std::shared_ptr<const APM::Pose::BasePose> faceBase;
 };
 constexpr size_t MaxHistory = 100;
-std::vector<EditState> g_undo;
-std::vector<EditState> g_redo;
-std::atomic<uint64_t> g_propRight{0};
-std::atomic<uint64_t> g_propLeft{0};
-std::mutex g_snapshotMutex; // guards g_snapshot pointer only (held for a pointer copy)
-std::shared_ptr<const APM::Pose::OverrideSnapshot> g_snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
+
+// Everything one character's pose is made of (see Pose/Characters.hpp).
+struct CharacterState
+{
+    std::atomic<bool> enabled{false};
+    std::vector<APM::Pose::BoneOverride> bones;
+    std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
+    std::shared_ptr<const APM::Pose::BasePose> base;
+    APM::Pose::FaceEdits faceEdits{};
+    std::shared_ptr<const APM::Pose::BasePose> faceBase;
+    std::vector<EditState> undo;
+    std::vector<EditState> redo;
+    std::atomic<uint64_t> propRight{0};
+    std::atomic<uint64_t> propLeft{0};
+    // Read by the animation threads (guarded by g_snapshotMutex, held for a pointer copy only).
+    std::shared_ptr<const APM::Pose::OverrideSnapshot> snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
+};
+std::array<CharacterState, APM::Pose::Characters::Count> g_states;
+std::mutex g_snapshotMutex;
+
+// The selected character's state (the panel and the scripts edit it).
+CharacterState& S()
+{
+    return g_states[APM::Pose::Characters::Selected()];
+}
 
 uint64_t HashBone(const std::string& aBone)
 {
@@ -53,14 +67,14 @@ uint64_t HashBone(const std::string& aBone)
 }
 
 // Must be called with g_mutex held.
-void PublishLocked()
+void PublishLocked(CharacterState& aState)
 {
     auto snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
-    snapshot->ik = g_ik;
-    snapshot->base = g_base;
-    snapshot->faceEdits = g_faceEdits;
-    snapshot->faceBase = g_faceBase;
-    for (const auto& bone : g_bones)
+    snapshot->ik = aState.ik;
+    snapshot->base = aState.base;
+    snapshot->faceEdits = aState.faceEdits;
+    snapshot->faceBase = aState.faceBase;
+    for (const auto& bone : aState.bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
         {
@@ -68,7 +82,28 @@ void PublishLocked()
         }
     }
     std::scoped_lock lock(g_snapshotMutex);
-    g_snapshot = std::move(snapshot);
+    aState.snapshot = std::move(snapshot);
+}
+
+void PublishLocked()
+{
+    PublishLocked(S());
+}
+
+// Must be called with g_mutex held.
+void ClearLocked(CharacterState& aState)
+{
+    aState.bones.clear();
+    aState.ik = {};
+    aState.base.reset();
+    aState.faceEdits = {};
+    aState.faceBase.reset();
+    aState.undo.clear();
+    aState.redo.clear();
+    aState.propRight = 0;
+    aState.propLeft = 0;
+    PublishLocked(aState);
+    aState.enabled = false;
 }
 
 bool SameBones(const std::vector<APM::Pose::BoneOverride>& a, const std::vector<APM::Pose::BoneOverride>& b)
@@ -108,44 +143,44 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked()
 {
-    return {g_bones, g_ik, g_base, g_faceEdits, g_faceBase};
+    return {S().bones, S().ik, S().base, S().faceEdits, S().faceBase};
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
 {
-    return aState.base == g_base && aState.faceEdits == g_faceEdits && aState.faceBase == g_faceBase && SameIk(aState.ik, g_ik) && SameBones(aState.bones, g_bones);
+    return aState.base == S().base && aState.faceEdits == S().faceEdits && aState.faceBase == S().faceBase && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
 }
 
 void RestoreLocked(EditState&& aState)
 {
-    g_bones = std::move(aState.bones);
-    g_ik = aState.ik;
-    g_base = std::move(aState.base);
-    g_faceEdits = aState.faceEdits;
-    g_faceBase = std::move(aState.faceBase);
+    S().bones = std::move(aState.bones);
+    S().ik = aState.ik;
+    S().base = std::move(aState.base);
+    S().faceEdits = aState.faceEdits;
+    S().faceBase = std::move(aState.faceBase);
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
 void CheckpointLocked()
 {
-    if (!g_undo.empty() && SameAsCurrentLocked(g_undo.back()))
+    if (!S().undo.empty() && SameAsCurrentLocked(S().undo.back()))
     {
         return;
     }
-    g_undo.push_back(CurrentStateLocked());
-    if (g_undo.size() > MaxHistory)
+    S().undo.push_back(CurrentStateLocked());
+    if (S().undo.size() > MaxHistory)
     {
-        g_undo.erase(g_undo.begin());
+        S().undo.erase(S().undo.begin());
     }
-    g_redo.clear();
+    S().redo.clear();
 }
 
 // Must be called with g_mutex held.
 APM::Pose::BoneOverride& FindOrAddLocked(const std::string& aBone)
 {
     const uint64_t hash = HashBone(aBone);
-    auto it = std::find_if(g_bones.begin(), g_bones.end(), [hash](const auto& b) { return b.boneHash == hash; });
-    if (it != g_bones.end())
+    auto it = std::find_if(S().bones.begin(), S().bones.end(), [hash](const auto& b) { return b.boneHash == hash; });
+    if (it != S().bones.end())
     {
         return *it;
     }
@@ -153,15 +188,15 @@ APM::Pose::BoneOverride& FindOrAddLocked(const std::string& aBone)
     APM::Pose::BoneOverride bone;
     bone.boneHash = hash;
     bone.boneName = aBone;
-    g_bones.push_back(bone);
-    return g_bones.back();
+    S().bones.push_back(bone);
+    return S().bones.back();
 }
 
 const APM::Pose::BoneOverride* FindLocked(const std::string& aBone)
 {
     const uint64_t hash = HashBone(aBone);
-    auto it = std::find_if(g_bones.begin(), g_bones.end(), [hash](const auto& b) { return b.boneHash == hash; });
-    return it != g_bones.end() ? &*it : nullptr;
+    auto it = std::find_if(S().bones.begin(), S().bones.end(), [hash](const auto& b) { return b.boneHash == hash; });
+    return it != S().bones.end() ? &*it : nullptr;
 }
 
 bool IsZero(const std::array<float, 3>& aValues)
@@ -228,11 +263,11 @@ void SetIkChain(IkChain aChain, const IkChainSettings& aSettings)
         return;
     }
     std::scoped_lock lock(g_mutex);
-    g_ik[index] = aSettings;
+    S().ik[index] = aSettings;
     PublishLocked();
     if (aSettings.enabled)
     {
-        g_enabled = true;
+        S().enabled = true;
     }
 }
 
@@ -240,12 +275,12 @@ IkChainSettings GetIkChain(IkChain aChain)
 {
     const auto index = static_cast<size_t>(aChain);
     std::scoped_lock lock(g_mutex);
-    return index < IkChainCount ? g_ik[index] : IkChainSettings{};
+    return index < IkChainCount ? S().ik[index] : IkChainSettings{};
 }
 
 void SetEnabled(bool aEnabled)
 {
-    if (g_enabled.exchange(aEnabled) != aEnabled)
+    if (S().enabled.exchange(aEnabled) != aEnabled)
     {
         Log::Info("Custom pose %s", aEnabled ? "enabled" : "disabled");
     }
@@ -253,13 +288,13 @@ void SetEnabled(bool aEnabled)
 
 bool IsEnabled()
 {
-    return g_enabled.load(std::memory_order_relaxed);
+    return S().enabled.load(std::memory_order_relaxed);
 }
 
 std::shared_ptr<const OverrideSnapshot> GetSnapshot()
 {
     std::scoped_lock lock(g_snapshotMutex);
-    return g_snapshot;
+    return S().snapshot;
 }
 
 void SetRotation(const std::string& aBone, float aX, float aY, float aZ)
@@ -271,7 +306,7 @@ void SetRotation(const std::string& aBone, float aX, float aY, float aZ)
     bone.hasUiAngles = false;
     bone.hasRotation = !IsZero(bone.rotationEuler);
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
 }
 
 void SetTranslation(const std::string& aBone, float aX, float aY, float aZ)
@@ -281,7 +316,7 @@ void SetTranslation(const std::string& aBone, float aX, float aY, float aZ)
     bone.translation = {aX, aY, aZ};
     bone.hasTranslation = !IsZero(bone.translation);
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
 }
 
 void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, const std::array<float, 3>& aUiAngles)
@@ -294,7 +329,7 @@ void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, cons
     bone.hasUiAngles = true;
     bone.hasRotation = !IsZero(aUiAngles);
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
 }
 
 bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut)
@@ -326,7 +361,7 @@ void ResetBone(const std::string& aBone)
 {
     std::scoped_lock lock(g_mutex);
     const uint64_t hash = HashBone(aBone);
-    std::erase_if(g_bones, [hash](const auto& b) { return b.boneHash == hash; });
+    std::erase_if(S().bones, [hash](const auto& b) { return b.boneHash == hash; });
     PublishLocked();
 }
 
@@ -334,26 +369,61 @@ void ResetAll()
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    g_bones.clear();
-    g_ik = {};
-    g_base.reset();
+    S().bones.clear();
+    S().ik = {};
+    S().base.reset();
     PublishLocked();
 }
 
 void ClearSession()
 {
     std::scoped_lock lock(g_mutex);
-    g_bones.clear();
-    g_ik = {};
-    g_base.reset();
-    g_faceEdits = {};
-    g_faceBase.reset();
-    g_undo.clear();
-    g_redo.clear();
-    g_propRight = 0;
-    g_propLeft = 0;
-    PublishLocked();
-    g_enabled = false;
+    for (auto& state : g_states)
+    {
+        ClearLocked(state);
+    }
+}
+
+void SelectCharacter(uint32_t aCharacter)
+{
+    std::scoped_lock lock(g_mutex); // never in the middle of an edit of the previously selected character
+    Characters::Select(aCharacter);
+}
+
+void ClearCharacter(uint32_t aCharacter)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_mutex);
+    ClearLocked(g_states[aCharacter]);
+}
+
+bool HasEdits(uint32_t aCharacter)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return false;
+    }
+    const auto& state = g_states[aCharacter];
+    std::shared_ptr<const OverrideSnapshot> snapshot;
+    {
+        std::scoped_lock lock(g_snapshotMutex);
+        snapshot = state.snapshot;
+    }
+    return !snapshot->IsEmpty() || state.propRight != 0 || state.propLeft != 0;
+}
+
+bool IsEnabled(uint32_t aCharacter)
+{
+    return aCharacter < Characters::Count && g_states[aCharacter].enabled.load(std::memory_order_relaxed);
+}
+
+std::shared_ptr<const OverrideSnapshot> GetSnapshot(uint32_t aCharacter)
+{
+    std::scoped_lock lock(g_snapshotMutex);
+    return g_states[aCharacter < Characters::Count ? aCharacter : 0].snapshot;
 }
 
 size_t Count()
@@ -457,18 +527,18 @@ bool Save(const std::string& aName)
         }
     }
 
-    if (g_propRight != 0 || g_propLeft != 0)
+    if (S().propRight != 0 || S().propLeft != 0)
     {
         auto& props = root["props"] = nlohmann::json::object();
         // 1 = the hand was emptied on purpose (the Photo Mode pose's own item removed)
         const auto text = [](uint64_t aRecord) { return aRecord == 1 ? std::string("empty") : std::to_string(aRecord); };
-        if (g_propRight != 0)
+        if (S().propRight != 0)
         {
-            props["right"] = text(g_propRight.load());
+            props["right"] = text(S().propRight.load());
         }
-        if (g_propLeft != 0)
+        if (S().propLeft != 0)
         {
-            props["left"] = text(g_propLeft.load());
+            props["left"] = text(S().propLeft.load());
         }
     }
 
@@ -593,9 +663,9 @@ bool Load(const std::string& aName)
     {
         std::scoped_lock lock(g_mutex);
         CheckpointLocked();
-        g_bones = std::move(loaded);
-        g_ik = loadedIk;
-        g_base = std::move(loadedBase);
+        S().bones = std::move(loaded);
+        S().ik = loadedIk;
+        S().base = std::move(loadedBase);
         PublishLocked();
         const auto prop = [&](const char* aKey) -> uint64_t
         {
@@ -613,10 +683,10 @@ bool Load(const std::string& aName)
                 return 0;
             }
         };
-        g_propRight = prop("right");
-        g_propLeft = prop("left");
+        S().propRight = prop("right");
+        S().propLeft = prop("left");
     }
-    g_enabled = true;
+    S().enabled = true;
     Log::Info("Pose loaded: %s (%zu edits, %zu base pose bones)", name.c_str(), Count(),
               GetSnapshot()->base ? GetSnapshot()->base->bones.size() : size_t(0));
     return true;
@@ -629,50 +699,50 @@ void SetFaceEdit(size_t aControl, float aValue)
         return;
     }
     std::scoped_lock lock(g_mutex);
-    g_faceEdits[aControl] = aValue;
+    S().faceEdits[aControl] = aValue;
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
 }
 
 float GetFaceEdit(size_t aControl)
 {
     std::scoped_lock lock(g_mutex);
-    return aControl < FaceControlCount ? g_faceEdits[aControl] : 0.f;
+    return aControl < FaceControlCount ? S().faceEdits[aControl] : 0.f;
 }
 
 void SetFaceBase(std::shared_ptr<const BasePose> aBase)
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    g_faceBase = std::move(aBase);
-    g_faceEdits = {};
+    S().faceBase = std::move(aBase);
+    S().faceEdits = {};
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
 }
 
 std::string GetFaceBaseName()
 {
     std::scoped_lock lock(g_mutex);
-    return g_faceBase ? g_faceBase->name : std::string();
+    return S().faceBase ? S().faceBase->name : std::string();
 }
 
 void ResetFace()
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    g_faceBase.reset();
-    g_faceEdits = {};
+    S().faceBase.reset();
+    S().faceEdits = {};
     PublishLocked();
 }
 
 void SetHandProp(bool aRightHand, uint64_t aRecord)
 {
-    (aRightHand ? g_propRight : g_propLeft) = aRecord;
+    (aRightHand ? S().propRight : S().propLeft) = aRecord;
 }
 
 uint64_t GetHandProp(bool aRightHand)
 {
-    return (aRightHand ? g_propRight : g_propLeft).load();
+    return (aRightHand ? S().propRight : S().propLeft).load();
 }
 
 void Checkpoint()
@@ -685,41 +755,41 @@ bool Undo()
 {
     std::scoped_lock lock(g_mutex);
     // Skip records equal to the current state (an edit that started but changed nothing).
-    while (!g_undo.empty() && SameAsCurrentLocked(g_undo.back()))
+    while (!S().undo.empty() && SameAsCurrentLocked(S().undo.back()))
     {
-        g_undo.pop_back();
+        S().undo.pop_back();
     }
-    if (g_undo.empty())
+    if (S().undo.empty())
     {
         return false;
     }
-    g_redo.push_back(CurrentStateLocked());
-    RestoreLocked(std::move(g_undo.back()));
-    g_undo.pop_back();
+    S().redo.push_back(CurrentStateLocked());
+    RestoreLocked(std::move(S().undo.back()));
+    S().undo.pop_back();
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
     return true;
 }
 
 bool Redo()
 {
     std::scoped_lock lock(g_mutex);
-    if (g_redo.empty())
+    if (S().redo.empty())
     {
         return false;
     }
-    g_undo.push_back(CurrentStateLocked());
-    RestoreLocked(std::move(g_redo.back()));
-    g_redo.pop_back();
+    S().undo.push_back(CurrentStateLocked());
+    RestoreLocked(std::move(S().redo.back()));
+    S().redo.pop_back();
     PublishLocked();
-    g_enabled = true;
+    S().enabled = true;
     return true;
 }
 
 bool CanUndo()
 {
     std::scoped_lock lock(g_mutex);
-    for (auto it = g_undo.rbegin(); it != g_undo.rend(); ++it)
+    for (auto it = S().undo.rbegin(); it != S().undo.rend(); ++it)
     {
         if (!SameAsCurrentLocked(*it))
         {
@@ -732,7 +802,7 @@ bool CanUndo()
 bool CanRedo()
 {
     std::scoped_lock lock(g_mutex);
-    return !g_redo.empty();
+    return !S().redo.empty();
 }
 
 bool SetNeutralPose(bool aArmsDown)
@@ -826,12 +896,12 @@ bool SetNeutralPose(bool aArmsDown)
         std::scoped_lock lock(g_mutex);
         CheckpointLocked();
         // Keep only the face edits (eyes): everything else starts from the neutral pose.
-        std::erase_if(g_bones, [](const BoneOverride& aBone) { return aBone.boneName.find("Eye") == std::string::npos; });
-        g_ik = {};
-        g_base = std::move(base);
+        std::erase_if(S().bones, [](const BoneOverride& aBone) { return aBone.boneName.find("Eye") == std::string::npos; });
+        S().ik = {};
+        S().base = std::move(base);
         PublishLocked();
     }
-    g_enabled = true;
+    S().enabled = true;
     Log::Info("Neutral pose: %s", aArmsDown ? "A" : "T");
     return true;
 }
@@ -839,7 +909,7 @@ bool SetNeutralPose(bool aArmsDown)
 std::string GetBasePoseName()
 {
     std::scoped_lock lock(g_mutex);
-    return g_base ? g_base->name : std::string();
+    return S().base ? S().base->name : std::string();
 }
 
 std::vector<std::string> ListSaved()

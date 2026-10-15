@@ -346,6 +346,16 @@ public class APM_PoseEditor extends IScriptable {
     private let m_locTipKeys: array<String>;
     private let m_locTipEnglish: array<String>;
     private let m_wasActive: Bool;
+    // Characters (0 = V, 1-3 = added human characters): the one the panel works on, and the items each one holds.
+    private let m_character: Int32;
+    private let m_characterName: ref<inkText>;
+    private let m_charShownRight: array<Uint64>;
+    private let m_charShownLeft: array<Uint64>;
+    private let m_charPoseItemRight: array<ItemID>;
+    private let m_charPoseItemLeft: array<ItemID>;
+    private let m_charHasPoseItemRight: array<Bool>;
+    private let m_charHasPoseItemLeft: array<Bool>;
+    private let m_charPuppets: array<wref<Entity>>;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -462,6 +472,9 @@ public class APM_PoseEditor extends IScriptable {
             this.Retranslate();
         }
         this.m_wasActive = active;
+        if active {
+            this.FollowSelectedCharacter();
+        }
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
@@ -542,6 +555,15 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, this.L("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
         this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
         this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
+        // Character selector: V and the characters added in the scene (shown only when there are some)
+        let charPrev = this.CreateButton(header, "char:prev", "<", 262.0, 46.0, 36.0, 32.0);
+        this.TipL(charPrev, "APM-Tip-CharacterPrev", "Previous character to pose");
+        let charName = this.CreateText(header, "V", 302.0, 46.0, 230.0, 32.0, 17, APM_ColorText());
+        charName.SetHorizontalAlignment(textHorizontalAlignment.Center);
+        charName.SetLetterCase(textLetterCase.OriginalCase);
+        this.m_characterName = charName;
+        let charNext = this.CreateButton(header, "char:next", ">", 536.0, 46.0, 36.0, 32.0);
+        this.TipL(charNext, "APM-Tip-CharacterNext", "Next character to pose");
         this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
@@ -2132,6 +2154,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_checkTimer = 0.0;
             this.m_hasPoseItemRight = false;
             this.m_hasPoseItemLeft = false;
+            this.ResetCharacterProps();
             return;
         }
         let right = APM_GetHandProp(true);
@@ -2148,7 +2171,7 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_poseItemDelay > 0.0 {
             this.m_poseItemDelay -= timeDelta;
         } else {
-            let puppet = APM_GizmoGetEntity() as GameObject;
+            let puppet = this.SelectedPuppet();
             if IsDefined(puppet) {
                 let changed = false;
                 if right == 0ul && this.ReadPoseItem(puppet, true) {
@@ -2172,7 +2195,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func CheckPlacedItem() {
-        let puppet = APM_GizmoGetEntity() as GameObject;
+        let puppet = this.SelectedPuppet();
         if !IsDefined(puppet) || APM_GetHandProp(this.m_checkRight) != this.m_checkRecord {
             return;
         }
@@ -2191,7 +2214,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func PlaceProp(right: Bool, record: Uint64) -> Bool {
-        let puppet = APM_GizmoGetEntity() as GameObject;
+        let puppet = this.SelectedPuppet();
         if !IsDefined(puppet) {
             return false;
         }
@@ -2561,6 +2584,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_posesTitle.SetText(APM_Text("APM-Title-Poses", "Poses") + " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
             + (StrLen(base) > 0 ? "  - " + base : ""));
         this.SetButton("autoik", this.m_autoIk, true);
+        this.RefreshCharacter();
         let limitsOn = this.FindButton("limits:on");
         let limitsOff = this.FindButton("limits:off");
         if IsDefined(limitsOn) && IsDefined(limitsOff) {
@@ -2712,8 +2736,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let player = this.m_controller.GetPlayerControlledObject();
-        let component = APM_GizmoGetComponent();
-        if !IsDefined(player) || !IsDefined(component) {
+        if !IsDefined(player) {
             return;
         }
         let camera = GameInstance.GetCameraSystem(player.GetGame());
@@ -2721,8 +2744,16 @@ public class APM_PoseEditor extends IScriptable {
         if !camera.GetActiveCameraWorldTransform(cameraTransform) {
             return;
         }
-        let toWorld = component.GetLocalToWorld();
-        APM_SetCameraModel(APM_WorldToModelPoint(toWorld, cameraTransform.position), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraForward()), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()));
+        // In the model space of every character (V and the added ones turn towards the camera each on its own).
+        let c = 0;
+        while c < 4 {
+            let component = APM_CharacterGetComponent(c);
+            if IsDefined(component) {
+                let toWorld = component.GetLocalToWorld();
+                APM_SetCameraModel(c, APM_WorldToModelPoint(toWorld, cameraTransform.position), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraForward()), APM_WorldToModelDirection(toWorld, camera.GetActiveCameraUp()));
+            }
+            c += 1;
+        }
     }
 
     private func UpdateMarkers() {
@@ -3555,6 +3586,10 @@ public class APM_PoseEditor extends IScriptable {
             this.SetOpen(true);
             return;
         }
+        if Equals(prefix, "char") {
+            this.StepCharacter(Equals(arg, "next") ? 1 : -1);
+            return;
+        }
         if Equals(StrBeforeFirst(id, ":"), "pick") {
             this.RunPickerButton(StrAfterFirst(id, ":"));
             return;
@@ -3739,6 +3774,153 @@ public class APM_PoseEditor extends IScriptable {
         this.m_confirmDelete = keepDeleteConfirm;
         APM_UiRequestRefresh(); // keeps the Photo Mode menu items in sync
         this.Refresh();
+    }
+
+    // --- Characters -----------------------------------------------------------------------------------------------
+
+    private func CharacterName(character: Int32) -> String {
+        if character == 0 {
+            return "V";
+        }
+        let puppet = APM_CharacterGetEntity(character) as GameObject;
+        let name = IsDefined(puppet) ? puppet.GetDisplayName() : "";
+        if StrLen(name) == 0 || StrBeginsWith(name, "LocKey") {
+            return APM_TextWith("APM-Label-Character", "Character {0}", IntToString(character));
+        }
+        return name;
+    }
+
+    private func HasAddedCharacters() -> Bool {
+        let c = 1;
+        while c < 4 {
+            if APM_CharacterIsPresent(c) {
+                return true;
+            }
+            c += 1;
+        }
+        return false;
+    }
+
+    // The selector: the selected character's name, shown only while characters are added in the scene.
+    private func RefreshCharacter() {
+        let show = this.HasAddedCharacters();
+        let prev = this.FindButton("char:prev");
+        let next = this.FindButton("char:next");
+        if IsDefined(prev) {
+            prev.root.SetVisible(show);
+        }
+        if IsDefined(next) {
+            next.root.SetVisible(show);
+        }
+        if IsDefined(this.m_characterName) {
+            this.m_characterName.SetVisible(show);
+            this.m_characterName.SetText(this.CharacterName(this.m_character));
+            this.m_characterName.SetTintColor(APM_CharacterHasEdits(this.m_character) ? APM_ColorAccent() : APM_ColorText());
+        }
+    }
+
+    // Next / previous character in the scene (V, then the added ones).
+    private func StepCharacter(direction: Int32) {
+        let c = this.m_character;
+        let i = 0;
+        while i < 4 {
+            c = (c + direction + 4) % 4;
+            if c == 0 || APM_CharacterIsPresent(c) {
+                this.SwitchCharacter(c);
+                return;
+            }
+            i += 1;
+        }
+    }
+
+    private func SwitchCharacter(character: Int32) {
+        if character == this.m_character {
+            return;
+        }
+        this.SaveCharacterProps(this.m_character);
+        APM_CharacterSelect(character);
+        this.m_character = APM_CharacterGetSelected();
+        this.LoadCharacterProps(this.m_character);
+        APM_UiRequestRefresh();
+        this.Refresh();
+    }
+
+    // The plugin went back to V (the selected character left the scene) or Photo Mode reopened.
+    private func FollowSelectedCharacter() {
+        let selected = APM_CharacterGetSelected();
+        if selected != this.m_character {
+            this.m_character = selected;
+            this.LoadCharacterProps(selected);
+            this.Refresh();
+            return;
+        }
+        // Another character took the selected one's slot: nothing is known about the items it holds.
+        this.EnsureCharacterArrays();
+        let puppet = APM_CharacterGetEntity(selected);
+        if IsDefined(puppet) && IsDefined(this.m_charPuppets[selected]) && this.m_charPuppets[selected] != puppet {
+            this.m_shownRight = 0ul;
+            this.m_shownLeft = 0ul;
+            this.m_hasPoseItemRight = false;
+            this.m_hasPoseItemLeft = false;
+            this.m_checkTimer = 0.0;
+            this.m_poseItemDelay = 0.5;
+        }
+        this.m_charPuppets[selected] = puppet;
+    }
+
+    private func EnsureCharacterArrays() {
+        if ArraySize(this.m_charShownRight) == 4 {
+            return;
+        }
+        ArrayResize(this.m_charShownRight, 4);
+        ArrayResize(this.m_charShownLeft, 4);
+        ArrayResize(this.m_charPoseItemRight, 4);
+        ArrayResize(this.m_charPoseItemLeft, 4);
+        ArrayResize(this.m_charHasPoseItemRight, 4);
+        ArrayResize(this.m_charHasPoseItemLeft, 4);
+        ArrayResize(this.m_charPuppets, 4);
+    }
+
+    private func SaveCharacterProps(character: Int32) {
+        this.EnsureCharacterArrays();
+        this.m_charShownRight[character] = this.m_shownRight;
+        this.m_charShownLeft[character] = this.m_shownLeft;
+        this.m_charPoseItemRight[character] = this.m_poseItemRight;
+        this.m_charPoseItemLeft[character] = this.m_poseItemLeft;
+        this.m_charHasPoseItemRight[character] = this.m_hasPoseItemRight;
+        this.m_charHasPoseItemLeft[character] = this.m_hasPoseItemLeft;
+        this.m_charPuppets[character] = APM_CharacterGetEntity(character);
+    }
+
+    // Items on the newly selected character; nothing known if another character took that slot meanwhile.
+    private func LoadCharacterProps(character: Int32) {
+        this.EnsureCharacterArrays();
+        let puppet = APM_CharacterGetEntity(character);
+        let same = IsDefined(puppet) && IsDefined(this.m_charPuppets[character]) && this.m_charPuppets[character] == puppet;
+        this.m_shownRight = same ? this.m_charShownRight[character] : 0ul;
+        this.m_shownLeft = same ? this.m_charShownLeft[character] : 0ul;
+        this.m_poseItemRight = this.m_charPoseItemRight[character];
+        this.m_poseItemLeft = this.m_charPoseItemLeft[character];
+        this.m_hasPoseItemRight = same && this.m_charHasPoseItemRight[character];
+        this.m_hasPoseItemLeft = same && this.m_charHasPoseItemLeft[character];
+        this.m_checkTimer = 0.0;
+        this.m_poseItemDelay = 0.5;
+    }
+
+    private func ResetCharacterProps() {
+        ArrayClear(this.m_charShownRight);
+        ArrayClear(this.m_charShownLeft);
+        ArrayClear(this.m_charPoseItemRight);
+        ArrayClear(this.m_charPoseItemLeft);
+        ArrayClear(this.m_charHasPoseItemRight);
+        ArrayClear(this.m_charHasPoseItemLeft);
+        ArrayClear(this.m_charPuppets);
+        this.m_character = 0;
+    }
+
+    // The puppet of the character the panel works on.
+    private func SelectedPuppet() -> ref<GameObject> {
+        return APM_CharacterGetEntity(this.m_character) as GameObject;
     }
 
     // --- Translated texts ---------------------------------------------------------------------------------------
@@ -4190,10 +4372,33 @@ protected cb func OnUninitialize() -> Bool {
 }
 
 // Same as hovering the game's own menu: the camera ignores the mouse while the cursor is over the panel.
+// The NPC page of Photo Mode switched to another added character: its look-at options belong to that one.
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnSetSetSelectedNpc(npcIndex: Int32) -> Bool {
+    APM_SetSelectedNpc(npcIndex);
+    return wrappedMethod(npcIndex);
+}
+
+// True when any character has edits, a loaded pose or items in hand: leaving Photo Mode then asks for confirmation,
+// as it does for the game's own options.
+public func APM_AnyCharacterHasEdits() -> Bool {
+    let c = 0;
+    while c < 4 {
+        if APM_CharacterHasEdits(c) {
+            return true;
+        }
+        c += 1;
+    }
+    return false;
+}
+
 // Leaving Photo Mode (without the confirmation, or once it is confirmed): the pose stops being applied before the game
 // tears Photo Mode down, as users did by resetting their edits before leaving (exits with edits crashed for some).
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnTryExitPhotomode() -> Bool {
+    if APM_AnyCharacterHasEdits() {
+        this.m_anyOptionChanged = true; // the game asks before leaving: the pose would be lost
+    }
     if !this.m_anyOptionChanged {
         APM_OnPhotoModeExit();
     }

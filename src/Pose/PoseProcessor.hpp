@@ -30,4 +30,7 @@ struct IkFrame
     Math::Quat body;             // see GetIkBodyRotation
 };
 bool GetIkFrame(size_t aChain, IkFrame& aOut);
+
+// A new character took that slot (Pose/Characters.hpp): its cached IK frames and look-at data are dropped.
+void ResetCharacter(uint32_t aCharacter);
 } // namespace APM::Pose::PoseProcessor

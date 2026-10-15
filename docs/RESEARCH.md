@@ -132,6 +132,15 @@ as the face rig's eyeballs).
 The `deformations` skeleton (181 bones, twist/muscle helpers) is never sampled through `animAnimNode_Output`, so
 the 0.4.1 twist-helper code never ran and was removed.
 
+## Posing the added characters (1.2.0)
+
+- Each scene slot (`+0x1D0`, `+0x1D8`, `+0x1E0`) points to a catalog entry; the puppet handle is at `+0x00` and the
+  type at `+0x5C` (4). The puppet loads asynchronously: its components appear some frames after the spawn.
+- A human character has a `root` skeleton of 71 bones like V; the plugin registers its components as targets with
+  character index 1-3 (slot + 1). Every character has its own pose state; a new puppet in a slot clears that state.
+- The NPC page options apply to the character selected in that page; the menu controller learns it through the
+  script callback `OnSetSetSelectedNpc(npcIndex)`.
+
 ## Photo Mode attributes read by the plugin
 
 Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); the plugin only reads them.
@@ -141,6 +150,9 @@ Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); th
 | 15 | Look at camera | 0 off, 1 camera, 2 custom |
 | 74 | Look at camera target | 0 torso, 1 head, 2 eyes |
 | 28 | Facial expression | index in the menu list; 0-14 base game, mods append after |
+| 58 | Look at camera of the selected added character | as 15 |
+| 78 | Look at camera target of the selected added character | as 74 |
+| 79-81 | Custom look-at values of the selected added character (V: 75-77) | |
 
 ## Eyelids follow the eyes (1.1.0)
 

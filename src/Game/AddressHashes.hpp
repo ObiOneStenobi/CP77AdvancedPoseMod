@@ -21,4 +21,5 @@ constexpr uintptr_t CharacterList = 0x180; // DynArray<PhotoModeCharacter> (NPCs
 constexpr uintptr_t CharacterSize = 0x190; // sizeof(PhotoModeCharacter)
 constexpr uintptr_t CharacterPuppet = 0x00; // Handle<gamePuppet>
 constexpr uintptr_t CharacterType = 0x5C;   // 1 = PlayerFemale, 2 = PlayerMale, 4 = NPC
+constexpr uintptr_t SceneSlots = 0x1D0;     // 3 pointers to the catalog entries of the characters added in the scene
 } // namespace APM::PhotoModeLayout

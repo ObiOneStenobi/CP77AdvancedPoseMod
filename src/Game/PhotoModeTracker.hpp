@@ -15,6 +15,9 @@ bool IsActive();
 // before the game starts tearing Photo Mode down (Deactivate comes later).
 void OnExitRequested();
 
+// Puppet of a character (0 = V, 1-3 = added human characters), 0 if that character is not in the scene.
+uint64_t GetCharacterPuppet(uint32_t aCharacter);
+
 // Incremented every time Photo Mode opens; lets other modules reset per-session state.
 uint32_t GetSessionId();
 } // namespace APM::PhotoModeTracker
