@@ -15,8 +15,8 @@ namespace APM::Pose::LookAtCamera
 // Per character (Pose/Characters.hpp): 0 = V, 1-3 = the added characters.
 inline std::array<std::atomic<int32_t>, 4> g_mode{};   // V: attribute 15, added characters: 58
 inline std::array<std::atomic<int32_t>, 4> g_target{}; // V: attribute 74, added characters: 78
-// The added character the Photo Mode NPC page works on (gameuiPhotoModeMenuController.OnSetSetSelectedNpc): its
-// attributes 58 / 78 belong to that character.
+// The added character the Photo Mode NPC page works on (attribute 68, its character selector): attributes 58 / 78
+// belong to that character.
 inline std::atomic<int32_t> g_selectedNpc{0};
 
 inline void Reset()
@@ -29,14 +29,14 @@ inline void Reset()
     g_selectedNpc = 0;
 }
 
-inline void SetSelectedNpc(int32_t aIndex)
-{
-    g_selectedNpc = aIndex;
-}
-
 inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
 {
     const int32_t value = static_cast<int32_t>(aValue + 0.5f);
+    if (aAttribute == 68)
+    {
+        g_selectedNpc = value; // the page then sends 58 / 78 of that character
+        return;
+    }
     const int32_t npc = g_selectedNpc;
     if ((aAttribute == 58 || aAttribute == 78) && (npc < 0 || npc >= 3))
     {
@@ -55,7 +55,7 @@ inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
 
 inline bool IsLookAtAttribute(uint32_t aAttribute)
 {
-    return aAttribute == 15 || aAttribute == 74 || aAttribute == 58 || aAttribute == 78;
+    return aAttribute == 15 || aAttribute == 74 || aAttribute == 58 || aAttribute == 78 || aAttribute == 68;
 }
 
 // 0 nothing, 1 eyes, 2 head and eyes, 3 torso, head and eyes.

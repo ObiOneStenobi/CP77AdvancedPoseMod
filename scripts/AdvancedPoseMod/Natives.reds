@@ -16,7 +16,6 @@ public native func APM_CharacterHasEdits(character: Int32) -> Bool
 // Main skeleton component of a character (its local-to-world is that character's model space).
 public native func APM_CharacterGetComponent(character: Int32) -> ref<IPlacedComponent>
 // The Photo Mode NPC page switched to another added character.
-public native func APM_SetSelectedNpc(index: Int32) -> Void
 public native func APM_GetBoneCount() -> Int32
 public native func APM_GetBoneName(index: Int32) -> CName
 

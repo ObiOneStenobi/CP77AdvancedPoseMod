@@ -1,5 +1,6 @@
 #include "Pose/TargetRegistry.hpp"
 #include "Pose/Characters.hpp"
+#include "Pose/PoseProcessor.hpp"
 
 #include <RED4ext/CName.hpp>
 
@@ -239,7 +240,8 @@ bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
         {
             return false;
         }
-        aOut = Math::Normalize(Math::Rotate(Math::Conjugate(target.refRotationsMS[index]), Math::Vec3{0.f, 1.f, 0.f}));
+        aOut = Math::Normalize(
+            Math::Rotate(Math::Conjugate(target.refRotationsMS[index]), PoseProcessor::ReferenceFaceForward(target)));
         return true;
     }
     return false;

@@ -556,13 +556,21 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
         this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
         // Character selector: V and the characters added in the scene (shown only when there are some)
-        let charPrev = this.CreateButton(header, "char:prev", "<", 262.0, 46.0, 36.0, 32.0);
+        let charPrev = this.CreateButton(header, "char:prev", "<", 252.0, 46.0, 44.0, 32.0);
         this.TipL(charPrev, "APM-Tip-CharacterPrev", "Previous character to pose");
-        let charName = this.CreateText(header, "V", 302.0, 46.0, 230.0, 32.0, 17, APM_ColorText());
+        // The name fills a fixed box, so it stays centred between the arrows whatever its length.
+        let charNameBox = new inkCanvas();
+        charNameBox.SetAnchor(inkEAnchor.TopLeft);
+        charNameBox.SetMargin(300.0 * APM_UiScale(), 46.0 * APM_UiScale(), 0.0, 0.0);
+        charNameBox.SetSize(224.0 * APM_UiScale(), 32.0 * APM_UiScale());
+        charNameBox.Reparent(header);
+        let charName = this.CreateText(charNameBox, "V", 0.0, 0.0, 224.0, 32.0, 17, APM_ColorText());
+        charName.SetAnchor(inkEAnchor.Fill);
+        charName.SetMargin(0.0, 0.0, 0.0, 0.0);
         charName.SetHorizontalAlignment(textHorizontalAlignment.Center);
         charName.SetLetterCase(textLetterCase.OriginalCase);
         this.m_characterName = charName;
-        let charNext = this.CreateButton(header, "char:next", ">", 536.0, 46.0, 36.0, 32.0);
+        let charNext = this.CreateButton(header, "char:next", ">", 528.0, 46.0, 44.0, 32.0);
         this.TipL(charNext, "APM-Tip-CharacterNext", "Next character to pose");
         this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
 
@@ -4373,12 +4381,6 @@ protected cb func OnUninitialize() -> Bool {
 
 // Same as hovering the game's own menu: the camera ignores the mouse while the cursor is over the panel.
 // The NPC page of Photo Mode switched to another added character: its look-at options belong to that one.
-@wrapMethod(gameuiPhotoModeMenuController)
-protected cb func OnSetSetSelectedNpc(npcIndex: Int32) -> Bool {
-    APM_SetSelectedNpc(npcIndex);
-    return wrappedMethod(npcIndex);
-}
-
 // True when any character has edits, a loaded pose or items in hand: leaving Photo Mode then asks for confirmation,
 // as it does for the game's own options.
 public func APM_AnyCharacterHasEdits() -> Bool {

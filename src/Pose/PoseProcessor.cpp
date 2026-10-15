@@ -746,6 +746,11 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
 
 namespace APM::Pose::PoseProcessor
 {
+Math::Vec3 ReferenceFaceForward(const Target& aTarget)
+{
+    return FaceForward(aTarget);
+}
+
 void ResetCharacter(uint32_t aCharacter)
 {
     if (aCharacter >= CharacterCount)

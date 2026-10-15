@@ -138,15 +138,6 @@ void CharacterHasEdits(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 }
 
 // The Photo Mode NPC page switched to another added character (its look-at options belong to that one).
-void SetSelectedNpc(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
-{
-    int32_t index = 0;
-    RED4ext::GetParameter(aFrame, &index);
-    aFrame->code++;
-    APM::Pose::LookAtCamera::SetSelectedNpc(index);
-    APM::Log::Verbose("Photo Mode NPC page: character index %d", index);
-}
-
 void OnPhotoModeExit(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -1324,7 +1315,6 @@ void Register()
     ::Register("APM_CharacterSelect", &CharacterSelect, nullptr, {{"Int32", "character"}});
     ::Register("APM_CharacterGetEntity", &CharacterGetEntity, "handle:entEntity", {{"Int32", "character"}});
     ::Register("APM_CharacterHasEdits", &CharacterHasEdits, "Bool", {{"Int32", "character"}});
-    ::Register("APM_SetSelectedNpc", &SetSelectedNpc, nullptr, {{"Int32", "index"}});
     ::Register("APM_GetBoneCount", &GetBoneCount, "Int32", {});
     ::Register("APM_GetBoneName", &GetBoneName, "CName", {{"Int32", "index"}});
 

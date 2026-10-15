@@ -138,8 +138,11 @@ the 0.4.1 twist-helper code never ran and was removed.
   type at `+0x5C` (4). The puppet loads asynchronously: its components appear some frames after the spawn.
 - A human character has a `root` skeleton of 71 bones like V; the plugin registers its components as targets with
   character index 1-3 (slot + 1). Every character has its own pose state; a new puppet in a slot clears that state.
-- The NPC page options apply to the character selected in that page; the menu controller learns it through the
-  script callback `OnSetSetSelectedNpc(npcIndex)`.
+- The NPC page options apply to the character selected in that page. Its selector is attribute 68 (0-2, the scene
+  slot); after a change the page sends the options of that character again (56-66, 78-82). The script callback
+  `OnSetSetSelectedNpc` is not called when the selector changes.
+- An added character's body graph samples 72 transforms for its 71-bone rig (V's: 71): the rig's bones come first,
+  in rig order, and one extra transform follows. The pose header keeps the rig's bone count at `+0x00`.
 
 ## Photo Mode attributes read by the plugin
 
@@ -152,6 +155,7 @@ Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); th
 | 28 | Facial expression | index in the menu list; 0-14 base game, mods append after |
 | 58 | Look at camera of the selected added character | as 15 |
 | 78 | Look at camera target of the selected added character | as 74 |
+| 68 | Character selected in the NPC page (0-2 = scene slot) | index |
 | 79-81 | Custom look-at values of the selected added character (V: 75-77) | |
 
 ## Eyelids follow the eyes (1.1.0)

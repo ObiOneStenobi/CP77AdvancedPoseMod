@@ -84,7 +84,7 @@ bool HasBoneCount(uint32_t aCount);
 // Returns false if the main skeleton is not available or the bone is unknown.
 bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist);
 
-// Direction, in the bone's local space, that points forward (model +Y) in the skeleton's reference pose.
+// Direction, in the bone's local space, that points where the face looks in the skeleton's reference pose.
 // Used for the eyes' gaze. Returns false if the main skeleton is not available or the bone is unknown.
 bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut);
 

@@ -31,6 +31,10 @@ struct IkFrame
 };
 bool GetIkFrame(size_t aChain, IkFrame& aOut);
 
+// Which way the face looks in the reference pose of a main skeleton (model space, level): from the head towards the
+// eyes. Rigs differ in how their bones are oriented, so this is taken from the geometry, not from a fixed axis.
+Math::Vec3 ReferenceFaceForward(const Target& aTarget);
+
 // A new character took that slot (Pose/Characters.hpp): its cached IK frames and look-at data are dropped.
 void ResetCharacter(uint32_t aCharacter);
 } // namespace APM::Pose::PoseProcessor
