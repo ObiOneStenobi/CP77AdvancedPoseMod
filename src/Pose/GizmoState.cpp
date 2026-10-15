@@ -333,6 +333,10 @@ bool CaptureLocalPose(std::vector<CapturedBone>& aOut)
     }
     const uint64_t head = RED4ext::CName("Head").hash;
     const uint64_t hips = RED4ext::CName("Hips").hash;
+    // Bones whose position can be edited (the hips, the points held props hang from): their position is part of
+    // the pose, the other bones keep the rig's lengths.
+    const uint64_t weaponLeft = RED4ext::CName("WeaponLeft").hash;
+    const uint64_t weaponRight = RED4ext::CName("WeaponRight").hash;
 
     // Bones below the head (face, eyes) stay out of the pose.
     std::vector<bool> inFace(count, false);
@@ -360,7 +364,7 @@ bool CaptureLocalPose(std::vector<CapturedBone>& aOut)
             bone.rotation = Math::Normalize(Math::Mul(parentInverse, skeleton.rotations[i]));
             bone.translation = Math::Rotate(parentInverse, skeleton.positions[i] - skeleton.positions[parent]);
             bone.inBase = !inFace[i] && !bone.name.empty() && bone.name != "None";
-            bone.keepTranslation = bone.hash == hips;
+            bone.keepTranslation = bone.hash == hips || bone.hash == weaponLeft || bone.hash == weaponRight;
         }
         else
         {

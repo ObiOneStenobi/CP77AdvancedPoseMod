@@ -48,6 +48,18 @@ inline int32_t Reach()
     return target == 2 ? 1 : (target == 1 ? 2 : 3);
 }
 
+// Photo Mode turns the bones towards the camera itself ("camera"); with "custom" it turns them towards a point the
+// user places, which the plugin does not know: those bones are then left as the game animates them.
+inline bool AimsAtCamera()
+{
+    return g_mode == 1;
+}
+
+inline bool IsCustom()
+{
+    return g_mode == 2;
+}
+
 // The active camera in V's model space, sent by the editor every frame (used to turn a full base pose towards it).
 struct CameraView
 {

@@ -311,6 +311,24 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 // ---------------------------------------------------------------------------------------------------------------------
 // Main skeleton: FK + IK
 // ---------------------------------------------------------------------------------------------------------------------
+// Photo Mode's "Look at camera" set to "custom" turns these bones towards a point the plugin does not know: a full
+// saved pose leaves them as the game animates them (with "camera" the plugin turns them itself, see KeepLookAt).
+bool IsCustomLookAtBone(uint64_t aHash)
+{
+    if (!APM::Pose::LookAtCamera::IsCustom())
+    {
+        return false;
+    }
+    static const uint64_t torso[] = {Hash("Spine"), Hash("Spine1"), Hash("Spine2"), Hash("Spine3")};
+    static const uint64_t head[] = {Hash("Neck"), Hash("Neck1"), Hash("Head")};
+    const int32_t reach = APM::Pose::LookAtCamera::Reach();
+    if (reach >= 2 && std::find(std::begin(head), std::end(head), aHash) != std::end(head))
+    {
+        return true;
+    }
+    return reach >= 3 && std::find(std::begin(torso), std::end(torso), aHash) != std::end(torso);
+}
+
 // Full saved pose: replaces the animated local rotations (and the hips' position) of the bones it has.
 void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                    const APM::Pose::BasePose& aBase)
@@ -325,7 +343,7 @@ void ApplyBasePose(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBone
     for (const auto& bone : aBase.bones)
     {
         const auto it = indices.find(bone.boneHash);
-        if (it == indices.end() || IsLookAtBone(bone.boneHash))
+        if (it == indices.end() || IsLookAtBone(bone.boneHash) || IsCustomLookAtBone(bone.boneHash))
         {
             continue;
         }
@@ -379,7 +397,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
 {
     const auto camera = APM::Pose::LookAtCamera::GetCamera();
     const int32_t head = IndexOf(aTarget, Hash("Head"));
-    if (APM::Pose::LookAtCamera::Reach() < 2 || !camera.valid || head < 0 || static_cast<uint32_t>(head) >= aCount ||
+    if (APM::Pose::LookAtCamera::Reach() < 2 || !APM::Pose::LookAtCamera::AimsAtCamera() || !camera.valid || head < 0 ||
+        static_cast<uint32_t>(head) >= aCount ||
         static_cast<size_t>(head) >= aTarget.refRotationsMS.size())
     {
         std::scoped_lock lock(g_cameraEyeMutex);
@@ -441,7 +460,7 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
     std::array<Quat, 2> locals{};
     {
         std::scoped_lock lock(g_cameraEyeMutex);
-        if (!g_cameraEyesValid || APM::Pose::LookAtCamera::Reach() < 2)
+        if (!g_cameraEyesValid || APM::Pose::LookAtCamera::Reach() < 2 || !APM::Pose::LookAtCamera::AimsAtCamera())
         {
             return;
         }
@@ -470,9 +489,9 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
 {
     const int32_t reach = APM::Pose::LookAtCamera::Reach();
     const auto camera = APM::Pose::LookAtCamera::GetCamera();
-    if (reach < 2 || !camera.valid)
+    if (reach < 2 || !camera.valid || !APM::Pose::LookAtCamera::AimsAtCamera())
     {
-        return;
+        return; // "custom": the game's own turn stays (the base pose leaves those bones alone)
     }
     struct Share
     {

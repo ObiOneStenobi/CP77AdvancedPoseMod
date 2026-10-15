@@ -40,7 +40,7 @@ struct CapturedBone
     Math::Quat rotation{};
     Math::Vec3 translation{};
     bool inBase = false;          // body bone stored as part of the pose (not the root, not the face)
-    bool keepTranslation = false; // the hips: their position is part of the pose
+    bool keepTranslation = false; // hips and prop points: their position is part of the pose
 };
 bool CaptureLocalPose(std::vector<CapturedBone>& aOut);
 

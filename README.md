@@ -127,7 +127,8 @@ closer.
   With Torso or Head the eyes also follow the camera (up to 30 degrees from where the face looks), also when the
   head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;
-  the back and chest with Torso) are grey and cannot be edited.
+  the back and chest with Torso) are grey and cannot be edited. With **Custom** the game turns them towards its own
+  point: they keep the game's turn (a loaded full pose leaves them alone too).
 - **Eyelids follow the eyes**: when the eyes are turned (eye markers or Look at camera), the eyelids move as the game
   moves them for its own gaze (the upper lid lowers when looking down), by the share the current Photo Mode expression
   allows: expressions that hold the eyelids (squint, wide eyes, wink, closed eyes) keep them almost still. Expressions
@@ -142,7 +143,7 @@ closer.
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
   "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
-  or rotate the item with the green hand prop marker. Items are saved with the pose; **Reset all** keeps them.
+  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset all** keeps them.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).

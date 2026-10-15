@@ -334,8 +334,11 @@ public class APM_PoseEditor extends IScriptable {
     private let m_waitPanel: Bool;
     private let m_waitRoot: Bool;
     private let m_ownsHover: Bool; // the camera ignores the mouse because of one of our widgets
-    private let m_traceLeft: Bool;  // diagnostics: last logged button states
-    private let m_traceRight: Bool;
+    // Photo Mode frame (aspect ratio): the black bars' width / height, so the panel stays inside the visible frame.
+    private let m_frameX: Float;
+    private let m_frameY: Float;
+    private let m_aspectRate: Float;
+    private let m_blackBars: Bool;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -411,6 +414,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_openButton = this.CreateButton(layer, "open", "Pose editor", 0.0, 0.0, 160.0, 32.0);
         this.BuildPanel();
         this.SetOpen(false);
+        this.m_blackBars = true;
         this.ApplyDock();
         this.ApplyOpacity();
 
@@ -1409,7 +1413,7 @@ public class APM_PoseEditor extends IScriptable {
                 this.FinishRename(true);
             }
             this.m_panelHovered = false;
-            this.SetHover(false, "SetOpen");
+            this.SetHover(false);
             if this.m_pickerOpen {
                 this.ClosePicker();
             }
@@ -1425,19 +1429,49 @@ public class APM_PoseEditor extends IScriptable {
     // The panel sits on the left (the Photo Mode menu is on the right); the item list and the help open beside it.
     private func ApplyDock() {
         let s = APM_UiScale();
+        let x = this.m_blackBars ? this.m_frameX : 0.0;
+        let y = this.m_blackBars ? this.m_frameY : 0.0;
         this.m_panel.SetAnchor(inkEAnchor.TopLeft);
         this.m_panel.SetAnchorPoint(0.0, 0.0);
-        this.m_panel.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
+        this.m_panel.SetMargin(x + 24.0 * s, y + 60.0 * s, 0.0, 0.0);
         this.m_openButton.root.SetAnchor(inkEAnchor.TopLeft);
         this.m_openButton.root.SetAnchorPoint(0.0, 0.0);
-        this.m_openButton.root.SetMargin(24.0 * s, 60.0 * s, 0.0, 0.0);
+        this.m_openButton.root.SetMargin(x + 24.0 * s, y + 60.0 * s, 0.0, 0.0);
         this.m_picker.SetAnchor(inkEAnchor.TopLeft);
         this.m_picker.SetAnchorPoint(0.0, 0.0);
-        this.m_picker.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
+        this.m_picker.SetMargin(x + (24.0 + APM_PanelWidth() + 8.0) * s, y + 60.0 * s, 0.0, 0.0);
         this.m_help.SetAnchor(inkEAnchor.TopLeft);
         this.m_help.SetAnchorPoint(0.0, 0.0);
-        this.m_help.SetMargin((24.0 + APM_PanelWidth() + 8.0) * s, 60.0 * s, 0.0, 0.0);
+        this.m_help.SetMargin(x + (24.0 + APM_PanelWidth() + 8.0) * s, y + 60.0 * s, 0.0, 0.0);
     }
+
+    // Photo Mode changed the frame (aspect ratio) or turned its black bars on / off: the panel moves inside the
+    // visible frame (same sizes as gameuiPhotoModeMenuController.OnChangeAspectRatioRate) and is drawn above the bars.
+    public func OnFrameChanged(aspectRate: Float, blackBars: Bool) {
+        this.m_aspectRate = aspectRate;
+        this.m_blackBars = blackBars;
+        let root = this.m_controller.GetRootCompoundWidget();
+        if !IsDefined(root) || !IsDefined(this.m_panel) {
+            return;
+        }
+        this.m_frameX = 0.0;
+        this.m_frameY = 0.0;
+        let screen = root.GetSize();
+        if aspectRate > 0.0 && screen.X > 1.0 && screen.Y > 1.0 {
+            if screen.X / screen.Y < aspectRate {
+                this.m_frameY = MaxF((screen.Y - screen.X / aspectRate) / 2.0, 0.0);
+            } else {
+                this.m_frameX = MaxF((screen.X - screen.Y * aspectRate) / 2.0, 0.0);
+            }
+        }
+        this.ApplyDock();
+        root.ReorderChild(this.m_layer, root.GetNumChildren() - 1);
+    }
+
+    public func GetAspectRate() -> Float {
+        return this.m_aspectRate;
+    }
+
 
     // Panel transparency: background 85/60/35/15 %, controls slightly faded at the lowest steps.
     private func ApplyOpacity() {
@@ -1466,12 +1500,9 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Only a hover we took is released: leaving one of our widgets must not take the hover from the game's menu.
-    private func SetHover(hover: Bool, reason: String) {
+    private func SetHover(hover: Bool) {
         if !hover && !this.m_ownsHover {
             return;
-        }
-        if NotEquals(hover, this.m_ownsHover) {
-            APM_LogInfo("Hover: " + (hover ? "take" : "release") + " by " + reason + APM_MouseState());
         }
         this.m_ownsHover = hover;
         if IsDefined(this.m_controller) {
@@ -2303,14 +2334,12 @@ public class APM_PoseEditor extends IScriptable {
         }
         APM_UiSetValue(7701u, Cast<Float>(part));
         if !APM_UiIsPartEdited(part) {
-            this.SetStatus(label + " has no edits");
             APM_UiRequestRefresh();
             this.Refresh();
             return;
         }
         APM_HistoryCheckpoint();
         APM_UiSetValue(7721u, 1.0);
-        this.SetStatus(label + " reset");
         APM_UiRequestRefresh();
         this.Refresh();
     }
@@ -3745,19 +3774,7 @@ public class APM_PoseEditor extends IScriptable {
         return IsDefined(this.m_waitMarker) || IsDefined(this.m_waitButton) || this.m_waitPanel || this.m_waitRoot;
     }
 
-    // Diagnostics (written only with [Debug] Log=1): button presses / releases, to compare with the hover lines.
-    private func TraceButtons() {
-        let left = APM_IsLeftMouseDown();
-        let right = APM_IsRightMouseDown();
-        if NotEquals(left, this.m_traceLeft) || NotEquals(right, this.m_traceRight) {
-            this.m_traceLeft = left;
-            this.m_traceRight = right;
-            APM_LogInfo("Mouse:" + APM_MouseState() + " ownHover=" + ToString(this.m_ownsHover));
-        }
-    }
-
     private func UpdateWaitingHover() {
-        this.TraceButtons();
         if this.IsUiHidden() && !IsDefined(this.m_dragMarker) && !IsDefined(this.m_dragRow) {
             // The UI was hidden under the cursor: give the mouse back to the camera until it is shown again.
             this.ParkHovers();
@@ -3787,7 +3804,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_rootHovered = true;
             this.m_waitRoot = false;
         }
-        this.SetHover(true, "UpdateWaitingHover");
+        this.SetHover(true);
     }
 
     // Moves the active hovers to the waiting ones and releases the mouse.
@@ -3824,7 +3841,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         if any {
             this.m_tipButton = null;
-            this.SetHover(false, "ParkHovers");
+            this.SetHover(false);
         }
     }
 
@@ -3836,14 +3853,14 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         this.m_panelHovered = true;
-        this.SetHover(true, "OnPanelHoverOver");
+        this.SetHover(true);
     }
 
     protected cb func OnPanelHoverOut(e: ref<inkPointerEvent>) -> Bool {
         this.m_waitPanel = false;
         this.m_panelHovered = false;
         if !IsDefined(this.m_dragRow) && !IsDefined(this.m_dragMarker) {
-            this.SetHover(false, "OnPanelHoverOut");
+            this.SetHover(false);
         }
     }
 
@@ -3861,7 +3878,7 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_tipTimer = 0.0;
             }
         }
-        this.SetHover(true, "OnButtonHoverOver");
+        this.SetHover(true);
     }
 
     protected cb func OnButtonHoverOut(e: ref<inkPointerEvent>) -> Bool {
@@ -3879,7 +3896,7 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
             if Equals(button.id, "open") {
-                this.SetHover(false, "OnButtonHoverOut"); // the open button lives outside the panel
+                this.SetHover(false); // the open button lives outside the panel
             }
         }
     }
@@ -3898,7 +3915,7 @@ public class APM_PoseEditor extends IScriptable {
                 APM_HistoryCheckpoint();
                 this.m_dragRow = row;
                 this.m_dragValue = APM_UiGetValue(row.attribute);
-                this.SetHover(true, "OnButtonPress");
+                this.SetHover(true);
             }
         }
     }
@@ -3929,14 +3946,14 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         this.m_rootHovered = true;
-        this.SetHover(true, "OnRootHoverOver");
+        this.SetHover(true);
     }
 
     protected cb func OnRootHoverOut(e: ref<inkPointerEvent>) -> Bool {
         this.m_waitRoot = false;
         this.m_rootHovered = false;
         if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
-            this.SetHover(false, "OnRootHoverOut");
+            this.SetHover(false);
         }
     }
 
@@ -3949,7 +3966,7 @@ public class APM_PoseEditor extends IScriptable {
         if IsDefined(marker) {
             marker.isHovered = true;
         }
-        this.SetHover(true, "OnMarkerHoverOver");
+        this.SetHover(true);
     }
 
     protected cb func OnMarkerHoverOut(e: ref<inkPointerEvent>) -> Bool {
@@ -3961,7 +3978,7 @@ public class APM_PoseEditor extends IScriptable {
             marker.isHovered = false;
         }
         if !IsDefined(this.m_dragMarker) && !this.m_panelHovered {
-            this.SetHover(false, "OnMarkerHoverOut");
+            this.SetHover(false);
         }
     }
 
@@ -3991,7 +4008,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         APM_HistoryCheckpoint();
         this.BeginMarkerDrag(marker, e.IsShiftDown(), e.IsControlDown());
-        this.SetHover(true, "OnMarkerPress");
+        this.SetHover(true);
         APM_UiRequestRefresh();
         this.Refresh();
     }
@@ -4063,7 +4080,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_dragMode = 0;
             APM_SetWheelCapture(false);
             if !this.m_panelHovered {
-                this.SetHover(false, "OnGlobalRelease");
+                this.SetHover(false);
             }
             APM_UiRequestRefresh();
             this.Refresh();
@@ -4094,6 +4111,34 @@ protected cb func OnUninitialize() -> Bool {
 }
 
 // Same as hovering the game's own menu: the camera ignores the mouse while the cursor is over the panel.
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnChangeAspectRatioRate(aspectRatioRate: Float) -> Bool {
+    let result = wrappedMethod(aspectRatioRate);
+    if IsDefined(this.m_apmPoseEditor) {
+        this.m_apmPoseEditor.OnFrameChanged(aspectRatioRate, this.APM_BlackBarsOn());
+    }
+    return result;
+}
+
+// Photo Mode's black bars: on unless the game turns them off.
+@addField(gameuiPhotoModeMenuController)
+private let m_apmBlackBarsOff: Bool;
+
+@addMethod(gameuiPhotoModeMenuController)
+private final func APM_BlackBarsOn() -> Bool {
+    return !this.m_apmBlackBarsOff;
+}
+
+@wrapMethod(gameuiPhotoModeMenuController)
+protected cb func OnSetBlackBars(enabled: Bool) -> Bool {
+    let result = wrappedMethod(enabled);
+    this.m_apmBlackBarsOff = !enabled;
+    if IsDefined(this.m_apmPoseEditor) {
+        this.m_apmPoseEditor.OnFrameChanged(this.m_apmPoseEditor.GetAspectRate(), enabled);
+    }
+    return result;
+}
+
 @addMethod(gameuiPhotoModeMenuController)
 public final func APM_SetHover(hover: Bool) {
     if Equals(hover, this.m_IsHoverOver) {
@@ -4112,31 +4157,23 @@ private let m_apmMenuHoverWaiting: Bool;
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnMenuHovered(e: ref<inkPointerEvent>) -> Bool {
     if APM_IsLeftMouseDown() || APM_IsRightMouseDown() {
-        APM_LogInfo("Hover: game menu waits" + APM_MouseState());
         this.m_apmMenuHoverWaiting = true;
         return false;
     }
-    APM_LogInfo("Hover: game menu takes" + APM_MouseState());
     return wrappedMethod(e);
 }
 
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnMenuHoverOut(e: ref<inkPointerEvent>) -> Bool {
-    APM_LogInfo("Hover: game menu releases" + APM_MouseState());
     this.m_apmMenuHoverWaiting = false;
     return wrappedMethod(e);
 }
 
-// Diagnostics (written only with [Debug] Log=1).
-public func APM_MouseState() -> String {
-    return " (left=" + ToString(APM_IsLeftMouseDown()) + " right=" + ToString(APM_IsRightMouseDown()) + ")";
-}
 
 @addMethod(gameuiPhotoModeMenuController)
 public final func APM_UpdatePoseEditor(timeDelta: Float) {
     if this.m_apmMenuHoverWaiting && !APM_IsLeftMouseDown() && !APM_IsRightMouseDown() {
         this.m_apmMenuHoverWaiting = false;
-        APM_LogInfo("Hover: game menu takes after release" + APM_MouseState());
         if !this.m_IsHoverOver {
             this.OnHoverStateChanged(true);
             this.SetCursorContext(n"Hover");
