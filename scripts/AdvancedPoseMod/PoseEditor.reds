@@ -4367,7 +4367,41 @@ public class APM_PoseEditor extends IScriptable {
     protected cb func OnGlobalPress(e: ref<inkPointerEvent>) -> Bool {
         this.m_shiftDown = e.IsShiftDown();
         this.m_controlDown = e.IsControlDown();
+        this.LogPressNearHips(e);
         return false;
+    }
+
+    // Debug log ([Debug] Log=1): a press on the hips marker that reached another widget (something drawn above it).
+    private func LogPressNearHips(e: ref<inkPointerEvent>) {
+        let hips: ref<APM_Marker>;
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            if this.m_markers[i].part == this.m_hipsPart {
+                hips = this.m_markers[i];
+            }
+            i += 1;
+        }
+        if !IsDefined(hips) || !hips.root.IsVisible() {
+            return;
+        }
+        let pointer = e.GetScreenSpacePosition();
+        let scaleX = this.m_cursorScaleX > 0.0 ? this.m_cursorScaleX : 2.0;
+        let scaleY = this.m_cursorScaleY > 0.0 ? this.m_cursorScaleY : 2.0;
+        let dx = pointer.X * scaleX - hips.screenX;
+        let dy = pointer.Y * scaleY - hips.screenY;
+        if dx * dx + dy * dy > 30.0 * 30.0 * APM_UiScale() * APM_UiScale() {
+            return;
+        }
+        let target = e.GetTarget();
+        let chain = "";
+        let depth = 0;
+        let w: wref<inkWidget> = target;
+        while IsDefined(w) && depth < 8 {
+            chain += (depth > 0 ? " < " : "") + NameToString(w.GetName()) + " (" + NameToString(w.GetClassName()) + ")";
+            w = w.GetParentWidget();
+            depth += 1;
+        }
+        APM_LogInfo("Press near the hips marker (" + FloatToStringPrec(dx, 1) + ", " + FloatToStringPrec(dy, 1) + " canvas units) reached: " + chain);
     }
 
     protected cb func OnGlobalRelative(e: ref<inkPointerEvent>) -> Bool {
