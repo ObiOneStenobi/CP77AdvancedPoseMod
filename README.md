@@ -78,9 +78,9 @@ Open Photo Mode and click **Pose editor** (top left).
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
   previous session are cleared. Save a pose to keep it. While there are edits, leaving Photo Mode asks for
   confirmation (as the game does for its own options).
-- **Characters**: when characters are added in the scene (Photo Mode NPC page), a selector `< name >` appears in the
-  header: the panel, the gizmos, undo / redo and the items in hand work on the character shown there. Every
-  character keeps its own pose; replacing a character in a slot starts it from the game's pose. Saved poses work on
+- **Characters**: when characters are added in the scene (Photo Mode NPC page), a row with the selector `< name >`
+  appears under the title (names come from the game's character records): the panel, the gizmos, undo / redo and the
+  items in hand work on the character shown there. Every character keeps its own pose; replacing a character in a slot starts it from the game's pose. Saved poses work on
   any of them (V and human characters share the same skeleton). Look at camera works for them as for V (Photo Mode
   NPC page). Only human characters can be posed (animals and objects have other skeletons). The NPC page's facial
   expressions work only on some characters (e.g. Wakako): that is the game, the same happens without this mod.
@@ -175,6 +175,10 @@ to `probe\`.
 Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.json`.
 
 ## Known limitations
+
+- With **Photo Mode UI Improvements**, Judy's body cannot be posed (that mod changes how her body is animated; she is
+  also shown offset without this mod). Other characters work with it.
+- Rogue (white hair): a piece of her jacket stays still in space. The game does it, also without this mod.
 
 - Characters added in Photo Mode can be posed when they are human (V's skeleton); animals and objects have unrelated
   skeletons and stay unsupported. Their eyelids follow edited eyes like the neutral expression.
