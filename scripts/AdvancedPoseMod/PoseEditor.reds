@@ -515,6 +515,9 @@ public class APM_PoseEditor extends IScriptable {
         } else if active {
             this.KeepLayerOnTop(false);
         }
+        if active {
+            this.KeepLayerVisible();
+        }
         this.m_wasActive = active;
         if active {
             this.FollowSelectedCharacter();
@@ -1559,6 +1562,21 @@ public class APM_PoseEditor extends IScriptable {
     // options_panel) above the black bars (aspectratio_panel, child 4): our layer as the last child was drawn below them.
     public func OnFrameChanged() {
         this.KeepLayerOnTop(false);
+    }
+
+    // The game hides the menu root's children while Photo Mode opens and shows them again; our layer must not stay
+    // hidden when the game's own menu (options_panel) is shown (a user lost the "Pose editor" button from the second
+    // session). It is never hidden by us: the UI is hidden for screenshots through the root's opacity.
+    private func KeepLayerVisible() {
+        if !IsDefined(this.m_layer) || this.m_layer.IsVisible() {
+            return;
+        }
+        let root = this.m_controller.GetRootCompoundWidget();
+        let menu = IsDefined(root) ? root.GetWidget(n"options_panel") : null;
+        if IsDefined(menu) && menu.IsVisible() {
+            this.m_layer.SetVisible(true);
+            APM_LogInfo("Pose editor layer was hidden while the Photo Mode menu is shown: shown again");
+        }
     }
 
     // The menu root draws its children backward (the first one on top). Other Photo Mode mods move their own layers
@@ -3902,9 +3920,15 @@ public class APM_PoseEditor extends IScriptable {
         if character == 0 {
             return "V";
         }
-        let puppet = APM_CharacterGetEntity(character) as GameObject;
-        let name = IsDefined(puppet) ? puppet.GetDisplayName() : "";
-        if StrLen(name) == 0 || StrBeginsWith(name, "LocKey") {
+        let puppet = APM_CharacterGetEntity(character) as gamePuppet;
+        let name = "";
+        if IsDefined(puppet) {
+            name = APM_RecordName(puppet.GetRecordID());
+            if StrLen(name) == 0 {
+                name = APM_ReadableName(puppet.GetDisplayName());
+            }
+        }
+        if StrLen(name) == 0 {
             return APM_TextWith("APM-Label-Character", "Character {0}", IntToString(character));
         }
         return name;
@@ -4593,4 +4617,93 @@ public final func APM_UpdatePoseEditor(timeDelta: Float) {
     if IsDefined(this.m_apmPoseEditor) {
         this.m_apmPoseEditor.Update(timeDelta);
     }
+}
+
+// --- Character names ------------------------------------------------------------------------------------------------
+
+// A text usable as a name: trimmed, with letters, not a localization key ("" otherwise).
+public func APM_ReadableName(text: String) -> String {
+    let name = text;
+    while StrLen(name) > 0 && Equals(StrLeft(name, 1), " ") {
+        name = StrMid(name, 1);
+    }
+    while StrLen(name) > 0 && Equals(StrRight(name, 1), " ") {
+        name = StrLeft(name, StrLen(name) - 1);
+    }
+    if StrLen(name) == 0 || StrBeginsWith(name, "LocKey") || Equals(StrUpper(name), StrLower(name)) {
+        return "";
+    }
+    return name;
+}
+
+// Localized text of a localization key ("" when it has none).
+public func APM_KeyText(key: CName) -> String {
+    if !IsNameValid(key) {
+        return "";
+    }
+    let text = GetLocalizedTextByKey(key);
+    if Equals(text, NameToString(key)) {
+        return "";
+    }
+    return APM_ReadableName(text);
+}
+
+// Name of a Photo Mode character from its TweakDB record: its display name (Photo Mode characters often inherit the
+// player's, "V": that one counts as none), else a name read from the record id. "" when none is found.
+public func APM_RecordName(id: TweakDBID) -> String {
+    let record = TweakDBInterface.GetCharacterRecord(id);
+    if IsDefined(record) {
+        let player = TweakDBInterface.GetCharacterRecord(t"Character.Player_Puppet_Base");
+        let playerName = IsDefined(player) ? player.DisplayName() : n"";
+        let display = record.DisplayName();
+        if !Equals(display, playerName) {
+            let name = APM_KeyText(display);
+            if StrLen(name) > 0 {
+                return name;
+            }
+        }
+        let full = record.FullDisplayName();
+        if !Equals(full, playerName) {
+            let name = APM_KeyText(full);
+            if StrLen(name) > 0 {
+                return name;
+            }
+        }
+    }
+    return APM_NameFromRecordId(TDBID.ToStringDEBUG(id));
+}
+
+// "Character.Judy_Photomode_Puppet" -> "Judy", "Character.aa_RiverWard_Puppet" -> "River Ward" ("" when the id is only
+// a hash, without debug names).
+public func APM_NameFromRecordId(id: String) -> String {
+    if !StrBeginsWith(id, "Character.") {
+        return "";
+    }
+    let name = StrAfterFirst(id, "Character.");
+    // Two-letter lower case sort prefix of some character packs ("aa_", "ab_", ...).
+    if StrLen(name) > 3 && Equals(StrMid(name, 2, 1), "_") && Equals(StrMid(name, 0, 2), StrLower(StrMid(name, 0, 2))) {
+        name = StrMid(name, 3);
+    }
+    let suffixes: array<String> = ["_pmne", "_Photomode", "_photomode", "_PhotoMode", "_Puppet", "_puppet"];
+    for suffix in suffixes {
+        if StrContains(name, suffix) {
+            name = StrBeforeFirst(name, suffix);
+        }
+    }
+    name = StrReplaceAll(name, "_", " ");
+    // Words written together get a space: "RiverWard" -> "River Ward".
+    let result = "";
+    let i = 0;
+    while i < StrLen(name) {
+        let c = StrMid(name, i, 1);
+        if i > 0 {
+            let previous = StrMid(name, i - 1, 1);
+            if NotEquals(c, StrLower(c)) && NotEquals(previous, StrUpper(previous)) {
+                result += " ";
+            }
+        }
+        result += c;
+        i += 1;
+    }
+    return APM_ReadableName(result);
 }
