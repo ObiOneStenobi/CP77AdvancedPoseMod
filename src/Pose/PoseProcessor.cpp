@@ -20,6 +20,7 @@
 #include <iterator>
 #include <mutex>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace
@@ -140,6 +141,129 @@ bool IsEyeBone(uint64_t aHash)
     return aHash == left || aHash == right;
 }
 
+// Body eyes (LeftEye / RightEye) as the game's pose turns them, before the edits, per character. Edited eyes of a
+// character start from its own body eyes (1.2.0 took the selected character's for every character).
+struct AnimatedEyes
+{
+    std::array<Quat, 2> local{};
+    uint64_t time = 0;
+    bool logged = false;       // diagnostics written for this character
+    std::array<bool, 2> odd{}; // body eye too far from the reference (logged once)
+};
+std::mutex g_animatedEyeMutex;
+std::array<AnimatedEyes, CharacterCount> g_animatedEyes{};
+constexpr uint64_t AnimatedEyesMaxAgeMs = 1000;
+// Beyond this turn from the reference the body eye is not a gaze (the eyes turn at most ~40 degrees): the pose of some
+// characters (e.g. Jackie's) turns it oddly, and the edited eye starts from the reference instead.
+constexpr float MaxAnimatedEyeTurn = 0.7854f; // 45 degrees
+
+bool IsFinite(const Quat& aQuat)
+{
+    return std::isfinite(aQuat.i) && std::isfinite(aQuat.j) && std::isfinite(aQuat.k) && std::isfinite(aQuat.r);
+}
+
+// Angle (radians) between two rotations.
+float AngleBetween(const Quat& aA, const Quat& aB)
+{
+    const Quat a = APM::Math::Normalize(aA);
+    const Quat b = APM::Math::Normalize(aB);
+    const float dot = std::fabs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r);
+    return 2.f * std::acos(std::min(dot, 1.f));
+}
+
+void StoreAnimatedEyes(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    const int32_t left = IndexOf(aTarget, Hash("LeftEye"));
+    const int32_t right = IndexOf(aTarget, Hash("RightEye"));
+    if (left < 0 || right < 0 || static_cast<uint32_t>(left) >= aCount || static_cast<uint32_t>(right) >= aCount)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_animatedEyeMutex);
+    auto& eyes = g_animatedEyes[CharacterOf(aTarget)];
+    eyes.local = {GetRotation(aBones[left]), GetRotation(aBones[right])};
+    eyes.time = GetTickCount64();
+}
+
+// Body eye of the character (0 left, 1 right) before the edits; false when unknown or stale.
+bool GetAnimatedEye(size_t aCharacter, size_t aEye, Quat& aOut)
+{
+    std::scoped_lock lock(g_animatedEyeMutex);
+    const auto& eyes = g_animatedEyes[aCharacter];
+    if (eyes.time == 0 || GetTickCount64() - eyes.time > AnimatedEyesMaxAgeMs)
+    {
+        return false;
+    }
+    aOut = eyes.local[aEye];
+    return true;
+}
+
+// Body eye usable as the start of an edit: finite and near the reference. Otherwise the reference (logged once).
+Quat CheckedAnimatedEye(size_t aCharacter, size_t aEye, const Quat& aAnimated, const Quat& aReference)
+{
+    const bool finite = IsFinite(aAnimated);
+    const float angle = finite ? AngleBetween(aAnimated, aReference) : 0.f;
+    if (finite && angle <= MaxAnimatedEyeTurn)
+    {
+        return aAnimated;
+    }
+    bool log = false;
+    {
+        std::scoped_lock lock(g_animatedEyeMutex);
+        log = !std::exchange(g_animatedEyes[aCharacter].odd[aEye], true);
+    }
+    if (log)
+    {
+        APM::Log::Verbose("Character %zu: %s body eye %s (%.1f degrees from the reference); edited eye starts from the "
+                          "reference",
+                          aCharacter, aEye == 0 ? "left" : "right", finite ? "turned too far" : "not valid",
+                          angle * 57.2958f);
+    }
+    return aReference;
+}
+
+// Diagnostics ([Debug] Log=1), once per character: how far the game's pose turns the body eyes and the face rig's
+// eyeballs from their reference.
+void LogEyesOnce(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    const size_t character = CharacterOf(aTarget);
+    std::array<Quat, 2> body{};
+    {
+        std::scoped_lock lock(g_animatedEyeMutex);
+        const auto& eyes = g_animatedEyes[character];
+        if (eyes.logged || eyes.time == 0)
+        {
+            return;
+        }
+        body = eyes.local;
+    }
+    std::array<float, 2> bodyAngle{-1.f, -1.f};
+    std::array<float, 2> faceAngle{-1.f, -1.f};
+    static const uint64_t left = Hash("LeftEye");
+    static const uint64_t right = Hash("RightEye");
+    for (const auto& link : aTarget.linkedBones)
+    {
+        if ((link.sourceBone != left && link.sourceBone != right) || link.targetIndex >= aCount)
+        {
+            continue;
+        }
+        const size_t e = link.sourceBone == left ? 0 : 1;
+        bodyAngle[e] = AngleBetween(body[e], link.sourceReferenceLocal) * 57.2958f;
+        faceAngle[e] = AngleBetween(GetRotation(aBones[link.targetIndex]), link.targetReferenceLocal) * 57.2958f;
+    }
+    if (bodyAngle[0] < 0.f && bodyAngle[1] < 0.f)
+    {
+        return;
+    }
+    {
+        std::scoped_lock lock(g_animatedEyeMutex);
+        g_animatedEyes[character].logged = true;
+    }
+    APM::Log::Verbose("Character %zu eyes from the reference (degrees): body left %.1f right %.1f, face rig left %.1f "
+                      "right %.1f",
+                      character, bodyAngle[0], bodyAngle[1], faceAngle[0], faceAngle[1]);
+}
+
 void ApplyForwardOverrides(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
                            const APM::Pose::OverrideSnapshot& aPose, bool aSameNameBones)
 {
@@ -158,9 +282,12 @@ void ApplyForwardOverrides(const APM::Pose::Target& aTarget, RED4ext::QsTransfor
                     continue;
                 }
                 Quat animatedEye{};
-                Vec3 unused{};
-                if (IsEyeBone(bone.boneHash) && APM::Pose::GizmoState::GetAnimatedLocal(bone.boneHash, animatedEye, unused))
+                static const uint64_t leftEyeHash = Hash("LeftEye");
+                const size_t eye = link.sourceBone == leftEyeHash ? 0 : 1;
+                if (IsEyeBone(bone.boneHash) && GetAnimatedEye(CharacterOf(aTarget), eye, animatedEye))
                 {
+                    animatedEye =
+                        CheckedAnimatedEye(CharacterOf(aTarget), eye, animatedEye, link.sourceReferenceLocal);
                     // Edited eyes are absolute on the face rig: they point where the body's eye bone points (animation
                     // + edit), so a facial expression that rolls the eyeballs no longer moves them.
                     const Quat change = APM::Math::Mul(APM::Math::Conjugate(link.sourceReferenceLocal),
@@ -672,6 +799,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
         ApplyBasePose(aTarget, aBones, aCount, *aPose.base);
     }
     APM::Pose::GizmoState::PublishAnimatedPose(aTarget, aBones, aCount);
+    StoreAnimatedEyes(aTarget, aBones, aCount);
 
     const bool useIk = AnyIkEnabled(aPose);
     if (!aPose.base)
@@ -717,6 +845,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     const bool eyes = face && APM::Pose::EyelidFollow::ReadEyes(aTarget, aBones, aCount, gameEyes);
     if (face)
     {
+        LogEyesOnce(aTarget, aBones, aCount);
         APM::Pose::FaceRig::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
@@ -752,6 +881,10 @@ void ResetCharacter(uint32_t aCharacter)
         g_cameraEyesValid[aCharacter] = false;
     }
     g_noLookAtCaches[aCharacter].valid = false;
+    {
+        std::scoped_lock lock(g_animatedEyeMutex);
+        g_animatedEyes[aCharacter] = {};
+    }
 }
 
 bool GetIkFrame(size_t aChain, IkFrame& aOut)

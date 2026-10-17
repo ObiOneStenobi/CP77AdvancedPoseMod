@@ -591,6 +591,7 @@ bool Detour_Activate(void* aSystem)
     APM::Pose::PoseOverrides::ClearSession();
     APM::Ui::PhotoModeUi::ResetSession();
     APM::Pose::EyelidFollow::ResetSession();
+    APM::Pose::PoseProcessor::ResetCharacter(0); // V's per-session state (added characters reset when they appear)
     const bool result = g_origActivate(aSystem);
 
     APM::Config::Load();
