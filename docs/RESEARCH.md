@@ -101,6 +101,12 @@ Value changes of list items call the native `OnAttributeUpdated(attribute, value
 The plugin locates that call at runtime (pattern `48 8D 8F 30 01 00 00` + `E8`) and drops keys 7700-7799,
 so AdvancedPoseMod's own items never reach the game's Photo Mode system.
 
+The menu controller and its root widget live for the whole game, not one Photo Mode session (`OnInitialize` runs
+once). The root draws its children backward: the first child is on top and takes the clicks first. Other Photo Mode
+mods (Photo Mode UI Improvements) move their layers to the front when they add them; their invisible containers then
+swallow clicks over our gizmos and buttons (the press reaches no widget). Since 1.3.0 the pose editor layer is kept
+first. The game hides the root's children while Photo Mode opens and shows them again.
+
 ## Twist helper bones (deformations skeleton)
 
 The `deformations` component (181 bones) holds CDPR's twist helpers, all placed on the bone line (local X):
@@ -145,6 +151,12 @@ the 0.4.1 twist-helper code never ran and was removed.
   in rig order, and one extra transform follows. The pose header keeps the rig's bone count at `+0x00`.
 - Forcing the animation LOD of added characters (`clientForcedLod`) is not needed: their body pose is complete (see
   the extra transform above).
+- Names (1.3.0): many Photo Mode character records inherit the player's display name (`LocKey#48683`, "V"), so
+  `GetDisplayName()` is useless for them. The name comes from the record's `DisplayName` / `FullDisplayName` (when not
+  the player's), else from the record id (`Character.<Name>_Photomode_Puppet`; readable with TweakXL's debug names).
+- Eyes (1.3.0): in the game's poses the main skeleton's `LeftEye` / `RightEye` stay at their reference (0 degrees) for V
+  and every added character measured, Jackie included. Edited eyes of every character must start from that
+  character's own pose: 1.2.0 took the selected character's for all of them (twisted NPC eyes, V's eyes turning black).
 
 ## Photo Mode attributes read by the plugin
 
@@ -189,10 +201,10 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
 (same reference pose for the eyes and the weapon bones) and the same hand item slots (`Item_Attachment_Slot`, bound to
 `root`: `WeaponRight` / `WeaponLeft` -> bones of the same name, no offset).
 
-- **Jackie: eye gizmos point the wrong way.** The rig's eye reference is the same as V's, so the animation itself must
-  turn the main skeleton's `LeftEye` / `RightEye` oddly (the eyes shown are the `face_rig` ones). Possible fix: take
-  the gizmo's gaze from the `face_rig` eyes, or check first how far the animated eye is from the head compared with
-  the reference.
+- **Jackie: eye gizmos point the wrong way.** The rig's eye reference is the same as V's, and her animated
+  `LeftEye` / `RightEye` measured 0 degrees from the reference (1.3.0), so the animation does not turn them: the cause
+  is elsewhere (possibly the 1.2.0 eye bug above, to be checked again). Possible fix: take the gizmo's gaze from the
+  `face_rig` eyes.
 - **Dexter DeShawn: right hand item far from the hand (near the feet), it still follows the hand.** `WeaponRight`
   (child of `RightHand`, reference local translation (-0.087 0.042 0.021)) is animated far from the hand by his poses.
   Possible fix: when the animated `WeaponRight` / `WeaponLeft` is more than ~20 cm from its hand, start from the
