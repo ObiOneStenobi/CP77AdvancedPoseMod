@@ -262,6 +262,15 @@ bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& a
     return true;
 }
 
+void ForEach(const std::function<void(const Target&)>& aVisitor)
+{
+    SharedGuard guard;
+    for (const auto& target : g_targets)
+    {
+        aVisitor(target);
+    }
+}
+
 std::vector<uint64_t> GetMainSkeletonBones()
 {
     SharedGuard guard;

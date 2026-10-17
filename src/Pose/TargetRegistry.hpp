@@ -71,6 +71,9 @@ RED4ext::Handle<RED4ext::ISerializable> LockMainComponent(uint32_t aCharacter);
 // Calls aVisitor with the target that owns the pointer, under a shared lock (no copy). Returns false if not found.
 bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor);
 
+// Calls aVisitor with every target, under a shared lock (diagnostics; not for the animation hot path).
+void ForEach(const std::function<void(const Target&)>& aVisitor);
+
 // Resolve a bone index by name for the target that owns the pointer. Returns -1 if not found.
 int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash);
 

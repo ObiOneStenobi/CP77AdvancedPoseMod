@@ -28,6 +28,7 @@
 #include <malloc.h>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -336,6 +337,28 @@ void LogExtraTransforms(const APM::Pose::Target& aTarget, const RED4ext::QsTrans
                    aTarget.photoModeSlot, aCount, rigCount, aTarget.debugName.c_str(), rigCount, matching, compared);
 }
 
+// Diagnostics ([Debug] Log=1): what each registered skeleton receives from the animation, per animated component,
+// to tell why a character cannot be posed (never sampled, or sampled with another bone count).
+struct SampleNote
+{
+    uint32_t samples = 0;
+    uint32_t accepted = 0;     // samples with the rig's bone count (posed when there are edits)
+    uint32_t lastCount = 0;    // transforms in the last pose
+    uint32_t lastRigCount = 0; // rig bone count in the last pose header
+};
+std::mutex g_sampleNotesMutex;
+std::unordered_map<uintptr_t, SampleNote> g_sampleNotes;
+
+void NoteSample(const APM::Pose::Target& aTarget, uint32_t aCount, uint32_t aRigCount, bool aAccepted)
+{
+    std::scoped_lock lock(g_sampleNotesMutex);
+    auto& note = g_sampleNotes[aTarget.animatedComponent];
+    ++note.samples;
+    note.accepted += aAccepted ? 1 : 0;
+    note.lastCount = aCount;
+    note.lastRigCount = aRigCount;
+}
+
 void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     uint32_t boneCount = 0;
@@ -351,6 +374,14 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
         const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
         const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
         uint32_t rigBoneCount = 0;
+        if (APM::Log::g_verbose.load(std::memory_order_relaxed))
+        {
+            uint32_t headerRigCount = 0;
+            APM::SafeMemory::ReadU32(aOut->pose + PoseRigBoneCount, headerRigCount);
+            const bool accepted = boneCount == aTarget.boneNames.size() ||
+                                  (boneCount > aTarget.boneNames.size() && headerRigCount == aTarget.boneNames.size());
+            NoteSample(aTarget, boneCount, headerRigCount, accepted);
+        }
         if (boneCount > aTarget.boneNames.size() && APM::SafeMemory::ReadU32(aOut->pose + PoseRigBoneCount, rigBoneCount) &&
             rigBoneCount == aTarget.boneNames.size())
         {
@@ -700,6 +731,10 @@ void OnPhotoModeActivated()
 
     g_poseInfoLogged = false;
     g_countMismatchLogged = false;
+    {
+        std::scoped_lock lock(g_sampleNotesMutex);
+        g_sampleNotes.clear();
+    }
     g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
     g_statAllCalls = 0;
     g_statOuterCalls = 0;
@@ -717,6 +752,51 @@ void OnPhotoModeActivated()
     if (g_contextPath.load() == PathUnknown && !config.probeEnabled)
     {
         Log::Warn("Probe disabled and context mapping unknown: overrides cannot be applied");
+    }
+}
+
+void LogCharacterSkeletons(uint32_t aCharacter)
+{
+    if (!Log::g_verbose.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    struct Line
+    {
+        std::string name;
+        size_t bones = 0;
+        uintptr_t component = 0;
+        uintptr_t entity = 0;
+    };
+    std::vector<Line> lines;
+    Pose::TargetRegistry::ForEach([&](const Pose::Target& aTarget) {
+        if (aTarget.photoModeSlot == aCharacter)
+        {
+            lines.push_back({aTarget.debugName, aTarget.boneNames.size(), aTarget.animatedComponent, aTarget.entity});
+        }
+    });
+    if (lines.empty())
+    {
+        Log::Verbose("Character %u skeletons: none registered", aCharacter);
+        return;
+    }
+    Log::Verbose("Character %u skeletons (entity %p), samples since Photo Mode opened:", aCharacter,
+                 reinterpret_cast<void*>(lines.front().entity));
+    std::scoped_lock lock(g_sampleNotesMutex);
+    for (const auto& line : lines)
+    {
+        const auto it = g_sampleNotes.find(line.component);
+        if (it == g_sampleNotes.end())
+        {
+            Log::Verbose("  %s (%zu bones, component %p): never sampled", line.name.c_str(), line.bones,
+                         reinterpret_cast<void*>(line.component));
+            continue;
+        }
+        const auto& note = it->second;
+        Log::Verbose("  %s (%zu bones, component %p): %u samples, %u with the rig's bone count; last %u transforms, "
+                     "header rig count %u",
+                     line.name.c_str(), line.bones, reinterpret_cast<void*>(line.component), note.samples,
+                     note.accepted, note.lastCount, note.lastRigCount);
     }
 }
 } // namespace APM::AnimGraphHook

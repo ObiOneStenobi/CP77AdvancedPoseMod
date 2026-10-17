@@ -708,6 +708,13 @@ void OnExitRequested()
     {
         return;
     }
+    for (uint32_t c = 0; c < APM::Pose::Characters::Count; ++c)
+    {
+        if (c == 0 || g_characterPuppets[c])
+        {
+            APM::AnimGraphHook::LogCharacterSkeletons(c);
+        }
+    }
     APM::Pose::TargetRegistry::Clear();
     APM::Pose::GizmoState::Clear();
     APM::Ui::TextEntry::End();

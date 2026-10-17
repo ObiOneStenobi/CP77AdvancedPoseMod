@@ -2,6 +2,7 @@
 
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
+#include "Game/AnimGraphHook.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/FaceRig.hpp"
@@ -93,6 +94,7 @@ void CharacterSelect(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     APM::Pose::GizmoState::Clear(); // the markers show the newly selected character from its next frame
     APM::Ui::PhotoModeUi::RequestRefresh();
     APM::Log::Verbose("Characters: character %d selected", character);
+    APM::AnimGraphHook::LogCharacterSkeletons(static_cast<uint32_t>(character));
 }
 
 void CharacterGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
