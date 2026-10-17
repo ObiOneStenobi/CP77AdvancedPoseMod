@@ -280,6 +280,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_posesTitle: wref<inkText>;
     // Panel sections, stacked by Layout()
     private let m_sectionHeader: wref<inkCanvas>;
+    private let m_sectionCharacter: wref<inkCanvas>; // character selector row (only while characters are added)
+    private let m_sectionTools: wref<inkCanvas>;     // undo, redo, mirror, limits, auto IK, reset all
     private let m_sectionPart: wref<inkCanvas>;
     private let m_sectionRotation: wref<inkCanvas>;
     private let m_sectionMove: wref<inkCanvas>;
@@ -590,30 +592,39 @@ public class APM_PoseEditor extends IScriptable {
         this.TipL(opacityButton, "APM-Tip-Opacity", "Panel opacity");
         this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, this.L("APM-Tip-Help", "Info: markers and shortcuts"), 32.0);
         this.CreateIconButton(header, "hide", "x", 584.0, 8.0, this.L("APM-Tip-HidePanel", "Hide the panel"), 32.0);
-        this.CreateIconButton(header, "undo", "undo-2", 16.0, 46.0, this.L("APM-Tip-Undo", "Undo the last change of this character (Ctrl+Z)"));
-        this.CreateIconButton(header, "redo", "redo-2", 60.0, 46.0, this.L("APM-Tip-Redo", "Redo the last undone change of this character (Ctrl+Y)"));
-        this.CreateIconButton(header, "mirror", "flip-vertical-2", 116.0, 46.0, this.L("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed"));
-        this.CreateIconButton(header, "limits:on", "lock", 160.0, 46.0, this.L("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
-        this.CreateIconButton(header, "limits:off", "lock-open", 160.0, 46.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
-        this.CreateIconButton(header, "resetall", "trash-2", 580.0, 46.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
-        // Character selector: V and the characters added in the scene (shown only when there are some)
-        let charPrev = this.CreateButton(header, "char:prev", "<", 252.0, 46.0, 44.0, 32.0);
+        // Character selector: V and the characters added in the scene (its own row, shown only when there are some)
+        let characterRow = this.CreateSection(n"APM_Character");
+        this.m_sectionCharacter = characterRow;
+        let charPrev = this.CreateButton(characterRow, "char:prev", "<", 16.0, 4.0, 56.0, 38.0);
+        charPrev.label.SetFontSize(Cast<Int32>(24.0 * APM_UiScale()));
         this.TipL(charPrev, "APM-Tip-CharacterPrev", "Previous character to pose");
         // The name fills a fixed box, so it stays centred between the arrows whatever its length.
         let charNameBox = new inkCanvas();
         charNameBox.SetAnchor(inkEAnchor.TopLeft);
-        charNameBox.SetMargin(300.0 * APM_UiScale(), 46.0 * APM_UiScale(), 0.0, 0.0);
-        charNameBox.SetSize(224.0 * APM_UiScale(), 32.0 * APM_UiScale());
-        charNameBox.Reparent(header);
-        let charName = this.CreateText(charNameBox, "V", 0.0, 0.0, 224.0, 32.0, 17, APM_ColorText());
+        charNameBox.SetMargin(80.0 * APM_UiScale(), 4.0 * APM_UiScale(), 0.0, 0.0);
+        charNameBox.SetSize((APM_PanelWidth() - 160.0) * APM_UiScale(), 38.0 * APM_UiScale());
+        charNameBox.Reparent(characterRow);
+        let charName = this.CreateText(charNameBox, "V", 0.0, 0.0, APM_PanelWidth() - 160.0, 38.0, 22, APM_ColorText());
         charName.SetAnchor(inkEAnchor.Fill);
         charName.SetMargin(0.0, 0.0, 0.0, 0.0);
         charName.SetHorizontalAlignment(textHorizontalAlignment.Center);
+        charName.SetVerticalAlignment(textVerticalAlignment.Center);
         charName.SetLetterCase(textLetterCase.OriginalCase);
         this.m_characterName = charName;
-        let charNext = this.CreateButton(header, "char:next", ">", 528.0, 46.0, 44.0, 32.0);
+        let charNext = this.CreateButton(characterRow, "char:next", ">", APM_PanelWidth() - 72.0, 4.0, 56.0, 38.0);
+        charNext.label.SetFontSize(Cast<Int32>(24.0 * APM_UiScale()));
         this.TipL(charNext, "APM-Tip-CharacterNext", "Next character to pose");
-        this.CreateIconButton(header, "autoik", "magnet", 204.0, 46.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
+
+        // Tools used all the time
+        let tools = this.CreateSection(n"APM_Tools");
+        this.m_sectionTools = tools;
+        this.CreateIconButton(tools, "undo", "undo-2", 16.0, 4.0, this.L("APM-Tip-Undo", "Undo the last change of this character (Ctrl+Z)"));
+        this.CreateIconButton(tools, "redo", "redo-2", 60.0, 4.0, this.L("APM-Tip-Redo", "Redo the last undone change of this character (Ctrl+Y)"));
+        this.CreateIconButton(tools, "mirror", "flip-vertical-2", 116.0, 4.0, this.L("APM-Tip-Mirror", "Mirror: while on, the limb you edit is copied to the other side and followed"));
+        this.CreateIconButton(tools, "limits:on", "lock", 160.0, 4.0, this.L("APM-Tip-LimitsOn", "Joint limits on: rotations stay natural. Click to unlock"));
+        this.CreateIconButton(tools, "limits:off", "lock-open", 160.0, 4.0, this.L("APM-Tip-LimitsOff", "Joint limits off: any rotation is allowed. Click to lock"));
+        this.CreateIconButton(tools, "autoik", "magnet", 204.0, 4.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
+        this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice) - items in hand stay"));
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -841,7 +852,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         let s = APM_UiScale();
         let y = 0.0;
-        y = this.PlaceSection(this.m_sectionHeader, y, 80.0, true);
+        y = this.PlaceSection(this.m_sectionHeader, y, 42.0, true);
+        y = this.PlaceSection(this.m_sectionCharacter, y, 46.0, this.HasAddedCharacters());
+        y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
         let handTab = this.PresetHand() > 0;
         this.m_handPresets.SetVisible(handTab);
         y = this.PlaceSection(this.m_sectionPart, y, handTab ? 196.0 : 160.0, true);
@@ -3878,6 +3891,9 @@ public class APM_PoseEditor extends IScriptable {
     // The selector: the selected character's name, shown only while characters are added in the scene.
     private func RefreshCharacter() {
         let show = this.HasAddedCharacters();
+        if IsDefined(this.m_sectionCharacter) && NotEquals(this.m_sectionCharacter.IsVisible(), show) {
+            this.Layout(); // the selector row appears / disappears
+        }
         let prev = this.FindButton("char:prev");
         let next = this.FindButton("char:next");
         if IsDefined(prev) {

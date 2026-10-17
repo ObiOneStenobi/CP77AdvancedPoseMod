@@ -552,6 +552,58 @@ void LogStatsPeriodically()
     APM::Log::Verbose("Stats: mappingHits=%u mappingMisses=%u", g_pathHits.load(), g_pathMisses.load());
 }
 
+// Diagnostics ([Debug] Log=1): body poses of a Photo Mode character whose context resolves to none of its registered
+// skeletons (e.g. a body graph that another mod replaced), once per resolved pointer.
+constexpr size_t MaxUnresolvedLogs = 48;
+std::mutex g_unresolvedMutex;
+std::unordered_set<uintptr_t> g_unresolvedLogged;
+
+void NoteUnresolved(uintptr_t aContext, const SampleOutput* aOut, uintptr_t aResolved)
+{
+    uint32_t boneCount = 0;
+    uint32_t rigCount = 0;
+    if (!APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount))
+    {
+        return;
+    }
+    APM::SafeMemory::ReadU32(aOut->pose + PoseRigBoneCount, rigCount);
+    // Body skeletons only (V's and the human characters' main skeleton: 71 bones, 72 transforms for added ones).
+    if (rigCount != 71 && boneCount != 71)
+    {
+        return;
+    }
+    // Only graphs of the Photo Mode characters (the world's NPCs have the same skeleton).
+    uint64_t owner = 0;
+    uint64_t entity = 0;
+    if (APM::SafeMemory::ReadU64(aContext + 0x188, owner) && APM::SafeMemory::LooksLikePointer(owner))
+    {
+        APM::SafeMemory::ReadU64(owner + 0xB8, entity);
+    }
+    if (!APM::Pose::TargetRegistry::ContainsPointer(entity))
+    {
+        return;
+    }
+    {
+        std::scoped_lock lock(g_unresolvedMutex);
+        if (g_unresolvedLogged.size() >= MaxUnresolvedLogs || !g_unresolvedLogged.insert(aResolved).second)
+        {
+            return;
+        }
+    }
+    // The resolved object's name (components: CName at +0x40).
+    const char* name = nullptr;
+    uint64_t vtbl = 0;
+    uint64_t nameHash = 0;
+    if (APM::SafeMemory::LooksLikePointer(aResolved) && APM::SafeMemory::ReadU64(aResolved, vtbl) &&
+        APM::SafeMemory::IsInGameImage(vtbl) && APM::SafeMemory::ReadU64(aResolved + 0x40, nameHash) && nameHash)
+    {
+        name = RED4ext::CName(nameHash).ToString();
+    }
+    APM::Log::Verbose("Unresolved pose of character entity %p: %u transforms (rig %u) -> %s name=%s",
+                      reinterpret_cast<void*>(entity), boneCount, rigCount, DescribeValue(aResolved).c_str(),
+                      name ? name : "?");
+}
+
 void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aReturnAddress, uintptr_t aStackPointer)
 {
     if (!aOut || !aOut->pose || APM::Pose::TargetRegistry::Count() == 0)
@@ -597,6 +649,10 @@ void OnPoseSampled(void* aNode, void* aContext, SampleOutput* aOut, uintptr_t aR
     const uintptr_t targetPointer = ResolveTargetFromContext(context, path);
     if (!APM::Pose::TargetRegistry::ContainsPointer(targetPointer))
     {
+        if (APM::Log::g_verbose.load(std::memory_order_relaxed))
+        {
+            NoteUnresolved(context, aOut, targetPointer);
+        }
         // Validate the mapping: samples with V's bone counts must resolve to V at least sometimes.
         if (g_pathHits.load(std::memory_order_relaxed) == 0)
         {
@@ -734,6 +790,10 @@ void OnPhotoModeActivated()
     {
         std::scoped_lock lock(g_sampleNotesMutex);
         g_sampleNotes.clear();
+    }
+    {
+        std::scoped_lock lock(g_unresolvedMutex);
+        g_unresolvedLogged.clear();
     }
     g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
     g_statAllCalls = 0;

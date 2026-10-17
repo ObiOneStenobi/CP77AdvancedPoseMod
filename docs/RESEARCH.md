@@ -202,6 +202,14 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
   tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 57), not by the bones.
 - **NPC page facial expressions (attribute 56) show only on some characters** (Wakako yes, most others no), also
   without the mod: the game. The eyelids still follow the expression chosen there.
+- **Rogue (white hair): a piece of the jacket stays still in space**, also with the pose off and without other Photo
+  Mode mods: the game. Her jacket skeleton (`Animated2476`, 55 bones: `dyng_*_jacket_01-05` chains on Hips / Spine /
+  Spine1-3) also holds `l_thigh_0_JNT` / `r_thigh_0_JNT`, twist helpers that only the `deformations` skeleton animates;
+  in the jacket's copy nothing moves them.
+- **Judy with Photo Mode UI Improvements (1.3.0): her body cannot be posed.** Her `root` skeleton is never sampled
+  through `animAnimNode_Output` while that mod is installed (it replaces the photo mode characters' entities and body
+  graph); without it she is posed like the others. Her other skeletons (hair, overalls `dangle_setup`, face) are
+  sampled normally.
 - **Adding a character resets V's Look at camera target to the head** (the game sends attribute 74 = 1 just before the
   new character appears, and the torso option disappears from the menu until Look at camera is turned off and on
   again). Game behaviour: the plugin only reads these attributes.
