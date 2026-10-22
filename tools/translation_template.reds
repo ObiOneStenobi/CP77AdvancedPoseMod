@@ -36,7 +36,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Button-Gizmos", "Gizmos");
         this.Text("APM-Tip-Gizmos", "Show / hide the markers on V");
         this.Text("APM-Tip-GizmoMode", "Gizmo mode: Direct (drag the markers), Rotate (rings) or Move (arrows); in Rotate / Move the markers only select");
-        this.Text("APM-Tip-ClassicAxes", "Gizmo axes: the part's own (L) or the character's (M)");
+        this.Text("APM-Tip-ClassicAxes", "Gizmo axes: Local (the part's own, they turn with it) or Global (the character's, fixed)");
         this.Text("APM-Tip-Opacity", "Panel opacity");
         this.Text("APM-Tip-Help", "Info: markers and shortcuts");
         this.Text("APM-Tip-HidePanel", "Hide the panel");
@@ -122,7 +122,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y");
         this.Text("APM-Help-UndoRedo", "undo / redo");
         this.Text("APM-Help-KeyGizmoMode", "Direct / Rotate / Move (top)");
-        this.Text("APM-Help-GizmoMode", "drag the markers, or rings / arrows on the selected part; L / M: its own axes or the character's");
+        this.Text("APM-Help-GizmoMode", "drag the markers, or rings / arrows on the selected part; Local / Global: its own axes or the character's");
         this.Text("APM-Label-Root", "V's root (Photo Mode position)");
         this.Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first");
         this.Text("APM-Msg-TypingUnavailable", "Typing is not available");
@@ -138,6 +138,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Button-GizmoDirect", "Direct");
         this.Text("APM-Button-GizmoRotate", "Rotate");
         this.Text("APM-Button-GizmoMove", "Move");
+        this.Text("APM-Button-AxesGlobal", "Global");
+        this.Text("APM-Button-AxesLocal", "Local");
         this.Text("APM-PartShort-Eyes", "Eyes");
         this.Text("APM-Row-FocusDistance", "Focus distance");
         this.Text("APM-Tip-ResetAllConfirm", "Click again to reset everything");

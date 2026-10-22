@@ -649,12 +649,12 @@ public class APM_PoseEditor extends IScriptable {
         this.TipL(enabledButton, "APM-Tip-PoseOnOff", "Turn your edits on V on / off");
         let gizmosButton = this.CreateButton(header, "gizmos", this.L("APM-Button-Gizmos", "Gizmos"), 230.0, 8.0, 86.0, 32.0);
         this.TipL(gizmosButton, "APM-Tip-Gizmos", "Show / hide the markers on V");
-        // Gizmo mode: Direct (drag the markers) -> Rotate (rings) -> Move (arrows); L / M: axes of the rings / arrows.
-        let modeButton = this.CreateButton(header, "classic:mode", "", 320.0, 8.0, 96.0, 32.0);
+        // Gizmo mode: Direct (drag the markers) -> Rotate (rings) -> Move (arrows); Local / Global: axes of the rings / arrows.
+        let modeButton = this.CreateButton(header, "classic:mode", "", 320.0, 8.0, 90.0, 32.0);
         this.TipL(modeButton, "APM-Tip-GizmoMode", "Gizmo mode: Direct (drag the markers), Rotate (rings) or Move (arrows); in Rotate / Move the markers only select");
-        let axesButton = this.CreateSmallButton(header, "classic:axes", "", 420.0, 8.0, 40.0, 32.0);
-        this.TipL(axesButton, "APM-Tip-ClassicAxes", "Gizmo axes: the part's own (L) or the character's (M)");
-        let opacityButton = this.CreateButton(header, "opacity", "100%", 466.0, 8.0, 66.0, 32.0);
+        let axesButton = this.CreateSmallButton(header, "classic:axes", "", 414.0, 8.0, 70.0, 32.0);
+        this.TipL(axesButton, "APM-Tip-ClassicAxes", "Gizmo axes: Local (the part's own, they turn with it) or Global (the character's, fixed)");
+        let opacityButton = this.CreateButton(header, "opacity", "100%", 488.0, 8.0, 48.0, 32.0);
         this.TipL(opacityButton, "APM-Tip-Opacity", "Panel opacity");
         this.CreateIconButton(header, "help", "circle-help", 540.0, 8.0, this.L("APM-Tip-Help", "Info: markers and shortcuts"), 32.0);
         this.CreateIconButton(header, "hide", "x", 584.0, 8.0, this.L("APM-Tip-HidePanel", "Hide the panel"), 32.0);
@@ -1071,7 +1071,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.AddHelpLine(help, this.L("APM-Help-KeyWheel", "Mouse wheel"), this.L("APM-Help-Wheel", "while moving: nearer / farther"), y);
         y = this.AddHelpLine(help, this.L("APM-Help-KeyRightClick", "Right-click a marker"), this.L("APM-Help-RightClick", "reset that part"), y);
         y = this.AddHelpLine(help, this.L("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y"), this.L("APM-Help-UndoRedo", "undo / redo"), y);
-        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoMode", "Direct / Rotate / Move (top)"), this.L("APM-Help-GizmoMode", "drag the markers, or rings / arrows on the selected part; L / M: its own axes or the character's"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoMode", "Direct / Rotate / Move (top)"), this.L("APM-Help-GizmoMode", "drag the markers, or rings / arrows on the selected part; Local / Global: its own axes or the character's"), y);
         help.SetSize(width * s, (y + 16.0) * s);
     }
 
@@ -2681,7 +2681,7 @@ public class APM_PoseEditor extends IScriptable {
             gizmoMode.isSelected = this.m_classicMode != APM_ClassicOff();
             gizmoMode.UpdateLook();
             classicAxes.isEnabled = this.m_classicMode != APM_ClassicOff();
-            classicAxes.label.SetText(this.m_classicModelAxes ? "M" : "L");
+            classicAxes.label.SetText(this.m_classicModelAxes ? APM_Text("APM-Button-AxesGlobal", "Global") : APM_Text("APM-Button-AxesLocal", "Local"));
             classicAxes.UpdateLook();
         }
 

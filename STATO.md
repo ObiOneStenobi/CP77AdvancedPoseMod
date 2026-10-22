@@ -40,7 +40,7 @@ Aggiornato: 2026-10-22 (sera)
 - Marker sovrapposti: attenuazione graduale solo da vicino (marker davanti < 1,3 m): 1 cm pieno -> 5 cm al 45%.
 - Robustezza patch: `src/Game/EngineLayout.*` (offset da RTTI: IComponent.name, AnimatedComponent.rig, Rig.boneNames,
   Rig.tags; components dell'entità verificati/cercati), usato da PhotoModeTracker; Resolve() in OnPostRegisterTypes.
-- Gizmo classici: pulsante icona (rotate-3d / move-3d, Lucide 1.54.0) a x=190 nell'intestazione, "L/M" a x=234;
+- Gizmo classici: pulsante "Direct/Rotate/Move" accanto a Gizmos, "Local/Global" (pulsante assi);
   anelli 4x32 segmenti (rosso/verde/blu = assi del pannello via nativo `APM_GizmoGetPartAxis`, bianco = vista),
   frecce 3 (hips, oggetti, IK); hit = quadrati invisibili 18 px; drag = spostamento cursore proiettato sulla
   tangente (rad o m); marker solo selezione quando attivo; pref "ClassicGizmo", "ClassicGizmoModelAxes".

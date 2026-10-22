@@ -112,7 +112,7 @@ closer.
 - **Gizmo mode** (button next to *Gizmos*: **Direct**, **Rotate**, **Move**): Direct drags the markers (as described below); Rotate puts on the selected part
   three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
   that turns it as seen from the camera; drag a ring to turn the part around that axis. Move shows arrows that move the hips, held
-  items and hands / feet (IK). **L / M** switches between the part's own axes and the character's. In Rotate / Move the
+  items and hands / feet (IK). **Local / Global** (next to it) switches between the part's own axes (they turn with it) and the character's. In Rotate / Move the
   markers only select (click one to put the gizmo on it). The back half of a ring is faint and cannot be picked.
 - Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
   camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
