@@ -198,11 +198,14 @@ public class APM_Marker extends IScriptable {
     public let isHovered: Bool;
     public let screenX: Float; // last position on the ink canvas
     public let screenY: Float;
+    public let depth: Float;    // distance from the camera while shown
+    public let isBehind: Bool;  // covered by a nearer marker (drawn fainter, below it)
 }
 
 public func APM_MarkerKindBone() -> Int32 { return 0; }
 public func APM_MarkerKindFinger() -> Int32 { return 1; }        // whole finger, at the knuckle
 public func APM_MarkerKindFingerDetail() -> Int32 { return 2; }  // outer finger segment, close-up only
+public func APM_MarkerKindCloseUp() -> Int32 { return 3; }        // body part shown close up only, like the fingers (heels)
 public func APM_MarkerKindEyeLook() -> Int32 { return 3; }       // where both eyes look
 
 public func APM_DragRotate() -> Int32 { return 1; }    // the bone's end follows the cursor
@@ -257,6 +260,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_controller: wref<gameuiPhotoModeMenuController>;
     private let m_layer: wref<inkCanvas>;   // full-screen container, parent of everything below
     private let m_gizmoLayer: wref<inkCanvas>;
+    private let m_raisedParts: array<Int32>; // markers last raised above the ones they cover, farthest first
     private let m_panel: wref<inkCanvas>;
     private let m_panelBg: wref<inkRectangle>;
     private let m_openButton: ref<APM_Button>;
@@ -276,6 +280,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_poseNames: array<String>;
     private let m_posePage: Int32;
     private let m_selectedPose: String;
+    private let m_handLibrary: Bool; // the pose list shows the saved hand poses instead of the body poses
     private let m_partTitle: wref<inkText>;
     private let m_posesTitle: wref<inkText>;
     // Panel sections, stacked by Layout()
@@ -397,6 +402,8 @@ public class APM_PoseEditor extends IScriptable {
 
     private let m_dragRow: ref<APM_ValueRow>;
     private let m_dragValue: Float;
+    private let m_pressedButtonId: String; // button the left mouse button went down on (a click needs press and release on it)
+    private let m_clearPressedButton: Bool; // the button was released: forget the pressed button at the next update
     private let m_confirmResetAll: Bool;
     private let m_rightWasDown: Bool;
     private let m_confirmDelete: Bool;
@@ -527,6 +534,10 @@ public class APM_PoseEditor extends IScriptable {
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
         this.PublishCamera();
+        if this.m_clearPressedButton {
+            this.m_clearPressedButton = false;
+            this.m_pressedButtonId = "";
+        }
         this.UpdateMarkers();
         this.UpdateRename();
         this.SyncProps(timeDelta);
@@ -746,8 +757,10 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionPoses = poses;
         this.AddSeparator(poses);
         this.m_posesTitle = this.CreateText(poses, this.L("APM-Title-Poses", "Poses"), 16.0, 6.0, 290.0, 28.0, 16, APM_ColorAccent());
-        this.CreateSmallButton(poses, "neutral:t", this.L("APM-Button-TPose", "T pose"), 314.0, 6.0, 100.0, 28.0);
-        this.CreateSmallButton(poses, "neutral:a", this.L("APM-Button-APose", "A pose"), 418.0, 6.0, 100.0, 28.0);
+        this.CreateSmallButton(poses, "neutral:t", this.L("APM-Button-TPose", "T pose"), 314.0, 6.0, 76.0, 28.0);
+        this.CreateSmallButton(poses, "neutral:a", this.L("APM-Button-APose", "A pose"), 394.0, 6.0, 76.0, 28.0);
+        let handsButton = this.CreateSmallButton(poses, "lib:hands", this.L("APM-Button-HandPoses", "Hands"), 474.0, 6.0, 60.0, 28.0);
+        this.TipL(handsButton, "APM-Tip-HandPoses", "Saved hand poses (palm and fingers): one pose fits either hand, applied to the hand of the open tab");
         this.CreateIconButton(poses, "poses:folder", "folder-open", 538.0, 6.0, this.L("APM-Tip-PosesFolder", "Open the folder of the saved poses (to share them; in full screen the game is minimized)"));
         this.CreateIconButton(poses, "poses:open", "chevron-down", 584.0, 6.0, this.L("APM-Tip-PosesShow", "Show the saved poses"));
         this.CreateIconButton(poses, "poses:close", "chevron-up", 584.0, 6.0, this.L("APM-Tip-PosesHide", "Hide the saved poses"));
@@ -1152,6 +1165,8 @@ public class APM_PoseEditor extends IScriptable {
                     marker.kind = APM_MarkerKindFingerDetail();
                 } else if APM_IsHandGroup(marker.group) {
                     marker.kind = APM_MarkerKindFinger();
+                } else if APM_GizmoIsPartCloseUp(i) {
+                    marker.kind = APM_MarkerKindCloseUp();
                 }
                 marker.root = root;
                 marker.dot = dot;
@@ -1866,12 +1881,30 @@ public class APM_PoseEditor extends IScriptable {
 
     // --- Pose library --------------------------------------------------------------------------------------------
 
+    // The list shows the body poses or the saved hand poses (Hands button).
+    private func LibraryCount() -> Int32 {
+        return this.m_handLibrary ? APM_GetHandPoseCount() : APM_GetPoseCount();
+    }
+
+    private func LibraryName(index: Int32) -> String {
+        return this.m_handLibrary ? APM_GetHandPoseName(index) : APM_GetPoseName(index);
+    }
+
+    // Hand a hand pose is saved from / applied to: the hand of the open tab (1 left, 2 right), else a message.
+    private func HandPoseTarget() -> Int32 {
+        let hand = this.PresetHand();
+        if hand == 0 {
+            this.SetStatus(APM_Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first"));
+        }
+        return hand;
+    }
+
     private func ReloadPoses() {
         ArrayClear(this.m_poseNames);
-        let count = APM_GetPoseCount();
+        let count = this.LibraryCount();
         let i = 0;
         while i < count {
-            ArrayPush(this.m_poseNames, APM_GetPoseName(i));
+            ArrayPush(this.m_poseNames, this.LibraryName(i));
             i += 1;
         }
         let pages = this.PageCount();
@@ -1898,11 +1931,11 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         this.m_poseListTimer = 0.0;
-        let count = APM_GetPoseCount();
+        let count = this.LibraryCount();
         let changed = count != ArraySize(this.m_poseNames);
         let i = 0;
         while !changed && i < count {
-            changed = NotEquals(APM_GetPoseName(i), this.m_poseNames[i]);
+            changed = NotEquals(this.LibraryName(i), this.m_poseNames[i]);
             i += 1;
         }
         if changed {
@@ -2417,7 +2450,7 @@ public class APM_PoseEditor extends IScriptable {
         if !confirm || Equals(text, this.m_renameFrom) {
             return;
         }
-        let renamed = APM_RenamePose(this.m_renameFrom, text);
+        let renamed = this.m_handLibrary ? APM_RenameHandPose(this.m_renameFrom, text) : APM_RenamePose(this.m_renameFrom, text);
         if StrLen(renamed) > 0 {
             this.m_selectedPose = renamed;
         } else {
@@ -2718,9 +2751,22 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        let base = APM_GetBasePoseName();
-        this.m_posesTitle.SetText(APM_Text("APM-Title-Poses", "Poses") + " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount())
-            + (StrLen(base) > 0 ? "  - " + base : ""));
+        let pageText = " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount());
+        if this.m_handLibrary {
+            let hand = this.PresetHand();
+            let handText = hand == 1 ? APM_Text("APM-Label-HandPoseLeft", "left hand") : (hand == 2 ? APM_Text("APM-Label-HandPoseRight", "right hand") : "");
+            this.m_posesTitle.SetText(APM_Text("APM-Title-HandPoses", "Hand poses") + pageText + (StrLen(handText) > 0 ? "  - " + handText : ""));
+        } else {
+            let base = APM_GetBasePoseName();
+            this.m_posesTitle.SetText(APM_Text("APM-Title-Poses", "Poses") + pageText + (StrLen(base) > 0 ? "  - " + base : ""));
+        }
+        this.SetButton("lib:hands", this.m_handLibrary, true);
+        let neutralT = this.FindButton("neutral:t");
+        let neutralA = this.FindButton("neutral:a");
+        if IsDefined(neutralT) && IsDefined(neutralA) {
+            neutralT.root.SetVisible(!this.m_handLibrary);
+            neutralA.root.SetVisible(!this.m_handLibrary);
+        }
         this.SetButton("autoik", this.m_autoIk, true);
         this.RefreshCharacter();
         let limitsOn = this.FindButton("limits:on");
@@ -2950,6 +2996,10 @@ public class APM_PoseEditor extends IScriptable {
             if inUse && marker.kind == APM_MarkerKindFinger() {
                 inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDistance() || Equals(marker.group, selectedGroup));
             }
+            // Heels: up close, or while selected (their leg's tab alone is often open from afar).
+            if inUse && marker.kind == APM_MarkerKindCloseUp() {
+                inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDistance() || marker.part == selected);
+            }
             if inUse && marker.kind == APM_MarkerKindFingerDetail() {
                 inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && anywhere.Z < this.FingerDistance()));
             }
@@ -2992,6 +3042,7 @@ public class APM_PoseEditor extends IScriptable {
                 marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
                 marker.screenX = screen.X;
                 marker.screenY = screen.Y;
+                marker.depth = anywhere.Z;
                 let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
                 let size = isDetail ? 7.0 : 10.0;
                 if isSelected || marker.isHovered {
@@ -3001,7 +3052,11 @@ public class APM_PoseEditor extends IScriptable {
                 if IsDefined(marker.halo) {
                     marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
                 }
-                marker.root.SetOpacity(locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75));
+                let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
+                if marker.isBehind && !isSelected && !marker.isHovered {
+                    opacity *= 0.45; // covered by a nearer marker (last frame's overlap pass)
+                }
+                marker.root.SetOpacity(opacity);
                 if mode == APM_DragTwist() {
                     marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
                     marker.dot.SetRotation(boneAngle + 90.0);
@@ -3015,6 +3070,7 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
+        this.ResolveMarkerOverlaps(s);
         // Choosing "Eyes (both)" or a single eye in the Head tab switches the eye markers.
         if selected == this.m_leftEyePart || selected == this.m_rightEyePart {
             this.SetEyesTogether(false);
@@ -3023,6 +3079,80 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.UpdateRootMarker(camera, toWorld, selected);
         this.UpdateHint();
+    }
+
+    // Markers that cover each other on screen (e.g. the fingers of two hands one above the other): the nearer one is
+    // drawn on top, so it is the one the cursor picks, and the farther ones turn fainter. All stay selectable.
+    private func ResolveMarkerOverlaps(s: Float) {
+        let reach = 12.0 * s;
+        let shown: array<ref<APM_Marker>>;
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            let marker = this.m_markers[i];
+            marker.isBehind = false;
+            if marker.root.IsVisible() {
+                ArrayPush(shown, marker);
+            }
+            i += 1;
+        }
+        let front: array<ref<APM_Marker>>;
+        i = 0;
+        while i < ArraySize(shown) {
+            let a = shown[i];
+            let j = i + 1;
+            while j < ArraySize(shown) {
+                let b = shown[j];
+                if AbsF(a.screenX - b.screenX) < reach && AbsF(a.screenY - b.screenY) < reach {
+                    let nearer = a.depth <= b.depth ? a : b;
+                    let farther = a.depth <= b.depth ? b : a;
+                    farther.isBehind = true;
+                    if !ArrayContains(front, nearer) {
+                        ArrayPush(front, nearer);
+                    }
+                }
+                j += 1;
+            }
+            i += 1;
+        }
+        if ArraySize(front) == 0 {
+            ArrayClear(this.m_raisedParts);
+            return;
+        }
+        // Raised farthest first, so among overlapping front markers the nearest ends on top; the hint stays above.
+        let sorted = 0;
+        while sorted < ArraySize(front) {
+            let farthest = sorted;
+            let k = sorted + 1;
+            while k < ArraySize(front) {
+                if front[k].depth > front[farthest].depth {
+                    farthest = k;
+                }
+                k += 1;
+            }
+            let swap = front[sorted];
+            front[sorted] = front[farthest];
+            front[farthest] = swap;
+            sorted += 1;
+        }
+        // Reordered only when that changes (reordering resets the hover under the cursor).
+        let same = ArraySize(front) == ArraySize(this.m_raisedParts);
+        i = 0;
+        while same && i < ArraySize(front) {
+            same = front[i].part == this.m_raisedParts[i];
+            i += 1;
+        }
+        if same {
+            return;
+        }
+        ArrayClear(this.m_raisedParts);
+        let layer = this.m_gizmoLayer;
+        i = 0;
+        while i < ArraySize(front) {
+            ArrayPush(this.m_raisedParts, front[i].part);
+            layer.ReorderChild(front[i].root, layer.GetNumChildren() - 1);
+            i += 1;
+        }
+        layer.ReorderChild(this.m_hint, layer.GetNumChildren() - 1);
     }
 
     // Label next to the hovered (or dragged) marker: what a drag does now, and what the keys change.
@@ -3812,7 +3942,17 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "face:folder") {
             APM_OpenFolder(1);
         } else if Equals(id, "poses:folder") {
-            APM_OpenFolder(0);
+            APM_OpenFolder(this.m_handLibrary ? 2 : 0);
+        } else if Equals(id, "lib:hands") {
+            if this.m_renaming {
+                this.FinishRename(false);
+            }
+            this.m_handLibrary = !this.m_handLibrary;
+            this.m_posesOpen = true;
+            APM_SessionSet("PosesOpen", 1.0);
+            this.m_selectedPose = "";
+            this.m_posePage = 0;
+            this.ReloadPoses();
         } else if Equals(id, "face:reset") {
             APM_FaceReset();
         } else if Equals(id, "face:unload") {
@@ -3864,18 +4004,28 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_selectedPose = this.m_poseNames[index];
             }
         } else if Equals(id, "savenew") {
-            let name = APM_SaveNewPose();
-            this.ReloadPoses();
-            if StrLen(name) > 0 {
-                this.m_selectedPose = name;
-                this.ShowPose(name);
-                this.StartRename(name); // type a name right away (Esc keeps the default one)
-            } else {
-                this.SetStatus(APM_Text("APM-Msg-PoseSaveFailed", "Could not save the pose"));
+            let saveHand = this.m_handLibrary ? this.HandPoseTarget() : 0;
+            if !this.m_handLibrary || saveHand > 0 {
+                let name = this.m_handLibrary ? APM_SaveNewHandPose(saveHand == 2) : APM_SaveNewPose();
+                this.ReloadPoses();
+                if StrLen(name) > 0 {
+                    this.m_selectedPose = name;
+                    this.ShowPose(name);
+                    this.StartRename(name); // type a name right away (Esc keeps the default one)
+                } else {
+                    this.SetStatus(APM_Text("APM-Msg-PoseSaveFailed", "Could not save the pose"));
+                }
             }
         } else if Equals(id, "overwrite") {
             if StrLen(this.m_selectedPose) > 0 {
-                APM_SavePose(this.m_selectedPose);
+                if this.m_handLibrary {
+                    let overwriteHand = this.HandPoseTarget();
+                    if overwriteHand > 0 {
+                        APM_SaveHandPose(this.m_selectedPose, overwriteHand == 2);
+                    }
+                } else {
+                    APM_SavePose(this.m_selectedPose);
+                }
             }
         } else if Equals(id, "rename") {
             if StrLen(this.m_selectedPose) > 0 {
@@ -3883,7 +4033,16 @@ public class APM_PoseEditor extends IScriptable {
             }
         } else if Equals(id, "load") {
             if StrLen(this.m_selectedPose) > 0 {
-                let loaded = APM_LoadPose(this.m_selectedPose);
+                let loaded = true;
+                if this.m_handLibrary {
+                    let loadHand = this.HandPoseTarget();
+                    if loadHand > 0 {
+                        APM_HistoryCheckpoint();
+                        loaded = APM_LoadHandPose(this.m_selectedPose, loadHand == 2);
+                    }
+                } else {
+                    loaded = APM_LoadPose(this.m_selectedPose);
+                }
                 if !loaded {
                     this.SetStatus(APM_TextWith("APM-Msg-PoseLoadFailed", "Could not load {0}", this.m_selectedPose));
                 }
@@ -3891,7 +4050,11 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "delete") {
             if StrLen(this.m_selectedPose) > 0 {
                 if this.m_confirmDelete {
-                    APM_DeletePose(this.m_selectedPose);
+                    if this.m_handLibrary {
+                        APM_DeleteHandPose(this.m_selectedPose);
+                    } else {
+                        APM_DeletePose(this.m_selectedPose);
+                    }
                     this.m_selectedPose = "";
                     this.ReloadPoses();
                 } else {
@@ -4317,6 +4480,7 @@ public class APM_PoseEditor extends IScriptable {
         if !IsDefined(button) || !button.isEnabled {
             return false;
         }
+        this.m_pressedButtonId = button.id;
         if Equals(StrBeforeFirst(button.id, ":"), "drag") {
             let row = this.FindRow(Cast<Uint32>(StringToInt(StrAfterFirst(button.id, ":"))));
             if IsDefined(row) {
@@ -4339,6 +4503,12 @@ public class APM_PoseEditor extends IScriptable {
         if Equals(StrBeforeFirst(button.id, ":"), "drag") {
             return false; // handled by the drag logic
         }
+        // Only a press that started on this same button clicks it: the end of a drag (slider, marker, camera) over
+        // a button does nothing.
+        if !Equals(this.m_pressedButtonId, button.id) || IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) {
+            return false;
+        }
+        this.m_pressedButtonId = "";
         // A click ends the hover tooltip; its feedback (if any) shows above this button.
         this.m_lastButton = button;
         this.m_tipTimer = -1000.0;
@@ -4394,6 +4564,7 @@ public class APM_PoseEditor extends IScriptable {
         if !e.IsAction(n"click") {
             return false;
         }
+        this.m_pressedButtonId = "";
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
         if !IsDefined(marker) || !marker.isHovered {
             return false; // hover not taken (camera moving, UI hidden): the click belongs to the camera
@@ -4482,6 +4653,7 @@ public class APM_PoseEditor extends IScriptable {
         if !e.IsAction(n"click") {
             return false;
         }
+        this.m_clearPressedButton = true; // forgotten at the next update, whatever order the release callbacks run in
         if IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) {
             this.m_dragRow = null;
             this.m_dragMarker = null;

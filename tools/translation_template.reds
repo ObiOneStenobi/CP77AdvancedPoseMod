@@ -81,6 +81,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Title-Poses", "Poses");
         this.Text("APM-Button-TPose", "T pose");
         this.Text("APM-Button-APose", "A pose");
+        this.Text("APM-Button-HandPoses", "Hands");
+        this.Text("APM-Tip-HandPoses", "Saved hand poses (palm and fingers): one pose fits either hand, applied to the hand of the open tab");
         this.Text("APM-Tip-PosesFolder", "Open the folder of the saved poses (to share them; in full screen the game is minimized)");
         this.Text("APM-Tip-PosesShow", "Show the saved poses");
         this.Text("APM-Tip-PosesHide", "Hide the saved poses");
@@ -118,6 +120,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y");
         this.Text("APM-Help-UndoRedo", "undo / redo");
         this.Text("APM-Label-Root", "V's root (Photo Mode position)");
+        this.Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first");
         this.Text("APM-Msg-TypingUnavailable", "Typing is not available");
         this.Text("APM-Picker-Count", "{0} items");
         this.Text("APM-Picker-ClickToSearch", "Click to search");
@@ -131,6 +134,9 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-PartShort-Eyes", "Eyes");
         this.Text("APM-Row-FocusDistance", "Focus distance");
         this.Text("APM-Tip-ResetAllConfirm", "Click again to reset everything");
+        this.Text("APM-Label-HandPoseLeft", "left hand");
+        this.Text("APM-Label-HandPoseRight", "right hand");
+        this.Text("APM-Title-HandPoses", "Hand poses");
         this.Text("APM-Button-ConfirmDelete", "Confirm delete");
         this.Text("APM-Hint-ShiftRotate", "(Shift: rotate, Alt: free, Ctrl: twist)");
         this.Text("APM-Hint-ShiftMoveIk", "(Shift: move with IK, Alt: free, Ctrl: twist)");
@@ -234,6 +240,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Part-RightPalmRing", "Right palm - ring");
         this.Text("APM-Part-RightPalmLittle", "Right palm - little");
         this.Text("APM-Part-RightHandProp", "Right hand prop");
+        this.Text("APM-Part-LeftHeel", "Left heel");
+        this.Text("APM-Part-RightHeel", "Right heel");
 
         // Body parts (short names on the buttons, the tab says the side)
         this.Text("APM-PartShort-Shoulder", "shoulder");
@@ -264,5 +272,6 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-PartShort-PalmRing", "palm - ring");
         this.Text("APM-PartShort-PalmLittle", "palm - little");
         this.Text("APM-PartShort-HandProp", "hand prop");
+        this.Text("APM-PartShort-Heel", "heel");
     }
 }

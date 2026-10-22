@@ -16,7 +16,8 @@
 
 // Our menu items use attribute keys the game does not know (7700-7799). Their values are handled by the
 // plugin, so they must not reach the game's Photo Mode system. gameuiPhotoModeMenuController::OnAttributeUpdated
-// (native) parses its arguments and forwards them with `call Forward(this + 0x130, attribute, value, apply)`;
+// (native) parses its arguments and forwards them with `call Forward(this + 0x130, attribute, value, apply)`
+// (+0x140 since 2.5);
 // we hook that internal call and drop our keys.
 namespace
 {
@@ -63,8 +64,8 @@ using Handler_t = void (*)(void*, void*, void*, void*);
 
 uintptr_t FindForwardCall(uintptr_t aHandler)
 {
-    // lea rcx, [rdi+130h]
-    constexpr std::array<uint8_t, 7> leaPattern = {0x48, 0x8D, 0x8F, 0x30, 0x01, 0x00, 0x00};
+    // lea rcx, [rdi+disp32] with a small displacement (0x130 in 2.31, 0x140 in 2.5)
+    constexpr std::array<uint8_t, 3> leaPattern = {0x48, 0x8D, 0x8F};
 
     std::array<uint8_t, 0x140> code{};
     if (!APM::SafeMemory::ReadBytes(aHandler, code.data(), code.size()))
@@ -72,13 +73,14 @@ uintptr_t FindForwardCall(uintptr_t aHandler)
         return 0;
     }
 
-    for (size_t i = 0; i + leaPattern.size() < code.size(); ++i)
+    for (size_t i = 0; i + 7 < code.size(); ++i)
     {
-        if (std::memcmp(&code[i], leaPattern.data(), leaPattern.size()) != 0)
+        if (std::memcmp(&code[i], leaPattern.data(), leaPattern.size()) != 0 || code[i + 5] != 0 || code[i + 6] != 0 ||
+            code[i + 4] != 0x01)
         {
             continue;
         }
-        for (size_t j = i + leaPattern.size(); j + 5 <= code.size() && j < i + 0x24; ++j)
+        for (size_t j = i + 7; j + 5 <= code.size() && j < i + 0x24; ++j)
         {
             if (code[j] == 0xE8)
             {

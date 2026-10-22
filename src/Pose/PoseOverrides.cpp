@@ -1,6 +1,7 @@
 #include "Pose/PoseOverrides.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/GizmoState.hpp"
@@ -559,12 +560,17 @@ bool Save(const std::string& aName)
 
 bool Load(const std::string& aName)
 {
-    const auto name = SanitizeName(aName);
-    const auto path = GetPoseDirectory() / (name + ".json");
+    const std::string& name = aName;
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetPoseDirectory(), name, path))
+    {
+        Log::Warn("LoadPose: invalid name: %s", name.c_str());
+        return false;
+    }
     std::ifstream in(path);
     if (!in)
     {
-        Log::Warn("LoadPose: file not found: %s", path.string().c_str());
+        Log::Warn("LoadPose: file not found: %s", NamedFiles::ToUtf8(path).c_str());
         return false;
     }
 
@@ -914,59 +920,56 @@ std::string GetBasePoseName()
 
 std::vector<std::string> ListSaved()
 {
-    std::vector<std::string> names;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(GetPoseDirectory(), ec))
-    {
-        if (entry.is_regular_file() && entry.path().extension() == ".json")
-        {
-            names.push_back(entry.path().stem().string());
-        }
-    }
-    std::sort(names.begin(), names.end());
-    return names;
+    return NamedFiles::List(GetPoseDirectory());
 }
 
 bool Delete(const std::string& aName)
 {
-    const auto name = SanitizeName(aName);
-    if (name.empty())
+    const std::string& name = aName;
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetPoseDirectory(), name, path))
     {
         return false;
     }
     std::error_code ec;
-    const bool removed = std::filesystem::remove(GetPoseDirectory() / (name + ".json"), ec);
+    const bool removed = std::filesystem::remove(path, ec);
     Log::Info("Pose '%s' %s", name.c_str(), removed ? "deleted" : "not found");
     return removed;
 }
 
 std::string Rename(const std::string& aOldName, const std::string& aNewName)
 {
-    const auto from = SanitizeName(aOldName);
-    std::string base = SanitizeName(aNewName);
+    // The file stays in its folder (poses of other mods keep their subfolder); only its own name changes.
+    const std::string& from = aOldName;
+    const std::string folder = NamedFiles::FolderOf(from);
+    // The field shows the whole name: a folder typed in front is the file's own one, not part of the new name.
+    const bool typedFolder = !folder.empty() && aNewName.rfind(folder, 0) == 0;
+    std::string base = SanitizeName(typedFolder ? aNewName.substr(folder.size()) : aNewName);
     while (!base.empty() && base.front() == ' ')
     {
         base.erase(base.begin());
     }
-    if (from.empty() || base.empty())
+    std::filesystem::path source;
+    if (base.empty() || !NamedFiles::Resolve(GetPoseDirectory(), from, source))
     {
         return {};
     }
-    if (base == from)
+    if (folder + base == from)
     {
         return from;
     }
     std::error_code ec;
-    const auto source = GetPoseDirectory() / (from + ".json");
     if (!std::filesystem::exists(source, ec))
     {
         return {};
     }
-    std::string name = base;
-    for (int number = 2; std::filesystem::exists(GetPoseDirectory() / (name + ".json"), ec); ++number)
+    std::string name = folder + base;
+    std::filesystem::path target;
+    for (int number = 2; NamedFiles::Resolve(GetPoseDirectory(), name, target) && std::filesystem::exists(target, ec);
+         ++number)
     {
         // Same name in another case on a case-insensitive disk: renaming onto itself is fine.
-        if (std::filesystem::equivalent(source, GetPoseDirectory() / (name + ".json"), ec))
+        if (std::filesystem::equivalent(source, target, ec))
         {
             break;
         }
@@ -974,9 +977,13 @@ std::string Rename(const std::string& aOldName, const std::string& aNewName)
         {
             return {};
         }
-        name = base + " " + std::to_string(number);
+        name = folder + base + " " + std::to_string(number);
     }
-    std::filesystem::rename(source, GetPoseDirectory() / (name + ".json"), ec);
+    if (!NamedFiles::Resolve(GetPoseDirectory(), name, target))
+    {
+        return {};
+    }
+    std::filesystem::rename(source, target, ec);
     if (ec)
     {
         Log::Warn("Pose '%s' could not be renamed to '%s': %s", from.c_str(), name.c_str(), ec.message().c_str());

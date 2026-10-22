@@ -67,28 +67,35 @@ bool ReadGameVersion(uint16_t (&aOut)[4])
 // panel shows "Unsupported game version".
 bool CheckGameVersion()
 {
-    constexpr uint16_t Supported[4] = {3, 0, 80, 51928}; // 2.31 (RED4EXT_V1_RUNTIME_VERSION_2_31)
+    // File versions of the supported game builds.
+    constexpr uint16_t Supported[][4] = {
+        {3, 0, 80, 51928}, // 2.31
+        {3, 0, 88, 46235}, // 2.5
+    };
     uint16_t version[4]{};
     if (!ReadGameVersion(version))
     {
         APM::Log::Error("Could not read the game version: Photo Mode hooks are off");
         return false;
     }
-    if (!std::equal(std::begin(version), std::end(version), std::begin(Supported)))
+    for (const auto& supported : Supported)
     {
-        if (APM::Config::Get().allowUnknownGameVersion)
+        if (std::equal(std::begin(version), std::end(version), std::begin(supported)))
         {
-            APM::Log::Warn("Game version %u.%u.%u.%u is not the one AdvancedPoseMod was built for (2.31 = 3.0.80.51928); "
-                           "AllowUnknownGameVersion=1: hooks installed anyway. If the game crashes, set it back to 0.",
-                           version[0], version[1], version[2], version[3]);
             return true;
         }
-        APM::Log::Error("Game version %u.%u.%u.%u is not supported (built for 2.31 = 3.0.80.51928): Photo Mode hooks "
-                        "are off. Update AdvancedPoseMod (or try [Compatibility] AllowUnknownGameVersion=1 in config.ini).",
-                        version[0], version[1], version[2], version[3]);
-        return false;
     }
-    return true;
+    if (APM::Config::Get().allowUnknownGameVersion)
+    {
+        APM::Log::Warn("Game version %u.%u.%u.%u is not one AdvancedPoseMod was built for (2.31, 2.5); "
+                       "AllowUnknownGameVersion=1: hooks installed anyway. If the game crashes, set it back to 0.",
+                       version[0], version[1], version[2], version[3]);
+        return true;
+    }
+    APM::Log::Error("Game version %u.%u.%u.%u is not supported (built for 2.31 and 2.5): Photo Mode hooks are off. "
+                    "Update AdvancedPoseMod (or try [Compatibility] AllowUnknownGameVersion=1 in config.ini).",
+                    version[0], version[1], version[2], version[3]);
+    return false;
 }
 
 void OnPostRegisterTypes()

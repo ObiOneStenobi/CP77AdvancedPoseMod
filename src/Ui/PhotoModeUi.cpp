@@ -1,6 +1,7 @@
 #include "Ui/PhotoModeUi.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
 #include "Pose/Characters.hpp"
@@ -13,6 +14,8 @@
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <RED4ext/CName.hpp>
 #include <string_view>
 
@@ -23,6 +26,7 @@
 #include <atomic>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1673,5 +1677,192 @@ bool ApplyHandPreset(bool aRightHand, int32_t aPreset)
     g_noLimits = false;
     RequestRefresh();
     return any;
+}
+
+// --- Saved hand poses -----------------------------------------------------------------------------------------------
+// Palm and fingers of one hand, as local rotations from the reference pose without the side (the rig is mirrored, so
+// the same file poses either hand). Files: red4ext/plugins/AdvancedPoseMod/hands/<name>.json (subfolders allowed).
+namespace
+{
+constexpr const char* HandPoseBones[] = {
+    "InHandThumb", "InHandIndex", "InHandMiddle", "InHandRing", "InHandPinky", "HandThumb1",  "HandThumb2",
+    "HandIndex1",  "HandIndex2",  "HandIndex3",   "HandMiddle1", "HandMiddle2", "HandMiddle3", "HandRing1",
+    "HandRing2",   "HandRing3",   "HandPinky1",   "HandPinky2",  "HandPinky3",
+};
+} // namespace
+
+std::filesystem::path GetHandPoseDirectory()
+{
+    return GetRuntime().pluginDir / L"hands";
+}
+
+std::vector<std::string> ListHandPoses()
+{
+    return NamedFiles::List(GetHandPoseDirectory());
+}
+
+bool SaveHandPose(const std::string& aName, bool aRightHand)
+{
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetHandPoseDirectory(), aName, path))
+    {
+        Log::Warn("SaveHandPose: invalid name");
+        return false;
+    }
+    const std::string side = aRightHand ? "Right" : "Left";
+    nlohmann::json root;
+    root["format"] = "AdvancedPoseMod.Hand";
+    root["version"] = 1;
+    auto& bones = root["bones"] = nlohmann::json::object();
+    for (const char* bone : HandPoseBones)
+    {
+        const std::string name = side + bone;
+        Math::Quat reference{};
+        float sign = 1.f;
+        Math::Quat local{};
+        Math::Vec3 translation{};
+        if (!Pose::JointLimits::GetReferenceFrame(name, true, reference, sign) ||
+            !Pose::GizmoState::GetFinalLocal(RED4ext::CName(name.c_str()).hash, local, translation))
+        {
+            continue;
+        }
+        const Math::Quat relative = Math::Normalize(Math::Mul(Math::Conjugate(reference), local));
+        bones[bone] = {relative.i, relative.j, relative.k, relative.r};
+    }
+    if (bones.empty())
+    {
+        Log::Warn("SaveHandPose: the hand is not available");
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::trunc);
+    if (!out)
+    {
+        Log::Error("SaveHandPose: cannot write %s", NamedFiles::ToUtf8(path).c_str());
+        return false;
+    }
+    out << root.dump(1);
+    Log::Info("Hand pose saved: %s (%s hand, %zu bones)", aName.c_str(), side.c_str(), bones.size());
+    return true;
+}
+
+std::string SaveNewHandPose(bool aRightHand)
+{
+    std::error_code ec;
+    for (int number = 1; number < 10000; ++number)
+    {
+        char name[32]{};
+        std::snprintf(name, sizeof(name), "Hand %03d", number);
+        if (!std::filesystem::exists(GetHandPoseDirectory() / (std::string(name) + ".json"), ec))
+        {
+            return SaveHandPose(name, aRightHand) ? std::string(name) : std::string();
+        }
+    }
+    return {};
+}
+
+bool LoadHandPose(const std::string& aName, bool aRightHand)
+{
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetHandPoseDirectory(), aName, path))
+    {
+        return false;
+    }
+    std::ifstream in(path);
+    if (!in)
+    {
+        Log::Warn("LoadHandPose: file not found: %s", NamedFiles::ToUtf8(path).c_str());
+        return false;
+    }
+    std::vector<std::pair<std::string, Math::Quat>> rotations;
+    try
+    {
+        const auto root = nlohmann::json::parse(in);
+        for (const char* bone : HandPoseBones)
+        {
+            const auto it = root.at("bones").find(bone);
+            if (it == root.at("bones").end())
+            {
+                continue;
+            }
+            const auto q = it->get<std::array<float, 4>>();
+            rotations.emplace_back(bone, Math::Normalize(Math::Quat{q[0], q[1], q[2], q[3]}));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        Log::Error("LoadHandPose: %s: %s", aName.c_str(), e.what());
+        return false;
+    }
+    const std::string side = aRightHand ? "Right" : "Left";
+    g_noLimits = true; // stored as posed (it was within the limits, or the user wanted it so)
+    bool any = false;
+    for (const auto& [bone, rotation] : rotations)
+    {
+        const std::string name = side + bone;
+        Math::Quat reference{};
+        float sign = 1.f;
+        if (!Pose::JointLimits::GetReferenceFrame(name, true, reference, sign))
+        {
+            continue;
+        }
+        any = SetBoneLocal(name.c_str(), Math::Normalize(Math::Mul(reference, rotation)), true) || any;
+    }
+    MirrorGroup(aRightHand ? "Right hand" : "Left hand");
+    g_noLimits = false;
+    RequestRefresh();
+    Log::Info("Hand pose loaded: %s (%s hand, %zu bones)", aName.c_str(), side.c_str(), rotations.size());
+    return any;
+}
+
+bool DeleteHandPose(const std::string& aName)
+{
+    std::filesystem::path path;
+    std::error_code ec;
+    return NamedFiles::Resolve(GetHandPoseDirectory(), aName, path) && std::filesystem::remove(path, ec);
+}
+
+std::string RenameHandPose(const std::string& aOldName, const std::string& aNewName)
+{
+    const std::string folder = NamedFiles::FolderOf(aOldName);
+    const bool typedFolder = !folder.empty() && aNewName.rfind(folder, 0) == 0;
+    std::string base = NamedFiles::SanitizeNew(typedFolder ? aNewName.substr(folder.size()) : aNewName);
+    while (!base.empty() && base.front() == ' ')
+    {
+        base.erase(base.begin());
+    }
+    std::filesystem::path source;
+    std::filesystem::path target;
+    std::error_code ec;
+    if (base.empty() || !NamedFiles::Resolve(GetHandPoseDirectory(), aOldName, source) ||
+        !std::filesystem::exists(source, ec))
+    {
+        return {};
+    }
+    std::string name = folder + base;
+    if (name == aOldName)
+    {
+        return name;
+    }
+    for (int number = 2; NamedFiles::Resolve(GetHandPoseDirectory(), name, target) && std::filesystem::exists(target, ec);
+         ++number)
+    {
+        if (std::filesystem::equivalent(source, target, ec))
+        {
+            break;
+        }
+        if (number > 999)
+        {
+            return {};
+        }
+        name = folder + base + " " + std::to_string(number);
+    }
+    if (!NamedFiles::Resolve(GetHandPoseDirectory(), name, target))
+    {
+        return {};
+    }
+    std::filesystem::rename(source, target, ec);
+    return ec ? std::string() : name;
 }
 } // namespace APM::Ui::PhotoModeUi

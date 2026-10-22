@@ -64,7 +64,7 @@ bool FindRange(std::string_view aBone, JointRange& aOut)
         {"Arm", {-70.f, 130.f, 100.f, 90.f}},   {"ForeArm", {-5.f, 150.f, 15.f, 90.f}},
         {"Hand", {-80.f, 80.f, 40.f, 30.f}},    {"UpLeg", {-35.f, 125.f, 55.f, 45.f}},
         {"Leg", {-150.f, 5.f, 8.f, 30.f}},      {"Foot", {-50.f, 45.f, 30.f, 25.f}},
-        {"ToeBase", {-40.f, 60.f, 10.f, 10.f}},
+        {"ToeBase", {-40.f, 60.f, 10.f, 10.f}},   {"Heel", {-30.f, 30.f, 15.f, 15.f}},
         // Palm (metacarpals): small movements; the thumb's base is much freer.
         {"InHandIndex", {-15.f, 25.f, 10.f, 10.f}}, {"InHandMiddle", {-15.f, 25.f, 10.f, 10.f}},
         {"InHandRing", {-15.f, 25.f, 10.f, 10.f}},  {"InHandPinky", {-15.f, 30.f, 12.f, 12.f}},

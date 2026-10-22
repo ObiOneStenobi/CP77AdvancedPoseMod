@@ -55,6 +55,7 @@ std::string ToString(CName aName)
 
 // Cached list of saved pose names, refreshed by APM_GetPoseCount().
 std::vector<std::string> g_poseNames;
+std::vector<std::string> g_handPoseNames;
 
 // --- Photo Mode / skeleton ---------------------------------------------------------------------------------------
 
@@ -356,6 +357,70 @@ void RenamePose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &to);
     aFrame->code++;
     Return(aOut, CString(APM::Pose::PoseOverrides::Rename(from.c_str(), to.c_str()).c_str()));
+}
+
+// --- Saved hand poses ---------------------------------------------------------------------------------------------
+
+void GetHandPoseCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    g_handPoseNames = APM::Ui::PhotoModeUi::ListHandPoses();
+    Return(aOut, static_cast<int32_t>(g_handPoseNames.size()));
+}
+
+void GetHandPoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    const bool valid = index >= 0 && index < static_cast<int32_t>(g_handPoseNames.size());
+    Return(aOut, CString(valid ? g_handPoseNames[index].c_str() : ""));
+}
+
+void SaveHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString name;
+    bool right = false;
+    RED4ext::GetParameter(aFrame, &name);
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::SaveHandPose(name.c_str(), right));
+}
+
+void SaveNewHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    bool right = false;
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    Return(aOut, CString(APM::Ui::PhotoModeUi::SaveNewHandPose(right).c_str()));
+}
+
+void LoadHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString name;
+    bool right = false;
+    RED4ext::GetParameter(aFrame, &name);
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::LoadHandPose(name.c_str(), right));
+}
+
+void DeleteHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString name;
+    RED4ext::GetParameter(aFrame, &name);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::DeleteHandPose(name.c_str()));
+}
+
+void RenameHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString from;
+    CString to;
+    RED4ext::GetParameter(aFrame, &from);
+    RED4ext::GetParameter(aFrame, &to);
+    aFrame->code++;
+    Return(aOut, CString(APM::Ui::PhotoModeUi::RenameHandPose(from.c_str(), to.c_str()).c_str()));
 }
 
 void GetBasePoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -735,13 +800,15 @@ void IsReady(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, rt.trackerReady && rt.animationReady);
 }
 
-// Opens the folder of saved poses (0) or saved expressions (1) in Explorer.
+// Opens the folder of saved poses (0), saved expressions (1) or saved hand poses (2) in Explorer.
 void OpenFolder(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t kind = 0;
     RED4ext::GetParameter(aFrame, &kind);
     aFrame->code++;
-    const auto path = kind == 1 ? APM::Pose::FaceRig::GetDirectory() : APM::Pose::PoseOverrides::GetPoseDirectory();
+    const auto path = kind == 1   ? APM::Pose::FaceRig::GetDirectory()
+                      : kind == 2 ? APM::Ui::PhotoModeUi::GetHandPoseDirectory()
+                                  : APM::Pose::PoseOverrides::GetPoseDirectory();
     std::error_code ec;
     std::filesystem::create_directories(path, ec);
     const auto result = reinterpret_cast<intptr_t>(ShellExecuteW(nullptr, L"open", path.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL));
@@ -1102,6 +1169,17 @@ void GizmoIsPartDetail(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
                      (catalog[part].mode == APM::Ui::EntryMode::FingerSegment || catalog[part].detail));
 }
 
+// True for body parts listed in the panel whose gizmo only shows close up (heels).
+void GizmoIsPartCloseUp(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    Return(aOut, part >= 0 && part < static_cast<int32_t>(catalog.size()) && catalog[part].closeUp);
+}
+
 // Model-space direction the main bone of a body part looks along (the bone axis that pointed forward in the
 // reference pose, e.g. an eye's gaze); w = 1 when valid.
 void GizmoGetPartForward(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1139,7 +1217,9 @@ void GizmoGetPartParent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
         std::vector<uint64_t> bones;
         for (const auto& entry : APM::Ui::GetBoneCatalog())
         {
-            if (entry.bones.size() == 1 || entry.mode == APM::Ui::EntryMode::Curl)
+            // Close-up parts (heels) are left out: the lines of their children (toes) start from the foot, which is
+            // always shown.
+            if ((entry.bones.size() == 1 || entry.mode == APM::Ui::EntryMode::Curl) && !entry.closeUp)
             {
                 bones.push_back(RED4ext::CName(entry.bones.front()).hash);
             }
@@ -1358,6 +1438,13 @@ void Register()
     ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
     ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
     ::Register("APM_RenamePose", &RenamePose, "String", {{"String", "oldName"}, {"String", "newName"}});
+    ::Register("APM_GetHandPoseCount", &GetHandPoseCount, "Int32", {});
+    ::Register("APM_GetHandPoseName", &GetHandPoseName, "String", {{"Int32", "index"}});
+    ::Register("APM_SaveHandPose", &SaveHandPose, "Bool", {{"String", "name"}, {"Bool", "rightHand"}});
+    ::Register("APM_SaveNewHandPose", &SaveNewHandPose, "String", {{"Bool", "rightHand"}});
+    ::Register("APM_LoadHandPose", &LoadHandPose, "Bool", {{"String", "name"}, {"Bool", "rightHand"}});
+    ::Register("APM_DeleteHandPose", &DeleteHandPose, "Bool", {{"String", "name"}});
+    ::Register("APM_RenameHandPose", &RenameHandPose, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_GetBasePoseName", &GetBasePoseName, "String", {});
     ::Register("APM_PropRecordCount", &PropRecordCount, "Int32", {{"Int32", "kind"}});
     ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
@@ -1425,6 +1512,7 @@ void Register()
     ::Register("APM_GizmoGetChainJoint", &GizmoGetChainJoint, "Vector4", {{"Int32", "chain"}, {"Int32", "joint"}});
     ::Register("APM_GizmoIsPartLocked", &GizmoIsPartLocked, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoIsPartDetail", &GizmoIsPartDetail, "Bool", {{"Int32", "part"}});
+    ::Register("APM_GizmoIsPartCloseUp", &GizmoIsPartCloseUp, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});

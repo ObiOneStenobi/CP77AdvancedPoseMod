@@ -1,6 +1,7 @@
 #include "Pose/FaceRig.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
 #include "Math/Quat.hpp"
 #include "Math/Vec3.hpp"
@@ -614,17 +615,7 @@ std::filesystem::path GetDirectory()
 
 std::vector<std::string> ListSaved()
 {
-    std::vector<std::string> names;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(GetDirectory(), ec))
-    {
-        if (entry.is_regular_file() && entry.path().extension() == ".json")
-        {
-            names.push_back(entry.path().stem().string());
-        }
-    }
-    std::sort(names.begin(), names.end());
-    return names;
+    return NamedFiles::List(GetDirectory());
 }
 
 bool Save(const std::string& aName)
@@ -688,8 +679,13 @@ std::string SaveNew()
 
 bool Load(const std::string& aName)
 {
-    const auto name = SanitizeName(aName);
-    std::ifstream in(GetDirectory() / (name + ".json"));
+    const std::string& name = aName;
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetDirectory(), name, path))
+    {
+        return false;
+    }
+    std::ifstream in(path);
     if (!in)
     {
         return false;
@@ -723,9 +719,14 @@ bool Load(const std::string& aName)
 
 bool Delete(const std::string& aName)
 {
-    const auto name = SanitizeName(aName);
+    const std::string& name = aName;
+    std::filesystem::path path;
+    if (!NamedFiles::Resolve(GetDirectory(), name, path))
+    {
+        return false;
+    }
     std::error_code ec;
-    const bool removed = std::filesystem::remove(GetDirectory() / (name + ".json"), ec);
+    const bool removed = std::filesystem::remove(path, ec);
     if (removed && PoseOverrides::GetFaceBaseName() == name)
     {
         PoseOverrides::SetFaceBase(nullptr);

@@ -3,6 +3,8 @@
 #include "Math/Vec3.hpp"
 
 #include <cstdint>
+#include <filesystem>
+#include <vector>
 #include <string>
 
 // State behind the "Advanced pose" items added to the Pose page of the Photo Mode menu.
@@ -68,6 +70,15 @@ bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
 
 // Hand presets (0 open, 1 relaxed, 2 fist, 3 point, 4 grip): sets the fingers of one hand. Returns false if unknown.
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset);
+
+// Saved hand poses (palm and fingers; one file poses either hand). Names as in NamedFiles (subfolders allowed).
+std::filesystem::path GetHandPoseDirectory();
+std::vector<std::string> ListHandPoses();
+bool SaveHandPose(const std::string& aName, bool aRightHand);
+std::string SaveNewHandPose(bool aRightHand);
+bool LoadHandPose(const std::string& aName, bool aRightHand);
+bool DeleteHandPose(const std::string& aName);
+std::string RenameHandPose(const std::string& aOldName, const std::string& aNewName);
 // Mirror mode: edits of a left / right part are copied, mirrored, to the other side.
 // True if the body part (catalog index) has edits of ours: rotations / moves, or its IK pin moved away from the pose
 // (offset or elbow / knee turn). A loaded full pose or T / A pose alone does not count.

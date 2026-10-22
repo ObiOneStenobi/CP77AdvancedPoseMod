@@ -39,7 +39,7 @@ public native func APM_IsIkChainEnabled(chain: CName) -> Bool
 public native func APM_SetEnabled(enabled: Bool) -> Void
 public native func APM_IsEnabled() -> Bool
 
-// Pose files: red4ext/plugins/AdvancedPoseMod/poses/<name>.json
+// Pose files: red4ext/plugins/AdvancedPoseMod/poses/<name>.json; names of files in subfolders include them ("Folder/Name")
 public native func APM_SavePose(name: String) -> Bool
 public native func APM_LoadPose(name: String) -> Bool
 // Refreshes the list of saved poses and returns its size
@@ -67,6 +67,14 @@ public native func APM_SaveNewPose() -> String
 public native func APM_RenamePose(oldName: String, newName: String) -> String
 // Saved full pose currently replacing the Photo Mode pose ("" if none)
 public native func APM_GetBasePoseName() -> String
+// Saved hand poses (palm and fingers; one file poses either hand): red4ext/plugins/AdvancedPoseMod/hands/<name>.json
+public native func APM_GetHandPoseCount() -> Int32
+public native func APM_GetHandPoseName(index: Int32) -> String
+public native func APM_SaveHandPose(name: String, rightHand: Bool) -> Bool
+public native func APM_SaveNewHandPose(rightHand: Bool) -> String
+public native func APM_LoadHandPose(name: String, rightHand: Bool) -> Bool
+public native func APM_DeleteHandPose(name: String) -> Bool
+public native func APM_RenameHandPose(oldName: String, newName: String) -> String
 // Item records for the prop picker (0 weapons, 1 consumables, 2 other items), as TweakDBID numbers
 public native func APM_PropRecordCount(kind: Int32) -> Int32
 public native func APM_PropRecordAt(kind: Int32, index: Int32) -> Uint64
@@ -166,6 +174,8 @@ public native func APM_GizmoGetChainJoint(chain: Int32, joint: Int32) -> Vector4
 // True while Photo Mode's "Look at camera" turns the part (eyes, head and neck, back for the torso): not editable.
 public native func APM_GizmoIsPartLocked(part: Int32) -> Bool
 public native func APM_GizmoIsPartDetail(part: Int32) -> Bool
+// True for parts listed in the panel whose gizmo only shows close up, like the fingers (heels)
+public native func APM_GizmoIsPartCloseUp(part: Int32) -> Bool
 // Model-space direction a part looks along (e.g. an eye's gaze); w = 1 when valid
 public native func APM_GizmoGetPartForward(part: Int32) -> Vector4
 // Model-space joint of the closest parent part that has a gizmo (thigh -> hips); w = 1 when valid
