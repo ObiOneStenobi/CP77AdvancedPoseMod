@@ -15,8 +15,8 @@ Install with Vortex, or extract the zip into the game folder (the one containing
 
 ## Requirements
 
-- Cyberpunk 2077 2.31 or 2.5 (PC)
-- [RED4ext](https://docs.red4ext.com) 1.30+
+- Cyberpunk 2077 2.5 (PC); for 2.31 use AdvancedPoseMod 1.3.0
+- [RED4ext](https://docs.red4ext.com) with 2.5 support
 - [redscript](https://github.com/jac3km4/redscript)
 - [Codeware](https://github.com/psiberx/cp2077-codeware) (interface translations)
 
@@ -202,7 +202,7 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
 - No face controls or saved expressions yet; the face keeps the Photo Mode expression.
 - No automatic feet on the ground: place the feet with IK.
-- Built for game versions 2.31 and 2.5; on another version the game still starts, but the mod stays off and the panel reports
+- Built for game version 2.5; on another version the game still starts, but the mod stays off and the panel reports
   an unsupported version until the mod is updated. `config.ini` `[Compatibility] AllowUnknownGameVersion=1` tries it
   anyway (at your own risk: if the update moved what the mod reads, the game can crash).
 

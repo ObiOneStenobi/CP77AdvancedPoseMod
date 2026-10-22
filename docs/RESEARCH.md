@@ -231,7 +231,11 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
 
 Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.redscripts`):
 
-- Game file version 3.0.88.46235 (2.31: 3.0.80.51928). `CheckGameVersion` accepts both.
+- Game file version 3.0.88.46235 (2.31: 3.0.80.51928).
+- RED4ext.SDK for 2.5 (`0f5eba4`): `CBaseFunction` grew from 0xB0 to 0xF0 (its `regIndex`, used by MenuGuard, moved),
+  `CStackFrame` from 0x68 to 0xA8, four virtuals were added to `IRTTISystem` before its destructor. A plugin built
+  with the 2.31 SDK would create script functions of the old size on 2.5, so 1.4.0 is built with the 2.5 SDK and
+  `CheckGameVersion` accepts 2.5 only (2.31 stays with 1.3.0).
 - The four Photo Mode hashes (`Activate`, `Deactivate`, `SpawnCharacter`, `ApplyPuppetTransforms`) exist in the 2.5
   address file (same secondary hashes).
 - `animAnimNode_Output::Sample`: same prologue (2.5 `+0x3AACCC`), still vtable slot `0x128`; the neighbouring slots

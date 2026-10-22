@@ -20,11 +20,11 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # -----------------------------------------------------------------------------
 include(FetchContent)
 
-# RED4ext.SDK pinned to a known commit (compatible with RED4ext 1.30 / game 2.31).
+# RED4ext.SDK pinned to a known commit (game 2.5: script function and stack frame layouts changed).
 FetchContent_Declare(
   red4ext_sdk
   GIT_REPOSITORY https://github.com/wopss/RED4ext.SDK.git
-  GIT_TAG        ad7277714ad30d6885d7050c5ba24fa0102f6920
+  GIT_TAG        0f5eba42a4cf3a1161ad3de0b4ed6f1901ec169e
   GIT_SHALLOW    FALSE
 )
 FetchContent_MakeAvailable(red4ext_sdk)

@@ -17,7 +17,7 @@ if [ ! -d winsdk ]; then
 fi
 
 # Sources: RED4ext.SDK, nlohmann/json, redscript (checker), Codeware (reference for localization).
-[ -d ext/RED4ext.SDK ] || { git clone -q https://github.com/wopss/RED4ext.SDK ext/RED4ext.SDK && git -C ext/RED4ext.SDK checkout -q ad72777; }
+[ -d ext/RED4ext.SDK ] || { git clone -q https://github.com/wopss/RED4ext.SDK ext/RED4ext.SDK && git -C ext/RED4ext.SDK checkout -q 0f5eba4; }
 # The SDK includes RED4ext/rtti/... but the folder is RED4ext/RTTI (fine on Windows, not on Linux).
 [ -e ext/RED4ext.SDK/include/RED4ext/rtti ] || ln -s RTTI ext/RED4ext.SDK/include/RED4ext/rtti
 [ -f ext/nlohmann/json.hpp ] || { mkdir -p ext/nlohmann && curl -sSL -o ext/nlohmann/json.hpp https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp; }
