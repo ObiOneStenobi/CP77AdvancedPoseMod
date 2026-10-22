@@ -241,7 +241,9 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
   is still read by `SpawnCharacter`. Other fields of the system moved by `0x10` (`+0x170` -> `+0x180`, ...): not used.
 - `gameuiPhotoModeMenuController`: its forward callback moved from `+0x130` to `+0x140` (see Photo Mode menu).
 - Scripts: redscript 0.5.31 cannot read the 2.5 bundle (header flags `2` instead of `0`, then "failed to fill whole
-  buffer"); the classes and methods the mod wraps are still named in it. To be checked once redscript is updated.
+  buffer"); 0.5.32 (22/10/2026) can. Against the 2.5 bundle the mod's scripts compile without errors; Codeware
+  (`613a1cb` and the 19/10/2026 head) does not yet (classes of its callback system now clash with the game's,
+  `TextInput` methods missing): a Codeware update for 2.5 is needed.
 - Since 1.4.0 the entity / component / rig fields come from the reflection where it has them (`Game/EngineLayout`):
   `entIComponent.name`, `entAnimatedComponent.rig`, `animRig.boneNames` and `animRig.tags` (the native
   `parentIndices` / `referencePoseLS` sit right before `boneNames`, the rig hash right before `tags`). The entity's

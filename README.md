@@ -109,10 +109,10 @@ closer.
   they stay selectable. From afar nothing fades.
 - **Heels** (Left / Right leg tabs; close-up markers like the fingers): the pivot of the front of the foot, turning one
   lifts or lowers the toes around the heel.
-- **Classic gizmo** (button left of *Pose off*: rotation rings, then move arrows, then off): on the selected part,
+- **Gizmo mode** (button next to *Gizmos*: **Direct**, **Rotate**, **Move**): Direct drags the markers (as described below); Rotate puts on the selected part
   three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
-  that turns it as seen from the camera; drag a ring to turn the part around that axis. Arrows move the hips, held
-  items and hands / feet (IK). **L / M** switches between the part's own axes and the character's. While it is on, the
+  that turns it as seen from the camera; drag a ring to turn the part around that axis. Move shows arrows that move the hips, held
+  items and hands / feet (IK). **L / M** switches between the part's own axes and the character's. In Rotate / Move the
   markers only select (click one to put the gizmo on it). The back half of a ring is faint and cannot be picked.
 - Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
   camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
