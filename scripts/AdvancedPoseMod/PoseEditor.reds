@@ -199,7 +199,7 @@ public class APM_Marker extends IScriptable {
     public let screenX: Float; // last position on the ink canvas
     public let screenY: Float;
     public let depth: Float;    // distance from the camera while shown
-    public let isBehind: Bool;  // covered by a nearer marker (drawn fainter, below it)
+    public let behindFade: Float; // 0..1: covered by a nearer marker up close (drawn fainter, below it)
 }
 
 public func APM_MarkerKindBone() -> Int32 { return 0; }
@@ -3053,8 +3053,8 @@ public class APM_PoseEditor extends IScriptable {
                     marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
                 }
                 let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
-                if marker.isBehind && !isSelected && !marker.isHovered {
-                    opacity *= 0.45; // covered by a nearer marker (last frame's overlap pass)
+                if !isSelected && !marker.isHovered {
+                    opacity *= 1.0 - 0.55 * marker.behindFade; // covered by a nearer marker (last frame's overlap pass)
                 }
                 marker.root.SetOpacity(opacity);
                 if mode == APM_DragTwist() {
@@ -3082,14 +3082,16 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Markers that cover each other on screen (e.g. the fingers of two hands one above the other): the nearer one is
-    // drawn on top, so it is the one the cursor picks, and the farther ones turn fainter. All stay selectable.
+    // drawn on top, so it is the one the cursor picks. Up close (camera within the fingers' distance of the nearer
+    // one) the farther ones also turn fainter, more the farther behind they are: full under 1 cm, faintest from 5 cm.
+    // From afar nothing fades (the markers bunch up on screen there). All stay selectable.
     private func ResolveMarkerOverlaps(s: Float) {
         let reach = 12.0 * s;
         let shown: array<ref<APM_Marker>>;
         let i = 0;
         while i < ArraySize(this.m_markers) {
             let marker = this.m_markers[i];
-            marker.isBehind = false;
+            marker.behindFade = 0.0;
             if marker.root.IsVisible() {
                 ArrayPush(shown, marker);
             }
@@ -3105,7 +3107,10 @@ public class APM_PoseEditor extends IScriptable {
                 if AbsF(a.screenX - b.screenX) < reach && AbsF(a.screenY - b.screenY) < reach {
                     let nearer = a.depth <= b.depth ? a : b;
                     let farther = a.depth <= b.depth ? b : a;
-                    farther.isBehind = true;
+                    if nearer.depth < this.FingerDistance() {
+                        let fade = ClampF((farther.depth - nearer.depth - 0.01) / 0.04, 0.0, 1.0);
+                        farther.behindFade = MaxF(farther.behindFade, fade);
+                    }
                     if !ArrayContains(front, nearer) {
                         ArrayPush(front, nearer);
                     }
