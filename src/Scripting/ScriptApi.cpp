@@ -1180,6 +1180,39 @@ void GizmoIsPartCloseUp(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, part >= 0 && part < static_cast<int32_t>(catalog.size()) && catalog[part].closeUp);
 }
 
+// Model-space direction of one of the panel's rotation axes of a body part's main bone, as it is posed now
+// (axis 0 = bend forward / back, 1 = bend sideways, 2 = twist; the classic gizmo's rings); w = 1 when valid.
+void GizmoGetPartAxis(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    int32_t axis = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    RED4ext::GetParameter(aFrame, &axis);
+    aFrame->code++;
+
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) && axis >= 0 && axis < 3)
+    {
+        const auto& entry = catalog[part];
+        const uint64_t bone = RED4ext::CName(entry.bones.front()).hash;
+        APM::Math::Vec3 bend1{};
+        APM::Math::Vec3 bend2{};
+        APM::Math::Vec3 twist{};
+        APM::Math::Quat rotation{};
+        if (APM::Pose::TargetRegistry::GetBoneAxes(bone, bend1, bend2, twist) &&
+            APM::Pose::GizmoState::GetBoneModelRotation(bone, rotation))
+        {
+            // Fingers use their bends swapped (curl first), as the panel does.
+            const bool swap = entry.mode == APM::Ui::EntryMode::Curl || entry.mode == APM::Ui::EntryMode::FingerSegment;
+            const APM::Math::Vec3 local = axis == 2 ? twist : ((axis == 0) != swap ? bend1 : bend2);
+            const APM::Math::Vec3 model = APM::Math::Rotate(rotation, local);
+            result = {model.x, model.y, model.z, 1.f};
+        }
+    }
+    Return(aOut, result);
+}
+
 // Model-space direction the main bone of a body part looks along (the bone axis that pointed forward in the
 // reference pose, e.g. an eye's gaze); w = 1 when valid.
 void GizmoGetPartForward(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1513,6 +1546,7 @@ void Register()
     ::Register("APM_GizmoIsPartLocked", &GizmoIsPartLocked, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoIsPartDetail", &GizmoIsPartDetail, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoIsPartCloseUp", &GizmoIsPartCloseUp, "Bool", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartAxis", &GizmoGetPartAxis, "Vector4", {{"Int32", "part"}, {"Int32", "axis"}});
     ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});

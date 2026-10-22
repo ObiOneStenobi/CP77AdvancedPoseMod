@@ -202,6 +202,39 @@ public class APM_Marker extends IScriptable {
     public let behindFade: Float; // 0..1: covered by a nearer marker up close (drawn fainter, below it)
 }
 
+// Classic gizmo (rotation rings / move arrows on the selected part): one hit square of a ring or an arrow.
+public class APM_GizmoHandle extends IScriptable {
+    public let axis: Int32;    // 0..2 the part's axes (bend forward / back, sideways, twist) or the model's X / Y / Z, 3 = view ring
+    public let isArrow: Bool;
+    public let segment: Int32; // ring segment, or point along the arrow
+    public let root: wref<inkCanvas>;     // hit square (interactive)
+    public let line: wref<inkRectangle>;  // visible ring segment / arrow shaft (line layer), null for the other squares
+    public let isHovered: Bool;
+    public let screenX: Float;
+    public let screenY: Float;
+    public let tangentX: Float; // screen movement per radian (rings) or per meter (arrows) of a drag
+    public let tangentY: Float;
+}
+
+public func APM_ClassicOff() -> Int32 { return 0; }
+public func APM_ClassicRotate() -> Int32 { return 1; }
+public func APM_ClassicMove() -> Int32 { return 2; }
+public func APM_ClassicRingSegments() -> Int32 { return 32; }
+public func APM_ClassicArrowPoints() -> Int32 { return 6; }
+
+public func APM_ColorAxis(axis: Int32) -> HDRColor {
+    if axis == 0 {
+        return APM_Color(1.0, 0.36, 0.36, 1.0);
+    }
+    if axis == 1 {
+        return APM_Color(0.45, 1.0, 0.5, 1.0);
+    }
+    if axis == 2 {
+        return APM_Color(0.42, 0.62, 1.0, 1.0);
+    }
+    return APM_Color(0.9, 0.9, 0.9, 1.0);
+}
+
 public func APM_MarkerKindBone() -> Int32 { return 0; }
 public func APM_MarkerKindFinger() -> Int32 { return 1; }        // whole finger, at the knuckle
 public func APM_MarkerKindFingerDetail() -> Int32 { return 2; }  // outer finger segment, close-up only
@@ -339,6 +372,13 @@ public class APM_PoseEditor extends IScriptable {
     private let m_lastButton: wref<APM_Button>;
 
     private let m_markers: array<ref<APM_Marker>>;
+    private let m_classicMode: Int32;          // APM_Classic*: rotation rings / move arrows on the selected part
+    private let m_classicModelAxes: Bool;      // the model's X / Y / Z instead of the part's own axes
+    private let m_handles: array<ref<APM_GizmoHandle>>;
+    private let m_dragHandle: ref<APM_GizmoHandle>;
+    private let m_handleAxis: Vector4;         // world axis of the dragged ring / arrow
+    private let m_hoverAxis: Int32;            // axis of the hovered ring / arrow (-1 none)
+    private let m_arrowHeads: array<wref<inkRectangle>>;
     private let m_lineLayer: wref<inkCanvas>;
     private let m_canvasWidth: Float;
     private let m_canvasHeight: Float;
@@ -430,6 +470,9 @@ public class APM_PoseEditor extends IScriptable {
 
         this.m_opacityStep = Cast<Int32>(APM_PrefGet("OpacityStep", 1.0));
         this.m_gizmosOn = APM_PrefGet("Gizmos", 1.0) > 0.5;
+        this.m_classicMode = Cast<Int32>(APM_PrefGet("ClassicGizmo", 0.0) + 0.5);
+        this.m_classicModelAxes = APM_PrefGet("ClassicGizmoModelAxes", 0.0) > 0.5;
+        this.m_hoverAxis = -1;
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
         this.m_faceOpen = APM_SessionGet("FaceOpen", 0.0) > 0.5;
@@ -451,6 +494,7 @@ public class APM_PoseEditor extends IScriptable {
         gizmoLayer.Reparent(layer);
         this.m_gizmoLayer = gizmoLayer;
         this.BuildMarkers();
+        this.BuildClassicGizmo();
         this.BuildHint();
 
         this.m_openButton = this.CreateButton(layer, "open", this.L("APM-Button-PoseEditor", "Pose editor"), 0.0, 0.0, 160.0, 32.0);
@@ -603,6 +647,10 @@ public class APM_PoseEditor extends IScriptable {
         }
         let enabledButton = this.CreateButton(header, "enabled", this.L("APM-Button-PoseOff", "Pose off"), 280.0, 8.0, 92.0, 32.0);
         this.TipL(enabledButton, "APM-Tip-PoseOnOff", "Turn your edits on V on / off");
+        this.CreateIconButton(header, "classic:rotate", "rotate-3d", 190.0, 8.0, this.L("APM-Tip-ClassicGizmo", "Classic gizmo: rotation rings, then move arrows, then off (the markers then only select)"), 32.0);
+        this.CreateIconButton(header, "classic:move", "move-3d", 190.0, 8.0, this.L("APM-Tip-ClassicGizmo", "Classic gizmo: rotation rings, then move arrows, then off (the markers then only select)"), 32.0);
+        let axesButton = this.CreateSmallButton(header, "classic:axes", "", 234.0, 8.0, 42.0, 32.0);
+        this.TipL(axesButton, "APM-Tip-ClassicAxes", "Gizmo axes: the part's own (L) or the character's (M)");
         let gizmosButton = this.CreateButton(header, "gizmos", this.L("APM-Button-Gizmos", "Gizmos"), 376.0, 8.0, 92.0, 32.0);
         this.TipL(gizmosButton, "APM-Tip-Gizmos", "Show / hide the markers on V");
         let opacityButton = this.CreateButton(header, "opacity", "100%", 472.0, 8.0, 64.0, 32.0);
@@ -1022,6 +1070,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.AddHelpLine(help, this.L("APM-Help-KeyWheel", "Mouse wheel"), this.L("APM-Help-Wheel", "while moving: nearer / farther"), y);
         y = this.AddHelpLine(help, this.L("APM-Help-KeyRightClick", "Right-click a marker"), this.L("APM-Help-RightClick", "reset that part"), y);
         y = this.AddHelpLine(help, this.L("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y"), this.L("APM-Help-UndoRedo", "undo / redo"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyClassic", "Gizmo button (top)"), this.L("APM-Help-Classic", "classic rings / arrows on the selected part; L / M: its own axes or the character's"), y);
         help.SetSize(width * s, (y + 16.0) * s);
     }
 
@@ -2618,6 +2667,19 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.SetButton("enabled", enabled, true);
         this.SetButton("gizmos", this.m_gizmosOn, true);
+        let classicRotate = this.FindButton("classic:rotate");
+        let classicMove = this.FindButton("classic:move");
+        let classicAxes = this.FindButton("classic:axes");
+        if IsDefined(classicRotate) && IsDefined(classicMove) && IsDefined(classicAxes) {
+            classicRotate.root.SetVisible(this.m_classicMode != APM_ClassicMove());
+            classicMove.root.SetVisible(this.m_classicMode == APM_ClassicMove());
+            classicRotate.isSelected = this.m_classicMode == APM_ClassicRotate();
+            classicRotate.UpdateLook();
+            classicMove.isSelected = true;
+            classicMove.UpdateLook();
+            classicAxes.root.SetVisible(this.m_classicMode != APM_ClassicOff());
+            classicAxes.label.SetText(this.m_classicModelAxes ? "M" : "L");
+        }
 
         // Body part tabs
         let part = Cast<Int32>(APM_UiGetValue(7701u));
@@ -3078,6 +3140,7 @@ public class APM_PoseEditor extends IScriptable {
             this.SetEyesTogether(true);
         }
         this.UpdateRootMarker(camera, toWorld, selected);
+        this.UpdateClassicGizmo(camera, toWorld, selected, s);
         this.UpdateHint();
     }
 
@@ -3160,6 +3223,383 @@ public class APM_PoseEditor extends IScriptable {
         layer.ReorderChild(this.m_hint, layer.GetNumChildren() - 1);
     }
 
+    // --- Classic gizmo ---------------------------------------------------------------------------------------------
+    // Rotation: three rings around the selected part's joint (its own axes, the same as the panel's rows, or the
+    // character's X / Y / Z) and an outer ring facing the camera. Move: three arrows (hips, held items, hands / feet
+    // with IK). Each ring / arrow is drawn in the line layer and picked through small invisible squares along it
+    // (a rotated widget's hit area would not follow its rotation).
+
+    private func BuildClassicGizmo() {
+        let s = APM_UiScale();
+        let ring = 0;
+        while ring < 4 {
+            let k = 0;
+            while k < APM_ClassicRingSegments() {
+                this.AddHandle(ring, false, k, true, s);
+                k += 1;
+            }
+            ring += 1;
+        }
+        let axis = 0;
+        while axis < 3 {
+            let k = 0;
+            while k < APM_ClassicArrowPoints() {
+                this.AddHandle(axis, true, k, k == 0, s);
+                k += 1;
+            }
+            let head = new inkRectangle();
+            head.SetAnchor(inkEAnchor.TopLeft);
+            head.SetAnchorPoint(0.5, 0.5);
+            head.SetSize(11.0 * s, 11.0 * s);
+            head.SetRotation(45.0);
+            head.SetTintColor(APM_ColorAxis(axis));
+            head.SetInteractive(false);
+            head.SetVisible(false);
+            head.Reparent(this.m_lineLayer);
+            ArrayPush(this.m_arrowHeads, head);
+            axis += 1;
+        }
+    }
+
+    private func AddHandle(axis: Int32, isArrow: Bool, segment: Int32, withLine: Bool, s: Float) {
+        let root = new inkCanvas();
+        root.SetName(StringToName("APM_handle:" + IntToString(ArraySize(this.m_handles))));
+        root.SetAnchor(inkEAnchor.TopLeft);
+        root.SetAnchorPoint(0.5, 0.5);
+        root.SetSize(18.0 * s, 18.0 * s);
+        root.SetInteractive(true);
+        root.SetVisible(false);
+        root.Reparent(this.m_gizmoLayer);
+        let hit = new inkRectangle();
+        hit.SetAnchor(inkEAnchor.Fill);
+        hit.SetOpacity(0.0);
+        hit.Reparent(root);
+        root.RegisterToCallback(n"OnPress", this, n"OnHandlePress");
+        root.RegisterToCallback(n"OnHoverOver", this, n"OnHandleHoverOver");
+        root.RegisterToCallback(n"OnHoverOut", this, n"OnHandleHoverOut");
+        let handle = new APM_GizmoHandle();
+        handle.axis = axis;
+        handle.isArrow = isArrow;
+        handle.segment = segment;
+        handle.root = root;
+        if withLine {
+            handle.line = this.CreateLine();
+        }
+        ArrayPush(this.m_handles, handle);
+    }
+
+    private func HideClassicGizmo() {
+        let i = 0;
+        while i < ArraySize(this.m_handles) {
+            this.m_handles[i].root.SetVisible(false);
+            this.m_handles[i].isHovered = false;
+            if IsDefined(this.m_handles[i].line) {
+                this.m_handles[i].line.SetVisible(false);
+            }
+            i += 1;
+        }
+        i = 0;
+        while i < ArraySize(this.m_arrowHeads) {
+            this.m_arrowHeads[i].SetVisible(false);
+            i += 1;
+        }
+        this.m_hoverAxis = -1;
+    }
+
+    // World direction of a gizmo axis of a part (0..2), or of the view ring (3, the camera's forward); w = 1 when valid.
+    private func ClassicAxis(camera: ref<CameraSystem>, toWorld: Matrix, part: Int32, axis: Int32) -> Vector4 {
+        if axis == 3 {
+            let forward = camera.GetActiveCameraForward();
+            return APM_Vector(forward.X, forward.Y, forward.Z, 1.0);
+        }
+        let model = APM_Vector(axis == 0 ? 1.0 : 0.0, axis == 1 ? 1.0 : 0.0, axis == 2 ? 1.0 : 0.0, 1.0);
+        if !this.m_classicModelAxes {
+            model = APM_GizmoGetPartAxis(part, axis);
+            if model.W < 0.5 {
+                return APM_Vector(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+        let world = Vector4.TransformDir(toWorld, APM_Vector(model.X, model.Y, model.Z, 0.0));
+        let length = SqrtF(world.X * world.X + world.Y * world.Y + world.Z * world.Z);
+        if length < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        return APM_Vector(world.X / length, world.Y / length, world.Z / length, 1.0);
+    }
+
+    // Can the classic gizmo show for this part now (a marker with a position, not turned by "Look at camera").
+    private func ClassicPart(selected: Int32) -> ref<APM_Marker> {
+        if this.m_classicMode == APM_ClassicOff() || APM_GizmoIsPartLocked(selected) {
+            return null;
+        }
+        let i = 0;
+        while i < ArraySize(this.m_markers) {
+            let marker = this.m_markers[i];
+            if marker.part == selected {
+                if marker.kind == APM_MarkerKindEyeLook() {
+                    return null;
+                }
+                if this.m_classicMode == APM_ClassicMove() && !marker.canMove && marker.chain < 0 {
+                    return null; // only the hips, held items and hands / feet (IK) move
+                }
+                return marker;
+            }
+            i += 1;
+        }
+        return null;
+    }
+
+    private func UpdateClassicGizmo(camera: ref<CameraSystem>, toWorld: Matrix, selected: Int32, s: Float) {
+        let marker = this.ClassicPart(selected);
+        let centerModel = APM_GizmoGetPartMarker(selected);
+        if !IsDefined(marker) || centerModel.W < 0.5 {
+            this.HideClassicGizmo();
+            return;
+        }
+        let center = Vector4.Transform(toWorld, APM_Vector(centerModel.X, centerModel.Y, centerModel.Z, 1.0));
+        center.W = 1.0;
+        let centerScreen = this.ProjectPoint(camera, center, false);
+        if centerScreen.W < 0.5 {
+            this.HideClassicGizmo();
+            return;
+        }
+        let cameraTransform: Transform;
+        camera.GetActiveCameraWorldTransform(cameraTransform);
+        let toCameraX = cameraTransform.position.X - center.X;
+        let toCameraY = cameraTransform.position.Y - center.Y;
+        let toCameraZ = cameraTransform.position.Z - center.Z;
+        // Same size on screen whatever the distance.
+        let radius = 90.0 * s * this.MetersPerCanvasUnit(camera, centerScreen.Z);
+        let isRotate = this.m_classicMode == APM_ClassicRotate();
+        let dragAxis = IsDefined(this.m_dragHandle) ? this.m_dragHandle.axis : -1;
+        let dragArrow = IsDefined(this.m_dragHandle) && this.m_dragHandle.isArrow;
+
+        let axes: array<Vector4>;
+        let a = 0;
+        while a < 4 {
+            ArrayPush(axes, this.ClassicAxis(camera, toWorld, selected, a));
+            a += 1;
+        }
+
+        let i = 0;
+        while i < ArraySize(this.m_handles) {
+            let handle = this.m_handles[i];
+            let axis = axes[handle.axis];
+            let shown = axis.W > 0.5 && ((handle.isArrow && !isRotate) || (!handle.isArrow && isRotate));
+            if !shown {
+                handle.root.SetVisible(false);
+                handle.isHovered = false;
+                if IsDefined(handle.line) {
+                    handle.line.SetVisible(false);
+                }
+            } else {
+                let active = (handle.axis == dragAxis && Equals(handle.isArrow, dragArrow)) || (dragAxis < 0 && handle.axis == this.m_hoverAxis);
+                let color = active ? APM_ColorAccent() : APM_ColorAxis(handle.axis);
+                let thickness = (active ? 4.0 : 2.5) * s;
+                if handle.isArrow {
+                    // Points along the arrow, from the joint to its tip; the shaft is drawn by the first one.
+                    let length = radius * 1.1;
+                    let t = (Cast<Float>(handle.segment) + 1.0) / Cast<Float>(APM_ClassicArrowPoints());
+                    let point = APM_Vector(center.X + axis.X * length * t, center.Y + axis.Y * length * t, center.Z + axis.Z * length * t, 1.0);
+                    let screen = this.ProjectPoint(camera, point, false);
+                    let step = APM_Vector(center.X + axis.X * 0.01, center.Y + axis.Y * 0.01, center.Z + axis.Z * 0.01, 1.0);
+                    let stepScreen = this.ProjectPoint(camera, step, false);
+                    handle.tangentX = (stepScreen.X - centerScreen.X) / 0.01;
+                    handle.tangentY = (stepScreen.Y - centerScreen.Y) / 0.01;
+                    this.PlaceHandle(handle, screen, true);
+                    if IsDefined(handle.line) {
+                        let tip = APM_Vector(center.X + axis.X * length, center.Y + axis.Y * length, center.Z + axis.Z * length, 1.0);
+                        let tipScreen = this.ProjectPoint(camera, tip, false);
+                        let visibleLine = tipScreen.W > 0.5;
+                        handle.line.SetVisible(visibleLine);
+                        if visibleLine {
+                            this.PlaceLine(handle.line, centerScreen.X, centerScreen.Y, tipScreen.X, tipScreen.Y, thickness);
+                            handle.line.SetTintColor(color);
+                            handle.line.SetOpacity(0.95);
+                            let head = this.m_arrowHeads[handle.axis];
+                            head.SetVisible(true);
+                            head.SetMargin(tipScreen.X, tipScreen.Y, 0.0, 0.0);
+                            head.SetTintColor(color);
+                        }
+                    }
+                } else {
+                    // Ring of the axis: u, v span the plane around it (u x v = axis), segment k from angle k to k + 1.
+                    let ringRadius = handle.axis == 3 ? radius * 1.2 : radius;
+                    let ux = 0.0;
+                    let uy = 0.0;
+                    let uz = 0.0;
+                    if handle.axis == 3 {
+                        let right = camera.GetActiveCameraRight();
+                        ux = right.X;
+                        uy = right.Y;
+                        uz = right.Z;
+                    } else if AbsF(axis.Z) < 0.9 {
+                        // axis x up
+                        ux = axis.Y;
+                        uy = -axis.X;
+                        uz = 0.0;
+                    } else {
+                        // axis x forward
+                        ux = 0.0;
+                        uy = axis.Z;
+                        uz = -axis.Y;
+                    }
+                    let uLength = SqrtF(ux * ux + uy * uy + uz * uz);
+                    ux /= uLength;
+                    uy /= uLength;
+                    uz /= uLength;
+                    let vx = axis.Y * uz - axis.Z * uy;
+                    let vy = axis.Z * ux - axis.X * uz;
+                    let vz = axis.X * uy - axis.Y * ux;
+                    let step = 6.2831853 / Cast<Float>(APM_ClassicRingSegments());
+                    let angle0 = Cast<Float>(handle.segment) * step;
+                    let angle1 = angle0 + step;
+                    let mid = angle0 + step * 0.5;
+                    let p0 = APM_Vector(center.X + (ux * CosF(angle0) + vx * SinF(angle0)) * ringRadius, center.Y + (uy * CosF(angle0) + vy * SinF(angle0)) * ringRadius, center.Z + (uz * CosF(angle0) + vz * SinF(angle0)) * ringRadius, 1.0);
+                    let p1 = APM_Vector(center.X + (ux * CosF(angle1) + vx * SinF(angle1)) * ringRadius, center.Y + (uy * CosF(angle1) + vy * SinF(angle1)) * ringRadius, center.Z + (uz * CosF(angle1) + vz * SinF(angle1)) * ringRadius, 1.0);
+                    let offsetX = ux * CosF(mid) + vx * SinF(mid);
+                    let offsetY = uy * CosF(mid) + vy * SinF(mid);
+                    let offsetZ = uz * CosF(mid) + vz * SinF(mid);
+                    let pm = APM_Vector(center.X + offsetX * ringRadius, center.Y + offsetY * ringRadius, center.Z + offsetZ * ringRadius, 1.0);
+                    let s0 = this.ProjectPoint(camera, p0, false);
+                    let s1 = this.ProjectPoint(camera, p1, false);
+                    let sm = this.ProjectPoint(camera, pm, false);
+                    // Turning by +1 radian around the axis moves the point along d/dangle (screen units per radian).
+                    handle.tangentX = (s1.X - s0.X) / step;
+                    handle.tangentY = (s1.Y - s0.Y) / step;
+                    // The half of the ring facing away from the camera is drawn faint and cannot be picked.
+                    let toCameraLength = MaxF(SqrtF(toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ), 0.001);
+                    let facing = (offsetX * toCameraX + offsetY * toCameraY + offsetZ * toCameraZ) / toCameraLength;
+                    let front = handle.axis == 3 || facing > -0.1;
+                    this.PlaceHandle(handle, sm, front);
+                    let visibleLine = s0.W > 0.5 && s1.W > 0.5;
+                    handle.line.SetVisible(visibleLine);
+                    if visibleLine {
+                        this.PlaceLine(handle.line, s0.X, s0.Y, s1.X, s1.Y, thickness);
+                        handle.line.SetTintColor(color);
+                        handle.line.SetOpacity(front ? (handle.axis == 3 ? 0.6 : 0.95) : 0.2);
+                    }
+                }
+            }
+            i += 1;
+        }
+        if isRotate {
+            i = 0;
+            while i < ArraySize(this.m_arrowHeads) {
+                this.m_arrowHeads[i].SetVisible(false);
+                i += 1;
+            }
+        }
+    }
+
+    private func PlaceHandle(handle: ref<APM_GizmoHandle>, screen: Vector4, pickable: Bool) {
+        let show = pickable && screen.W > 0.5 && this.IsOnCanvas(screen);
+        handle.root.SetVisible(show);
+        if !show {
+            handle.isHovered = false;
+            return;
+        }
+        handle.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
+        handle.screenX = screen.X;
+        handle.screenY = screen.Y;
+    }
+
+    // By name ("APM_handle:<index>"), as the markers are found.
+    private func FindHandleByWidget(widget: wref<inkWidget>) -> ref<APM_GizmoHandle> {
+        if !IsDefined(widget) {
+            return null;
+        }
+        let name = NameToString(widget.GetName());
+        if !StrBeginsWith(name, "APM_handle:") {
+            return null;
+        }
+        let index = StringToInt(StrAfterFirst(name, ":"));
+        return index >= 0 && index < ArraySize(this.m_handles) ? this.m_handles[index] : null;
+    }
+
+    // Cursor movement while a ring / arrow is dragged: the part turns around / moves along its axis by as much as
+    // the cursor went along the ring / arrow on screen.
+    private func DragHandle(dx: Float, dy: Float) {
+        let handle = this.m_dragHandle;
+        let part = Cast<Int32>(APM_UiGetValue(7701u));
+        let component = APM_GizmoGetComponent();
+        let lengthSquared = handle.tangentX * handle.tangentX + handle.tangentY * handle.tangentY;
+        if !IsDefined(component) || lengthSquared < 0.0001 {
+            return;
+        }
+        let toWorld = component.GetLocalToWorld();
+        let amount = (dx * handle.tangentX + dy * handle.tangentY) / lengthSquared;
+        let axis = this.m_handleAxis;
+        if handle.isArrow {
+            let modelDelta = APM_WorldToModelDirection(toWorld, APM_Vector(axis.X * amount, axis.Y * amount, axis.Z * amount, 0.0));
+            let chain = APM_GizmoGetPartIkChain(part);
+            if APM_GizmoCanMovePart(part) {
+                APM_GizmoMovePart(part, modelDelta);
+            } else if chain >= 0 {
+                APM_GizmoMoveIk(chain, modelDelta);
+            }
+        } else {
+            APM_GizmoRotatePart(part, APM_WorldToModelDirection(toWorld, APM_Vector(axis.X, axis.Y, axis.Z, 0.0)), Rad2Deg(amount));
+        }
+    }
+
+    protected cb func OnHandleHoverOver(e: ref<inkPointerEvent>) -> Bool {
+        let handle = this.FindHandleByWidget(e.GetCurrentTarget());
+        if !IsDefined(handle) || !this.CanTakeHover() {
+            return false;
+        }
+        handle.isHovered = true;
+        this.m_hoverAxis = handle.axis;
+        this.SetHover(true);
+    }
+
+    protected cb func OnHandleHoverOut(e: ref<inkPointerEvent>) -> Bool {
+        let handle = this.FindHandleByWidget(e.GetCurrentTarget());
+        if IsDefined(handle) {
+            handle.isHovered = false;
+            if this.m_hoverAxis == handle.axis {
+                this.m_hoverAxis = -1;
+            }
+        }
+        if !IsDefined(this.m_dragMarker) && !IsDefined(this.m_dragHandle) && !this.m_panelHovered {
+            this.SetHover(false);
+        }
+    }
+
+    protected cb func OnHandlePress(e: ref<inkPointerEvent>) -> Bool {
+        if !e.IsAction(n"click") {
+            return false;
+        }
+        this.m_pressedButtonId = "";
+        let handle = this.FindHandleByWidget(e.GetCurrentTarget());
+        if !IsDefined(handle) || !handle.isHovered {
+            return false; // hover not taken (camera moving, UI hidden): the click belongs to the camera
+        }
+        let player = this.m_controller.GetPlayerControlledObject();
+        let component = APM_GizmoGetComponent();
+        if !IsDefined(player) || !IsDefined(component) {
+            return false;
+        }
+        let part = Cast<Int32>(APM_UiGetValue(7701u));
+        this.m_handleAxis = this.ClassicAxis(GameInstance.GetCameraSystem(player.GetGame()), component.GetLocalToWorld(), part, handle.axis);
+        if this.m_handleAxis.W < 0.5 {
+            return false;
+        }
+        // Calibrate pointer -> canvas scale with the square under the cursor (as for the markers).
+        let pointer = e.GetScreenSpacePosition();
+        this.m_lastPointer = pointer;
+        this.m_useRealCursor = false;
+        if pointer.X > 10.0 && pointer.Y > 10.0 && handle.screenX > 10.0 && handle.screenY > 10.0 {
+            this.m_cursorScaleX = handle.screenX / pointer.X;
+            this.m_cursorScaleY = handle.screenY / pointer.Y;
+            this.m_useRealCursor = this.m_cursorScaleX > 0.3 && this.m_cursorScaleX < 6.0 && this.m_cursorScaleY > 0.3 && this.m_cursorScaleY < 6.0;
+        }
+        APM_HistoryCheckpoint();
+        this.m_dragHandle = handle;
+        this.SetHover(true);
+        return true;
+    }
+
     // Label next to the hovered (or dragged) marker: what a drag does now, and what the keys change.
     private func UpdateHint() {
         let marker = this.m_dragMarker;
@@ -3179,7 +3619,10 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let mode = IsDefined(this.m_dragMarker) ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
         let text = APM_PartShortText(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
-        if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
+        if this.m_classicMode != APM_ClassicOff() {
+            // Classic gizmo on: the markers only select (the rings / arrows turn and move).
+            text = APM_PartShortText(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + APM_Text("APM-Hint-ClassicSelect", "click to select (drag the rings / arrows)");
+        } else if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
             if marker.chain >= 0 {
                 if this.m_autoIk {
                     text += "   " + APM_Text("APM-Hint-ShiftRotate", "(Shift: rotate, Alt: free, Ctrl: twist)");
@@ -3896,6 +4339,19 @@ public class APM_PoseEditor extends IScriptable {
 
         if Equals(id, "enabled") {
             APM_UiSetValue(7700u, APM_UiGetValue(7700u) > 0.5 ? 0.0 : 1.0);
+        } else if Equals(prefix, "classic") {
+            if Equals(arg, "axes") {
+                this.m_classicModelAxes = !this.m_classicModelAxes;
+                APM_PrefSet("ClassicGizmoModelAxes", this.m_classicModelAxes ? 1.0 : 0.0);
+            } else {
+                // Off -> rotation rings -> move arrows -> off
+                this.m_classicMode = (this.m_classicMode + 1) % 3;
+                APM_PrefSet("ClassicGizmo", Cast<Float>(this.m_classicMode));
+                if this.m_classicMode != APM_ClassicOff() && !this.m_gizmosOn {
+                    this.m_gizmosOn = true;
+                    APM_PrefSet("Gizmos", 1.0);
+                }
+            }
         } else if Equals(id, "gizmos") {
             this.m_gizmosOn = !this.m_gizmosOn;
             APM_PrefSet("Gizmos", this.m_gizmosOn ? 1.0 : 0.0);
@@ -4340,7 +4796,7 @@ public class APM_PoseEditor extends IScriptable {
 
     // A hover may take the mouse from the camera: not while a button is held for the camera, not with the UI hidden.
     private func CanTakeHover() -> Bool {
-        if IsDefined(this.m_dragMarker) || IsDefined(this.m_dragRow) {
+        if IsDefined(this.m_dragMarker) || IsDefined(this.m_dragRow) || IsDefined(this.m_dragHandle) {
             return true;
         }
         return !this.IsUiHidden() && !APM_IsLeftMouseDown() && !APM_IsRightMouseDown();
@@ -4510,7 +4966,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         // Only a press that started on this same button clicks it: the end of a drag (slider, marker, camera) over
         // a button does nothing.
-        if !Equals(this.m_pressedButtonId, button.id) || IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) {
+        if !Equals(this.m_pressedButtonId, button.id) || IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) || IsDefined(this.m_dragHandle) {
             return false;
         }
         this.m_pressedButtonId = "";
@@ -4575,7 +5031,9 @@ public class APM_PoseEditor extends IScriptable {
             return false; // hover not taken (camera moving, UI hidden): the click belongs to the camera
         }
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
-        if APM_GizmoIsPartLocked(marker.part) {
+        if APM_GizmoIsPartLocked(marker.part) || this.m_classicMode != APM_ClassicOff() {
+            // Locked by Photo Mode's "Look at camera", or the classic gizmo is on: selected (its values and its
+            // rings / arrows show), not dragged.
             // Turned by Photo Mode's "Look at camera": selected (its values show), but not dragged.
             APM_UiRequestRefresh();
             this.Refresh();
@@ -4608,6 +5066,24 @@ public class APM_PoseEditor extends IScriptable {
         this.m_controlDown = e.IsControlDown();
         let horizontal = e.IsAction(n"mouse_x");
         if !horizontal && !e.IsAction(n"mouse_y") {
+            return false;
+        }
+
+        if IsDefined(this.m_dragHandle) {
+            let handlePointer = e.GetScreenSpacePosition();
+            let handleX = handlePointer.X - this.m_lastPointer.X;
+            let handleY = handlePointer.Y - this.m_lastPointer.Y;
+            if this.m_useRealCursor && (AbsF(handleX) > 0.01 || AbsF(handleY) > 0.01) {
+                this.m_lastPointer = handlePointer;
+                this.DragHandle(handleX * this.m_cursorScaleX, handleY * this.m_cursorScaleY);
+            } else if !this.m_useRealCursor {
+                let handleAmount = e.GetAxisData() * this.FallbackCanvasPerMouseUnit();
+                if horizontal {
+                    this.DragHandle(handleAmount, 0.0);
+                } else {
+                    this.DragHandle(0.0, -handleAmount);
+                }
+            }
             return false;
         }
 
@@ -4659,9 +5135,10 @@ public class APM_PoseEditor extends IScriptable {
             return false;
         }
         this.m_clearPressedButton = true; // forgotten at the next update, whatever order the release callbacks run in
-        if IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) {
+        if IsDefined(this.m_dragRow) || IsDefined(this.m_dragMarker) || IsDefined(this.m_dragHandle) {
             this.m_dragRow = null;
             this.m_dragMarker = null;
+            this.m_dragHandle = null;
             this.m_dragMode = 0;
             APM_SetWheelCapture(false);
             if !this.m_panelHovered {

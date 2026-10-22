@@ -8,6 +8,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/EngineLayout.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseOverrides.hpp"
@@ -64,20 +65,20 @@ std::string CNameToString(RED4ext::CName aName)
     return text ? std::string(text) : std::string("<unknown>");
 }
 
-void DumpRig(const APM::Pose::Target& aTarget, RED4ext::anim::Rig* aRig)
+void DumpRig(const APM::Pose::Target& aTarget, const APM::EngineLayout::RigView& aRig)
 {
-    if (!aRig || g_dumpedRigs.contains(aRig->hash))
+    if (!aRig.rig || g_dumpedRigs.contains(aRig.hash))
     {
         return;
     }
-    g_dumpedRigs.insert(aRig->hash);
+    g_dumpedRigs.insert(aRig.hash);
 
     std::error_code ec;
     const auto dir = APM::GetRuntime().pluginDir / L"probe";
     std::filesystem::create_directories(dir, ec);
 
     char fileName[64]{};
-    std::snprintf(fileName, sizeof(fileName), "rig_%016llx.txt", static_cast<unsigned long long>(aRig->hash));
+    std::snprintf(fileName, sizeof(fileName), "rig_%016llx.txt", static_cast<unsigned long long>(aRig.hash));
     std::ofstream out(dir / fileName, std::ios::trunc);
     if (!out)
     {
@@ -87,39 +88,39 @@ void DumpRig(const APM::Pose::Target& aTarget, RED4ext::anim::Rig* aRig)
 
     out << "# AdvancedPoseMod rig dump\n";
     out << "# component: " << aTarget.debugName << "\n";
-    out << "# bones: " << aRig->boneNames.Size() << "\n";
+    out << "# bones: " << aRig.boneCount << "\n";
     out << "# index\tparent\tname\tref_ls_translation(x y z)\tref_ls_rotation(i j k r)\n";
 
-    for (uint32_t i = 0; i < aRig->boneNames.Size(); ++i)
+    for (uint32_t i = 0; i < aRig.boneCount; ++i)
     {
-        const int16_t parent = aRig->parentIndices ? aRig->parentIndices[i] : -2;
-        out << i << '\t' << parent << '\t' << CNameToString(aRig->boneNames[i]);
-        if (aRig->referencePoseLS)
+        const int16_t parent = aRig.parents ? aRig.parents[i] : -2;
+        out << i << '\t' << parent << '\t' << CNameToString(aRig.boneNames[i]);
+        if (aRig.referencePose)
         {
-            const auto& t = aRig->referencePoseLS[i];
+            const auto& t = aRig.referencePose[i];
             out << '\t' << t.Translation.X << ' ' << t.Translation.Y << ' ' << t.Translation.Z;
             out << '\t' << t.Rotation.i << ' ' << t.Rotation.j << ' ' << t.Rotation.k << ' ' << t.Rotation.r;
         }
         out << '\n';
     }
 
-    APM::Log::Info("Probe: rig with %u bones written to probe/%s", aRig->boneNames.Size(), fileName);
+    APM::Log::Info("Probe: rig with %u bones written to probe/%s", aRig.boneCount, fileName);
 }
 
 // Composes local reference rotations along the hierarchy (parents always precede children in CDPR rigs).
-std::vector<APM::Math::Quat> ComputeModelSpaceRotations(RED4ext::anim::Rig* aRig)
+std::vector<APM::Math::Quat> ComputeModelSpaceRotations(const APM::EngineLayout::RigView& aRig)
 {
-    const uint32_t count = aRig->boneNames.Size();
+    const uint32_t count = aRig.boneCount;
     std::vector<APM::Math::Quat> result(count);
-    if (!aRig->referencePoseLS || !aRig->parentIndices)
+    if (!aRig.referencePose || !aRig.parents)
     {
         return result;
     }
     for (uint32_t i = 0; i < count; ++i)
     {
-        const auto& r = aRig->referencePoseLS[i].Rotation;
+        const auto& r = aRig.referencePose[i].Rotation;
         const APM::Math::Quat local{r.i, r.j, r.k, r.r};
-        const int16_t parent = aRig->parentIndices[i];
+        const int16_t parent = aRig.parents[i];
         result[i] = (parent >= 0 && static_cast<uint32_t>(parent) < i)
                         ? APM::Math::Normalize(APM::Math::Mul(result[parent], local))
                         : local;
@@ -287,13 +288,17 @@ void ProbePuppet(uint64_t aPuppet, const char* aWhere, uint32_t aType)
         return;
     }
     // Wait until the model is loaded: at spawn time the components and their rigs are not there yet.
-    uint32_t loadedRigs = 0;
-    for (auto& handle : entity->components)
+    EngineLayout::ComponentList components;
+    if (!EngineLayout::GetComponents(aPuppet, components))
     {
-        auto* component = handle.GetPtr();
-        auto* cls = component ? component->GetType() : nullptr;
-        if (cls && cls->IsA(animatedCls) &&
-            reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component)->rig.IsLoaded())
+        return;
+    }
+    uint32_t loadedRigs = 0;
+    for (uint32_t c = 0; c < components.size; ++c)
+    {
+        const uintptr_t component = EngineLayout::GetComponent(components, c);
+        auto* cls = component ? reinterpret_cast<RED4ext::ISerializable*>(component)->GetType() : nullptr;
+        if (cls && cls->IsA(animatedCls) && EngineLayout::GetRig(component))
         {
             ++loadedRigs;
         }
@@ -306,23 +311,24 @@ void ProbePuppet(uint64_t aPuppet, const char* aWhere, uint32_t aType)
     const auto config = Config::Get();
     Log::Verbose("CharacterProbe: %s type=%u puppet=%p class=%s components=%u", aWhere, aType,
                  reinterpret_cast<void*>(aPuppet), CNameToString(entityType->GetName()).c_str(),
-                 entity->components.Size());
-    for (auto& handle : entity->components)
+                 components.size);
+    for (uint32_t c = 0; c < components.size; ++c)
     {
-        auto* component = handle.GetPtr();
-        auto* cls = component ? component->GetType() : nullptr;
+        const uintptr_t component = EngineLayout::GetComponent(components, c);
+        auto* cls = component ? reinterpret_cast<RED4ext::ISerializable*>(component)->GetType() : nullptr;
         if (!cls || !cls->IsA(animatedCls))
         {
             continue;
         }
-        auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
-        RED4ext::anim::Rig* rig = animated->rig.IsLoaded() ? animated->rig.Get().GetPtr() : nullptr;
-        Log::Verbose("CharacterProbe:   component %s bones=%u rig=%016llx", CNameToString(component->name).c_str(),
-                     rig ? rig->boneNames.Size() : 0u, rig ? static_cast<unsigned long long>(rig->hash) : 0ull);
-        if (rig && config.probeEnabled && config.probeDumpRig)
+        EngineLayout::RigView rig;
+        const bool hasRig = EngineLayout::ViewRig(EngineLayout::GetRig(component), rig);
+        const auto componentName = CNameToString(EngineLayout::GetComponentName(component));
+        Log::Verbose("CharacterProbe:   component %s bones=%u rig=%016llx", componentName.c_str(), rig.boneCount,
+                     static_cast<unsigned long long>(rig.hash));
+        if (hasRig && config.probeEnabled && config.probeDumpRig)
         {
             APM::Pose::Target target;
-            target.debugName = CNameToString(component->name);
+            target.debugName = componentName;
             DumpRig(target, rig);
         }
     }
@@ -394,9 +400,14 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
 {
     using namespace APM;
     auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(puppet);
-    for (auto& handle : entity->components)
+    EngineLayout::ComponentList components;
+    if (!EngineLayout::GetComponents(puppet, components))
     {
-        auto* component = handle.GetPtr();
+        return;
+    }
+    for (uint32_t c = 0; c < components.size; ++c)
+    {
+        auto* component = reinterpret_cast<RED4ext::ISerializable*>(EngineLayout::GetComponent(components, c));
         if (!component)
         {
             continue;
@@ -407,47 +418,45 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
             continue;
         }
 
-        auto* animated = reinterpret_cast<RED4ext::ent::AnimatedComponent*>(component);
-        RED4ext::anim::Rig* rig = nullptr;
-        if (animated->rig.IsLoaded())
-        {
-            rig = animated->rig.Get().GetPtr();
-        }
+        const auto componentAddress = reinterpret_cast<uintptr_t>(component);
+        EngineLayout::RigView rigView;
+        const bool hasRig = EngineLayout::ViewRig(EngineLayout::GetRig(componentAddress), rigView);
 
         Pose::Target target;
         target.entity = puppet;
-        target.animatedComponent = reinterpret_cast<uintptr_t>(animated);
+        target.animatedComponent = componentAddress;
         target.entityRef = entity->ref;
         target.componentRef = component->ref;
-        target.rig = reinterpret_cast<uintptr_t>(rig);
+        target.rig = hasRig ? rigView.rig : 0;
         target.photoModeSlot = aCharacter;
         target.characterType = aCharacterType;
-        target.debugName = CNameToString(component->name);
+        target.debugName = CNameToString(EngineLayout::GetComponentName(componentAddress));
 
-        if (rig)
+        if (hasRig)
         {
-            target.boneNames.reserve(rig->boneNames.Size());
-            target.parents.reserve(rig->boneNames.Size());
-            for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
+            const auto& rig = rigView;
+            target.boneNames.reserve(rig.boneCount);
+            target.parents.reserve(rig.boneCount);
+            for (uint32_t i = 0; i < rig.boneCount; ++i)
             {
-                target.boneNames.push_back(rig->boneNames[i].hash);
-                target.parents.push_back(rig->parentIndices ? rig->parentIndices[i] : int16_t(-1));
+                target.boneNames.push_back(rig.boneNames[i].hash);
+                target.parents.push_back(rig.parents ? rig.parents[i] : int16_t(-1));
             }
             target.refRotationsMS = ComputeModelSpaceRotations(rig);
-            if (rig->referencePoseLS)
+            if (rig.referencePose)
             {
-                for (uint32_t i = 0; i < rig->boneNames.Size(); ++i)
+                for (uint32_t i = 0; i < rig.boneCount; ++i)
                 {
-                    const auto& t = rig->referencePoseLS[i];
+                    const auto& t = rig.referencePose[i];
                     target.refRotationsLS.push_back({t.Rotation.i, t.Rotation.j, t.Rotation.k, t.Rotation.r});
                     target.refTranslationsLS.push_back({t.Translation.X, t.Translation.Y, t.Translation.Z});
                 }
             }
         }
 
-        if (config.probeEnabled && config.probeDumpRig)
+        if (hasRig && config.probeEnabled && config.probeDumpRig)
         {
-            DumpRig(target, rig);
+            DumpRig(target, rigView);
         }
 
         targets.push_back(std::move(target));

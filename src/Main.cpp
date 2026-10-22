@@ -2,6 +2,7 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Scripting/ScriptApi.hpp"
@@ -103,6 +104,7 @@ void OnPostRegisterTypes()
     // RTTI is ready here, so the animation node classes can be inspected and natives registered.
     if (APM::GetRuntime().gameSupported)
     {
+        APM::EngineLayout::Resolve();
         APM::GetRuntime().animationReady = APM::AnimGraphHook::Install();
         APM::PhotoModeMenuGuard::Install();
     }

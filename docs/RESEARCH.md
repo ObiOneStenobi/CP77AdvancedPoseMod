@@ -98,8 +98,9 @@ The menu is built natively but every widget step goes through script callbacks o
 
 Value changes of list items call the native `OnAttributeUpdated(attribute, value, apply)`. Its handler (2.31
 `+0x27D7740`) parses the arguments and calls `Forward(this + 0x130, attribute, value, apply)` (2.31 `+0x27D62E8`).
-The plugin locates that call at runtime (pattern `48 8D 8F 30 01 00 00` + `E8`) and drops keys 7700-7799,
-so AdvancedPoseMod's own items never reach the game's Photo Mode system.
+The plugin locates that call at runtime (pattern `48 8D 8F xx 01 00 00` + `E8`, any displacement 0x100-0x1FF) and
+drops keys 7700-7799, so AdvancedPoseMod's own items never reach the game's Photo Mode system. In 2.5 the callback
+moved to `this + 0x140` (handler `+0x2D6FD44`, forward `+0x2D6E80C`); the forward function itself is unchanged.
 
 The menu controller and its root widget live for the whole game, not one Photo Mode session (`OnInitialize` runs
 once). The root draws its children backward: the first child is on top and takes the clicks first. Other Photo Mode
@@ -225,3 +226,40 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
 - **Adding a character resets V's Look at camera target to the head** (the game sends attribute 74 = 1 just before the
   new character appears, and the torso option disappears from the menu until Look at camera is turned off and on
   again). Game behaviour: the plugin only reads these attributes.
+
+## Game 2.5 (1.4.0)
+
+Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.redscripts`):
+
+- Game file version 3.0.88.46235 (2.31: 3.0.80.51928). `CheckGameVersion` accepts both.
+- The four Photo Mode hashes (`Activate`, `Deactivate`, `SpawnCharacter`, `ApplyPuppetTransforms`) exist in the 2.5
+  address file (same secondary hashes).
+- `animAnimNode_Output::Sample`: same prologue (2.5 `+0x3AACCC`), still vtable slot `0x128`; the neighbouring slots
+  look the same, and the 12 vtables sharing that function are in the same order.
+- `gamePhotoModeSystem`: the functions using the player list (`+0x130`, size `+0x13C`), the NPC list (`+0x180`),
+  the character stride `0x190` and the scene slots (`+0x1D0`) are byte-for-byte the same; `CharacterType` `+0x5C`
+  is still read by `SpawnCharacter`. Other fields of the system moved by `0x10` (`+0x170` -> `+0x180`, ...): not used.
+- `gameuiPhotoModeMenuController`: its forward callback moved from `+0x130` to `+0x140` (see Photo Mode menu).
+- Scripts: redscript 0.5.31 cannot read the 2.5 bundle (header flags `2` instead of `0`, then "failed to fill whole
+  buffer"); the classes and methods the mod wraps are still named in it. To be checked once redscript is updated.
+- Since 1.4.0 the entity / component / rig fields come from the reflection where it has them (`Game/EngineLayout`):
+  `entIComponent.name`, `entAnimatedComponent.rig`, `animRig.boneNames` and `animRig.tags` (the native
+  `parentIndices` / `referencePoseLS` sit right before `boneNames`, the rig hash right before `tags`). The entity's
+  component array is not reflected: the SDK offset `0xA0` is checked on the first entity and searched for if wrong.
+  Offsets that differ from the SDK are logged (`Layout: ...`).
+- Still to check in game: the animation context path (`ctx+0x48 -> +0x118`, probed again when wrong), the Photo Mode
+  attribute numbers read by the plugin (15, 74, 28, 56, 68: Debug log), the rig dumps (`DumpRig=1`).
+
+## Vehicles (study, 1.4.0)
+
+- Photo Mode in a vehicle uses the game's ride poses (`PhotoModePoses.action____car_*_ride`,
+  `action____sportbike*_ride`; Photo Mode Unlocker makes them selectable anywhere). Bike pose packs (e.g. asgard bike
+  poses) are ordinary standing animations of a seated body: the vehicle comes from elsewhere.
+- In third person the Photo Mode puppet is spawned as usual and placed on the seat: the plugin's path (player list,
+  animation graph output, component local-to-world for the gizmos) should not change. To check: the pose actually
+  applied on top of the ride animation, the IK world pin (the puppet is attached to the vehicle), the hips move.
+- `photo_mode.general.onlyFPPPhotoModeInPlayerStates` / `onlyFPPPhotoModeForStatusEffectsWithTags` force first person
+  in some states (Photo Mode Unlocker empties them). In first person there may be no puppet: then nothing to pose.
+- Test plan (Debug Log=1, DumpRig=1): car driver, car passenger, bike; Photo Mode third person; note whether markers
+  show, a rotation applies, a T pose loads, the IK world pin holds, and what the log reports for V's targets.
+

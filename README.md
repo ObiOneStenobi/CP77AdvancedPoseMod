@@ -15,7 +15,7 @@ Install with Vortex, or extract the zip into the game folder (the one containing
 
 ## Requirements
 
-- Cyberpunk 2077 2.31 (PC)
+- Cyberpunk 2077 2.31 or 2.5 (PC)
 - [RED4ext](https://docs.red4ext.com) 1.30+
 - [redscript](https://github.com/jac3km4/redscript)
 - [Codeware](https://github.com/psiberx/cp2077-codeware) (interface translations)
@@ -75,6 +75,12 @@ Open Photo Mode and click **Pose editor** (top left).
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
   writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
+  Poses in subfolders of `poses` are listed too, as `Folder/Name` (pose packs can ship in their own folder, so they
+  never overwrite each other); the mod saves its own poses in `poses` itself, and renaming keeps a pose in its folder.
+  Saved expressions (`expressions`) are read from subfolders the same way.
+- **Hand poses** (**Hands** button on the Poses section): a second library, `hands\*.json`, with the palm and fingers
+  of one hand. Open the tab of a hand (or of its arm), then **Save new**, **Overwrite** or **Load** work on that hand;
+  one file poses either hand (the rig is mirrored). Rename, delete, pages and subfolders work as for the poses.
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
   previous session are cleared. Save a pose to keep it. While there are edits, leaving Photo Mode asks for
   confirmation (as the game does for its own options).
@@ -98,6 +104,16 @@ the camera is close to a hand (or while a hand tab is selected); markers for the
 closer.
 
 - Click a marker to select that body part in the panel.
+- Markers that cover each other on screen (e.g. the fingers of two hands one over the other): the nearest is drawn on
+  top and takes the click. Up close the ones behind turn fainter, the more the farther behind (from 1 to 5 cm);
+  they stay selectable. From afar nothing fades.
+- **Heels** (Left / Right leg tabs; close-up markers like the fingers): the pivot of the front of the foot, turning one
+  lifts or lowers the toes around the heel.
+- **Classic gizmo** (button left of *Pose off*: rotation rings, then move arrows, then off): on the selected part,
+  three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
+  that turns it as seen from the camera; drag a ring to turn the part around that axis. Arrows move the hips, held
+  items and hands / feet (IK). **L / M** switches between the part's own axes and the character's. While it is on, the
+  markers only select (click one to put the gizmo on it). The back half of a ring is faint and cannot be picked.
 - Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
   camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
 - **Ctrl+drag** any marker to twist the part around the bone itself.
@@ -186,7 +202,7 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
 - No face controls or saved expressions yet; the face keeps the Photo Mode expression.
 - No automatic feet on the ground: place the feet with IK.
-- Built for game version 2.31; on another version the game still starts, but the mod stays off and the panel reports
+- Built for game versions 2.31 and 2.5; on another version the game still starts, but the mod stays off and the panel reports
   an unsupported version until the mod is updated. `config.ini` `[Compatibility] AllowUnknownGameVersion=1` tries it
   anyway (at your own risk: if the update moved what the mod reads, the game can crash).
 
@@ -229,6 +245,19 @@ in use; developers regenerate it with `python tools/gen_loc_template.py` after c
 - `ik` (optional): `{ "LeftHand": { "offset": [x, y, z], "swivel": deg }, ... }` for `LeftHand`, `RightHand`,
   `LeftFoot`, `RightFoot`. An enabled chain pins the hand/foot where the original pose put it, plus `offset`
   (meters, character space: X right, Y forward, Z up); `swivel` turns the elbow/knee around the limb axis.
+
+Hand pose files (`hands\*.json`):
+
+```json
+{
+  "format": "AdvancedPoseMod.Hand",
+  "version": 1,
+  "bones": { "HandIndex1": [0.0, 0.0, -0.2, 0.98], "InHandThumb": [0.0, 0.1, 0.0, 0.99] }
+}
+```
+
+- `bones`: palm and finger bones without the `Left` / `Right` prefix, each a local rotation quaternion `[i, j, k, r]`
+  from the bone's reference (T pose) rotation. Missing bones are left as they are.
 
 ## Layout
 

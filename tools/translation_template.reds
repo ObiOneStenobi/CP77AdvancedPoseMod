@@ -33,6 +33,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-UnsupportedVersion", "Unsupported game version - see the log");
         this.Text("APM-Button-PoseOff", "Pose off");
         this.Text("APM-Tip-PoseOnOff", "Turn your edits on V on / off");
+        this.Text("APM-Tip-ClassicGizmo", "Classic gizmo: rotation rings, then move arrows, then off (the markers then only select)");
+        this.Text("APM-Tip-ClassicAxes", "Gizmo axes: the part's own (L) or the character's (M)");
         this.Text("APM-Button-Gizmos", "Gizmos");
         this.Text("APM-Tip-Gizmos", "Show / hide the markers on V");
         this.Text("APM-Tip-Opacity", "Panel opacity");
@@ -119,6 +121,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Help-RightClick", "reset that part");
         this.Text("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y");
         this.Text("APM-Help-UndoRedo", "undo / redo");
+        this.Text("APM-Help-KeyClassic", "Gizmo button (top)");
+        this.Text("APM-Help-Classic", "classic rings / arrows on the selected part; L / M: its own axes or the character's");
         this.Text("APM-Label-Root", "V's root (Photo Mode position)");
         this.Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first");
         this.Text("APM-Msg-TypingUnavailable", "Typing is not available");
@@ -138,6 +142,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Label-HandPoseRight", "right hand");
         this.Text("APM-Title-HandPoses", "Hand poses");
         this.Text("APM-Button-ConfirmDelete", "Confirm delete");
+        this.Text("APM-Hint-ClassicSelect", "click to select (drag the rings / arrows)");
         this.Text("APM-Hint-ShiftRotate", "(Shift: rotate, Alt: free, Ctrl: twist)");
         this.Text("APM-Hint-ShiftMoveIk", "(Shift: move with IK, Alt: free, Ctrl: twist)");
         this.Text("APM-Hint-AltFree", "(Alt: free, Ctrl: twist)");

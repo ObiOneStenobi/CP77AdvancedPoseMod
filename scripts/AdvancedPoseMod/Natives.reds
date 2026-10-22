@@ -176,6 +176,8 @@ public native func APM_GizmoIsPartLocked(part: Int32) -> Bool
 public native func APM_GizmoIsPartDetail(part: Int32) -> Bool
 // True for parts listed in the panel whose gizmo only shows close up, like the fingers (heels)
 public native func APM_GizmoIsPartCloseUp(part: Int32) -> Bool
+// Model-space direction of a part's rotation axis as posed now (0 bend forward / back, 1 sideways, 2 twist); w = 1 when valid
+public native func APM_GizmoGetPartAxis(part: Int32, axis: Int32) -> Vector4
 // Model-space direction a part looks along (e.g. an eye's gaze); w = 1 when valid
 public native func APM_GizmoGetPartForward(part: Int32) -> Vector4
 // Model-space joint of the closest parent part that has a gizmo (thigh -> hips); w = 1 when valid
