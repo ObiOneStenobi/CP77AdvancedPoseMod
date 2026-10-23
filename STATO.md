@@ -136,8 +136,8 @@ Aggiornato: 2026-10-23
   natives APM_FaceAvailable/PoseCount/PoseName/PoseZone/PoseSide/PoseMirror/SetLinked/IsLinked/IsEdited/ResetPose/
   ResetZone/Reset (tolti FaceControl*, FaceResetControl, FaceUnload); Natives.reds aggiornato. FaceRig.* e Observe
   rimossi.
-- Fase C FATTA (24/10): redscript-cli 0.5.32 scaricato in tools\redscript; 0 errori nei file della mod (errori solo
-  in Codeware, attesi); script e DLL in dist (md5 verificati). Selettore Body / Face sotto Tools (sezione APM_Mode, sessione
+- Fase C FATTA (24/10): redscript-cli 0.5.32 scaricato in tools\redscript; tools\check_scripts.ps1 automatizza il
+  controllo (provato anche con un errore voluto); 0 errori nei file della mod (errori solo in Codeware, attesi); script e DLL in dist (md5 verificati). Selettore Body / Face sotto Tools (sezione APM_Mode, sessione
   "FaceMode"); in Face spariscono le sezioni del corpo e c'è la sezione viso: intestazione (espressione caricata, L+R
   pref "FaceLinked", cartella, reset), 8 schede zona (sessione "FaceZone"), righe della zona (LayoutFace le
   riposiziona solo se cambia zona/L+R), "Reset zone" e libreria espressioni sotto. Righe bipolari:

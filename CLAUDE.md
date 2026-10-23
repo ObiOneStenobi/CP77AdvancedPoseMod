@@ -24,11 +24,10 @@ tecnici in docs/RESEARCH.md (sezioni "Game 2.5" e "Vehicles").
 
 ## Controllo script senza il gioco (redscript-cli)
 - redscript-cli v0.5.32 per Windows (release di https://github.com/jac3km4/redscript) in tools\redscript\ (gitignored).
-- Cartella temporanea fuori dal progetto con src\AdvancedPoseMod (scripts\AdvancedPoseMod\*.reds) e src\Codeware
-  (script di Codeware installati nel gioco, red4ext\plugins\Codeware\Scripts), poi:
-  `redscript-cli.exe compile -s <temp>\src -b "<gioco>\r6\cache\final.redscripts" -o <temp>\out.redscripts`
-- Contano solo gli errori nei file di AdvancedPoseMod (quelli dentro Codeware sono attesi finché non è aggiornato).
-- Da fare: tools\check_scripts.ps1 che automatizzi tutto (proporlo prima di crearlo).
+- `powershell -ExecutionPolicy Bypass -File tools\check_scripts.ps1`: copia gli script della mod e quelli di Codeware
+  installati nel gioco in %TEMP%\apm_check, compila contro r6\cache\final.redscripts e stampa solo gli errori nei file
+  di AdvancedPoseMod (quelli dentro Codeware sono attesi finché non è aggiornato). Exit 0 = ok, 1 = errori, 2 = manca
+  qualcosa; log completo in %TEMP%\apm_check\log.txt.
 
 ## Strumenti
 - WolvenKit.Console 9.1.0 in tools\wolvenkit\ (gitignored): `WolvenKit.CLI.exe archive|unbundle|convert serialize`.
