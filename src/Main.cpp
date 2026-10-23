@@ -5,6 +5,7 @@
 #include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Scripting/ScriptApi.hpp"
 #include "Ui/TextEntry.hpp"
 
@@ -131,6 +132,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         APM::Log::Info("AdvancedPoseMod %s is loading", APM_VERSION_STRING);
 
         APM::Config::Load(); // the debug log and the version check need it from the start
+        APM::Pose::FacePoses::LoadData();
         g_runtime.gameSupported = CheckGameVersion();
         g_runtime.trackerReady = g_runtime.gameSupported && APM::PhotoModeTracker::Install();
         RED4ext::CRTTISystem::Get()->AddPostRegisterCallback(&OnPostRegisterTypes);

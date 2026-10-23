@@ -4,7 +4,7 @@
 #include "Math/Vec3.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/EyelidFollow.hpp"
-#include "Pose/FaceRig.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -858,7 +858,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     if (face)
     {
         LogEyesOnce(aTarget, aBones, aCount);
-        APM::Pose::FaceRig::Apply(aTarget, aBones, aCount, aPose);
+        APM::Pose::FacePoses::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);

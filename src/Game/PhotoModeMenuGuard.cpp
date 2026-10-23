@@ -14,7 +14,7 @@
 #include <array>
 #include <cstring>
 
-// Our menu items use attribute keys the game does not know (7700-7799). Their values are handled by the
+// Our menu items use attribute keys the game does not know (7700-7999). Their values are handled by the
 // plugin, so they must not reach the game's Photo Mode system. gameuiPhotoModeMenuController::OnAttributeUpdated
 // (native) parses its arguments and forwards them with `call Forward(this + 0x130, attribute, value, apply)`
 // (+0x140 since 2.5);

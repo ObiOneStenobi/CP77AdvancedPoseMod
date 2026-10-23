@@ -269,3 +269,21 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
 - Test plan (Debug Log=1, DumpRig=1): car driver, car passenger, bike; Photo Mode third person; note whether markers
   show, a rotation applies, a T pose loads, the IK world pin holds, and what the log reports for V's targets.
 
+## Face poses (expression editor, 1.4.0)
+
+- Data: each head has a `<head>_rigsetup.facialsetup` (388 in the game) and its face_rig (344 bones, 414 float tracks).
+  Main poses: `bakedData.<Face|Tongue|Eyes>.AllMainPoses[] {Track -> rig.trackNames, NumInbetweens}`, inbetween weights
+  in `AllMainPosesInbetweens`; in the same order `mainPosesData.<part>.Poses[] {TransformIdx, NumTransforms, IsScale}` ->
+  `Transforms[] {Rotation, Translation, Bone, JointRegion}`. The face_rig rest rotations are the identity: a transform is
+  the bone's local rotation at full weight; its translation is added to the rest one (meters).
+- Correctives (`correctivePosesData`, names in `faceCorrectiveNames` = `poseA__poseB__...__Corr`, `jaw_mid_open0/1` =
+  inbetween level) are applied by the game's facial solver when their poses are active together. `lips_together_up/dn`,
+  `lips_tighten_up/dn`, `jaw_mid_close`, `jaw_mid_clench` have empty main poses and act only through correctives; the
+  single-pose correctives (`lips_together_dn__Corr`, `blink__Corr`...) are empty too.
+- 1.4.0 adds the main poses as local deltas on the face_rig bones after the graph (`tools/face_poses.py` ->
+  `face/pwa.json`, `pma.json`; `tools/face_preview.py` for a preview). No correctives that way.
+- To verify (hypothesis): write the pose weights into the face_rig float tracks before the game's facial solver reads
+  them (pose buffer `+0x28` track count, `+0x38` float tracks). At `Output::Sample` the face is probably already solved:
+  the solver node of the face graph must be found (RTTI) and hooked before it samples. If it works, the game applies
+  main poses, inbetweens and correctives with each head's own data, NPCs included, and `FacePoses::Apply` is replaced.
+

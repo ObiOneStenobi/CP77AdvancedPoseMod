@@ -73,15 +73,14 @@ struct BasePose
     std::vector<BasePoseBone> bones;
 };
 
-// Face (Pose/FaceRig): offsets of the face controls (centimeters or degrees, on top of the face shown) and, when a
-// saved expression is loaded, the whole face it replaces the Photo Mode expression with. Kept apart from the body:
-// saved in their own library, untouched by body poses and "reset all".
-constexpr size_t FaceControlCount = 23;
-using FaceEdits = std::array<float, FaceControlCount>;
+// Face (Pose/FacePoses): the weight (0-1) of each face pose, by pose index, added to the Photo Mode expression. Kept
+// apart from the body: saved in their own library, untouched by body poses and "reset all".
+constexpr size_t MaxFacePoses = 128;
+using FaceWeights = std::array<float, MaxFacePoses>;
 
-inline bool AnyFaceEdit(const FaceEdits& aEdits)
+inline bool AnyFaceWeight(const FaceWeights& aWeights)
 {
-    for (const float value : aEdits)
+    for (const float value : aWeights)
     {
         if (value != 0.f)
         {
@@ -96,12 +95,11 @@ struct OverrideSnapshot
     std::vector<BoneOverride> bones;
     std::array<IkChainSettings, IkChainCount> ik{};
     std::shared_ptr<const BasePose> base;
-    FaceEdits faceEdits{};
-    std::shared_ptr<const BasePose> faceBase;
+    FaceWeights faceWeights{};
 
     bool IsEmpty() const
     {
-        if (!bones.empty() || base || faceBase || AnyFaceEdit(faceEdits))
+        if (!bones.empty() || base || AnyFaceWeight(faceWeights))
         {
             return false;
         }
@@ -163,13 +161,14 @@ std::string GetBasePoseName();
 // Replaces the Photo Mode pose with a neutral one ("T" = reference pose, "A" = arms lowered), clearing the edits.
 bool SetNeutralPose(bool aArmsDown);
 
-// Face controls (see FaceEdits); part of undo / redo.
-void SetFaceEdit(size_t aControl, float aValue);
-float GetFaceEdit(size_t aControl);
-// A saved expression replacing the Photo Mode one (null: back to the game's expression). Clears the face edits.
-void SetFaceBase(std::shared_ptr<const BasePose> aBase);
-std::string GetFaceBaseName();
-// Face edits and loaded expression cleared.
+// Face pose weights (see FaceWeights); part of undo / redo.
+void SetFaceWeight(size_t aPose, float aWeight);
+float GetFaceWeight(size_t aPose);
+FaceWeights GetFaceWeights();
+// Replaces every weight (a loaded expression, a zone reset) and the name of the expression loaded ("" for none).
+void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName);
+std::string GetFaceName();
+// Weights and loaded expression name cleared.
 void ResetFace();
 
 // Items held in the hands (TweakDB record ids as numbers, 0 = none); saved with poses.

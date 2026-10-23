@@ -46,7 +46,7 @@ public native func APM_LoadPose(name: String) -> Bool
 public native func APM_GetPoseCount() -> Int32
 public native func APM_GetPoseName(index: Int32) -> String
 
-// Photo Mode menu items (see PhotoModeUi.reds); attribute keys 7700-7799
+// Photo Mode menu items (see PhotoModeUi.reds); attribute keys 7700-7999
 public native func APM_UiIsOwnAttribute(attribute: Uint32) -> Bool
 public native func APM_UiSetValue(attribute: Uint32, value: Float) -> Void
 public native func APM_UiGetValue(attribute: Uint32) -> Float
@@ -113,15 +113,22 @@ public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
 // Photo Mode's "Look at camera" is on.
 public native func APM_SetCameraModel(character: Int32, position: Vector4, forward: Vector4, up: Vector4)
-// Face: controls (UI attributes 7740 + control: value shown = the expression's own + the offset), saved expressions.
-public native func APM_FaceControlCount() -> Int32
-public native func APM_FaceControlLabel(control: Int32) -> String
-public native func APM_FaceControlZone(control: Int32) -> String
-public native func APM_FaceControlIsAngle(control: Int32) -> Bool
-public native func APM_FaceIsEdited(control: Int32) -> Bool
-public native func APM_FaceResetControl(control: Int32)
+// Face: the game's face poses (UI attributes 7800 + pose: weight 0-100, added to the Photo Mode expression), saved
+// expressions. Zones: "brows", "eyelids", "nose", "cheeks", "lips", "jaw", "ears", "tongue"; side "l", "r" or "".
+public native func APM_FaceAvailable() -> Bool
+public native func APM_FacePoseCount() -> Int32
+public native func APM_FacePoseName(pose: Int32) -> String
+public native func APM_FacePoseZone(pose: Int32) -> String
+public native func APM_FacePoseSide(pose: Int32) -> String
+// The same pose on the other side, or -1
+public native func APM_FacePoseMirror(pose: Int32) -> Int32
+// L+R linked: a left / right pose's weight also goes to its mirror (on by default)
+public native func APM_FaceSetLinked(linked: Bool)
+public native func APM_FaceIsLinked() -> Bool
+public native func APM_FaceIsEdited(pose: Int32) -> Bool
+public native func APM_FaceResetPose(pose: Int32)
+public native func APM_FaceResetZone(zone: String)
 public native func APM_FaceReset()
-public native func APM_FaceUnload()
 public native func APM_FaceGetLoadedName() -> String
 public native func APM_FaceReloadList()
 public native func APM_FaceListCount() -> Int32

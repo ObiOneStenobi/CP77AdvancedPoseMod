@@ -121,7 +121,24 @@ Aggiornato: 2026-10-23
   Note: lips_together_up/dn, lips_tighten_up/dn, jaw_mid_close, jaw_mid_clench sono VUOTE nelle pose principali
   (agiscono solo via correttive, es. `lips_together_dn__Corr`) -> valutare le correttive singole nella fase B/C.
   tongue_mid_thick scartata (posa di scala). La pwa di head\pwa\ (NPC) ha delta diversi da quella del giocatore.
-- Prossimo passo: scegliere la lista Semplice con l'anteprima, poi fase B.
+- Deciso (23/10, dopo la prova in anteprima): NIENTE modalità Semplice/Avanzata, tutte le pose visibili (~55 slider
+  con L+R e bipolari). Zone richiudibili (lingua chiusa all'inizio), pose più usate in cima a ogni zona (ordine come
+  in tools\face_preview.py ORDER), L+R collegati nascondono le righe R, slider bipolari -100..+100 per le pose opposte
+  (BIPOLAR in face_preview.py; nel JSON salvato restano due pesi), "Reset" per zona.
+- Fase B approvata (23/10): src/Pose/FacePoses.* sostituisce FaceRig.* (via controlli, Observe, misura); pesi 0-1 (max
+  100%) per posa in PoseOverrides (FaceWeights, undo); attributi UI 7800 + indice posa (Last 7999); natives
+  APM_FacePose*; espressioni salvate formato 2 {"weights": {nome: peso}}, le vecchie (solo test) non si caricano più.
+  NPC (tipo 4) -> pwa. Correttive: DOPO la fase C (regola del peso da ricavare, prima in anteprima), con i 4 slider
+  mancanti (lips_together_up/dn, lips_tighten_up/dn).
+- Fase B FATTA (23/10, build ok, DLL in dist): src/Pose/FacePoses.* (LoadData in Main, Apply in
+  ProcessSecondarySkeleton al posto di FaceRig::Apply, cache ossa per rig+testa, libreria espressioni v2);
+  PoseOverrides FaceWeights[128] + faceName (undo); PhotoModeUi Attr::FacePose 7800, Last 7999, g_faceLinked;
+  natives APM_FaceAvailable/PoseCount/PoseName/PoseZone/PoseSide/PoseMirror/SetLinked/IsLinked/IsEdited/ResetPose/
+  ResetZone/Reset (tolti FaceControl*, FaceResetControl, FaceUnload); Natives.reds aggiornato. FaceRig.* e Observe
+  rimossi. ATTENZIONE: PoseEditor.reds usa ancora i natives vecchi -> script non compilano e dist non è coerente
+  (DLL nuova, script vecchi) finché non si fa la fase C.
+- Ipotesi da verificare in gioco (RESEARCH.md "Face poses"): scrivere i pesi nelle tracce float del face_rig prima del
+  risolutore facciale del gioco -> correttive e taratura per testa automatiche; sostituirebbe solo FacePoses::Apply.
 - Fasi: A) tools\extract_face_poses.ps1 + tools\face_poses.py (-> dist\...\face\*.json) + tools\face_preview.py;
   B) src/Pose/FacePoses.* (carica, mappa ossa per nome, Apply al posto di FaceRig::Apply), PoseOverrides, natives;
   C) UI APM_Face (zone, Semplice/Avanzato, L+R), testi + gen_loc_template, APM_FaceFeatureEnabled true;

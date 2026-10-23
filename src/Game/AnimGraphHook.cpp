@@ -6,8 +6,6 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
-#include "Pose/Characters.hpp"
-#include "Pose/FaceRig.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseProcessor.hpp"
@@ -405,11 +403,6 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
-        if (aTarget.debugName == "face_rig" && aTarget.photoModeSlot == APM::Pose::Characters::Selected())
-        {
-            // Reads the expression shown (face controls start from it).
-            APM::Pose::FaceRig::Observe(aTarget, bones, boneCount, *snapshot);
-        }
         if (applyPose)
         {
             // A frame with invalid values (NaN / infinite, e.g. a degenerate IK case) keeps the game's pose instead.

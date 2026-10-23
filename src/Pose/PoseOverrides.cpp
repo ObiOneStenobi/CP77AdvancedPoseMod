@@ -32,8 +32,8 @@ struct EditState
     std::vector<APM::Pose::BoneOverride> bones;
     std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
     std::shared_ptr<const APM::Pose::BasePose> base;
-    APM::Pose::FaceEdits faceEdits{};
-    std::shared_ptr<const APM::Pose::BasePose> faceBase;
+    APM::Pose::FaceWeights faceWeights{};
+    std::string faceName;
 };
 constexpr size_t MaxHistory = 100;
 
@@ -44,8 +44,8 @@ struct CharacterState
     std::vector<APM::Pose::BoneOverride> bones;
     std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
     std::shared_ptr<const APM::Pose::BasePose> base;
-    APM::Pose::FaceEdits faceEdits{};
-    std::shared_ptr<const APM::Pose::BasePose> faceBase;
+    APM::Pose::FaceWeights faceWeights{};
+    std::string faceName; // saved expression loaded last (shown by the panel)
     std::vector<EditState> undo;
     std::vector<EditState> redo;
     std::atomic<uint64_t> propRight{0};
@@ -73,8 +73,7 @@ void PublishLocked(CharacterState& aState)
     auto snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
     snapshot->ik = aState.ik;
     snapshot->base = aState.base;
-    snapshot->faceEdits = aState.faceEdits;
-    snapshot->faceBase = aState.faceBase;
+    snapshot->faceWeights = aState.faceWeights;
     for (const auto& bone : aState.bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -97,8 +96,8 @@ void ClearLocked(CharacterState& aState)
     aState.bones.clear();
     aState.ik = {};
     aState.base.reset();
-    aState.faceEdits = {};
-    aState.faceBase.reset();
+    aState.faceWeights = {};
+    aState.faceName.clear();
     aState.undo.clear();
     aState.redo.clear();
     aState.propRight = 0;
@@ -144,12 +143,12 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked()
 {
-    return {S().bones, S().ik, S().base, S().faceEdits, S().faceBase};
+    return {S().bones, S().ik, S().base, S().faceWeights, S().faceName};
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
 {
-    return aState.base == S().base && aState.faceEdits == S().faceEdits && aState.faceBase == S().faceBase && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
+    return aState.base == S().base && aState.faceWeights == S().faceWeights && aState.faceName == S().faceName && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
 }
 
 void RestoreLocked(EditState&& aState)
@@ -157,8 +156,8 @@ void RestoreLocked(EditState&& aState)
     S().bones = std::move(aState.bones);
     S().ik = aState.ik;
     S().base = std::move(aState.base);
-    S().faceEdits = aState.faceEdits;
-    S().faceBase = std::move(aState.faceBase);
+    S().faceWeights = aState.faceWeights;
+    S().faceName = std::move(aState.faceName);
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
@@ -698,46 +697,52 @@ bool Load(const std::string& aName)
     return true;
 }
 
-void SetFaceEdit(size_t aControl, float aValue)
+void SetFaceWeight(size_t aPose, float aWeight)
 {
-    if (aControl >= FaceControlCount)
+    if (aPose >= MaxFacePoses)
     {
         return;
     }
     std::scoped_lock lock(g_mutex);
-    S().faceEdits[aControl] = aValue;
+    S().faceWeights[aPose] = std::clamp(aWeight, 0.f, 1.f);
     PublishLocked();
     S().enabled = true;
 }
 
-float GetFaceEdit(size_t aControl)
+float GetFaceWeight(size_t aPose)
 {
     std::scoped_lock lock(g_mutex);
-    return aControl < FaceControlCount ? S().faceEdits[aControl] : 0.f;
+    return aPose < MaxFacePoses ? S().faceWeights[aPose] : 0.f;
 }
 
-void SetFaceBase(std::shared_ptr<const BasePose> aBase)
+FaceWeights GetFaceWeights()
+{
+    std::scoped_lock lock(g_mutex);
+    return S().faceWeights;
+}
+
+void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName)
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    S().faceBase = std::move(aBase);
-    S().faceEdits = {};
+    S().faceWeights = aWeights;
+    S().faceName = aName;
     PublishLocked();
     S().enabled = true;
 }
 
-std::string GetFaceBaseName()
+std::string GetFaceName()
 {
     std::scoped_lock lock(g_mutex);
-    return S().faceBase ? S().faceBase->name : std::string();
+    return S().faceName;
 }
 
 void ResetFace()
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    S().faceBase.reset();
-    S().faceEdits = {};
+    S().faceWeights = {};
+    S().faceName.clear();
     PublishLocked();
 }
 

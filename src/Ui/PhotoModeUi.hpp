@@ -32,13 +32,13 @@ constexpr uint32_t IkY = 7713;
 constexpr uint32_t IkZ = 7714;
 constexpr uint32_t IkSwivel = 7715;
 constexpr uint32_t Slot = 7720;
-constexpr uint32_t FaceControl = 7740; // 7740..: face controls (value shown = the expression's + the offset)
+constexpr uint32_t FacePose = 7800; // 7800 + pose index (Pose/FacePoses): the pose's weight, 0-100
 // Action items: a selector with two options ("-" / "Apply"); choosing "Apply" runs the action.
 constexpr uint32_t ResetPart = 7721;
 constexpr uint32_t ResetAll = 7722;
 constexpr uint32_t SavePose = 7723;
 constexpr uint32_t LoadPose = 7724;
-constexpr uint32_t Last = 7799;
+constexpr uint32_t Last = 7999;
 } // namespace Attr
 
 bool IsOwnAttribute(uint32_t aAttribute);
@@ -87,6 +87,9 @@ bool IsPartEdited(int32_t aPart);
 void ResetSession();
 void SetMirror(bool aMirror);
 bool IsMirror();
+// Face poses: a left / right pose's weight also goes to the same pose on the other side (on by default).
+void SetFaceLinked(bool aLinked);
+bool IsFaceLinked();
 
 // Joint limits: rotations stay within natural ranges (on by default).
 void SetLimits(bool aLimits);

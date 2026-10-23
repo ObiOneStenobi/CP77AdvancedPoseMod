@@ -70,7 +70,9 @@ PAGE = r"""<!doctype html>
 #views{flex:1;display:flex;flex-direction:column;min-width:0}
 #bar{display:flex;gap:10px;align-items:center;padding:8px 12px;flex-wrap:wrap}
 #canvases{flex:1;display:flex;min-height:0}canvas{flex:1;min-width:0;width:50%;height:100%}
-h3{margin:12px 0 4px;font-size:12px;text-transform:uppercase;color:var(--dim);letter-spacing:.05em}
+h3{margin:12px 0 4px;font-size:12px;text-transform:uppercase;color:var(--dim);letter-spacing:.05em;display:flex;
+ align-items:center;gap:6px;cursor:pointer;user-select:none}h3 i{font-style:normal;width:10px}h3 button{margin-left:auto;font-size:11px;padding:1px 6px}
+.row.bi input{background:linear-gradient(90deg,transparent 49.5%,#555 49.5%,#555 50.5%,transparent 50.5%)}
 .row{display:grid;grid-template-columns:1fr 110px 34px;gap:6px;align-items:center;padding:1px 0}
 .row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row b{font-weight:400;color:var(--dim);text-align:right}
 .row.on span{color:var(--accent)}input[type=range]{width:100%}input[type=text]{width:100%;padding:4px;background:var(--bg);color:var(--fg);border:1px solid #333}
@@ -80,7 +82,7 @@ button,select{background:#2c3038;color:var(--fg);border:1px solid #3a3f48;paddin
 <div id="side"><input id="filter" type="text" placeholder="Filter poses"><div id="list"></div></div>
 <div id="views">
  <div id="bar"><select id="head"></select><label><input id="link" type="checkbox" checked> L+R linked</label>
-  <label><input id="restOn" type="checkbox" checked> rest</label><button id="reset">Reset</button>
+  <label><input id="restOn" type="checkbox" checked> rest</label><button id="reset">Reset</button><span id="count"></span>
   <span id="info"></span></div>
  <div id="canvases"><canvas id="front"></canvas><canvas id="profile"></canvas></div>
 </div>
@@ -125,17 +127,54 @@ function draw(){const rest=solve(false),posed=solve(true),H=HEADS[head],used=new
    const d=Math.hypot(posed[i][0]-rest[i][0],posed[i][1]-rest[i][1],posed[i][2]-rest[i][2]);
    if(d>1e-5){g.strokeStyle='rgba(79,179,255,.5)';g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.stroke()}
    g.fillStyle=d>1e-5?'#4fb3ff':'#c9ccd2';g.beginPath();g.arc(b[0],b[1],2.2,0,7);g.fill()}}}
-function build(){const list=$('list'),f=$('filter').value.toLowerCase();list.innerHTML='';let zone='';
- for(const p of HEADS[head].data.poses){if(f&&!p.name.toLowerCase().includes(f)&&!p.zone.includes(f))continue;
-  if(p.zone!==zone){zone=p.zone;const h=document.createElement('h3');h.textContent=zone;list.appendChild(h)}
-  const row=document.createElement('div');row.className='row'+((weights[p.name]||0)>0?' on':'');
-  const w=Math.round((weights[p.name]||0)*100);
-  row.innerHTML=`<span title="${p.name} · ${p.inbetweens.map(i=>i.w).join('/')}">${p.name}</span><input type=range min=0 max=100 value=${w}><b>${w}</b>`;
-  row.querySelector('input').oninput=e=>{const v=e.target.value/100;weights[p.name]=v;
-   if($('link').checked&&p.mirror)weights[p.mirror]=v;build();draw()};
-  list.appendChild(row)}}
+// most used poses first in each zone (the others follow in file order); opposite poses share one -100..100 slider
+const ORDER=['brows_raise_in','brows_raise_out','brows_lower','brows_lateral','blink','widen','oculi_squint_outer_lower',
+ 'oculi_squint_outer_upper','oculi_squint_inner','snear','breathe_in','compress','puff','suck','corner_up','corner_dn',
+ 'purse','funnel','corner_stretch','upper_raise','lower_raise','stretch','corner_wide','pull','nasolabialDeepener',
+ 'corner_sharp_up','suck_up','suck_dn','puff_up','puff_dn','apart_up','apart_dn','chin_raise','lips_mid_shift_l','lips_mid_shift_up',
+ 'jaw_mid_open','jaw_mid_shift_l','jaw_mid_shift_back'];
+const BIPOLAR=[['nose_l_breathe_in','nose_l_breathe_out'],['nose_r_breathe_in','nose_r_breathe_out'],
+ ['lips_mid_shift_l','lips_mid_shift_r'],['lips_mid_shift_dn','lips_mid_shift_up'],['jaw_mid_shift_l','jaw_mid_shift_r'],
+ ['jaw_mid_shift_back','jaw_mid_shift_fwd'],['tongue_mid_base_l','tongue_mid_base_r'],['tongue_mid_base_dn','tongue_mid_base_up'],
+ ['tongue_mid_base_back','tongue_mid_base_front'],['tongue_mid_tip_l','tongue_mid_tip_r'],['tongue_mid_tip_dn','tongue_mid_tip_up'],
+ ['tongue_mid_twist_l','tongue_mid_twist_r']];
+const ZONES=['brows','eyelids','nose','cheeks','lips','jaw','ears','tongue'],closed={tongue:true};
+const rank=n=>{const s=n.replace(/^[a-z]+_[lr]_/,m=>m.split('_')[0]+'_');const i=ORDER.findIndex(o=>s.endsWith(o)||s===o);return i<0?999:i};
+const pretty=s=>s.replace(/_/g,' ');
+// one control per slider: {zone,label,neg?,pos,title}
+function controls(){const poses=HEADS[head].data.poses,by={},link=$('link').checked,out=[],done=new Set();
+ for(const p of poses)by[p.name]=p;
+ for(const p of poses){if(done.has(p.name))continue;
+  const bi=BIPOLAR.find(b=>b.includes(p.name)&&by[b[0]]&&by[b[1]]);
+  if(link&&p.side==='r'&&p.mirror)continue;
+  let c;if(bi){[bi[0],bi[1]].forEach(n=>done.add(n));
+   let common=bi[1].split('_').filter((w,i)=>w===bi[0].split('_')[i]).join('_');
+   if(link&&p.mirror)common=common.replace(/^([a-z]+)_l(_|$)/,'$1$2')+'  L+R:';
+   c={zone:p.zone,neg:bi[0],pos:bi[1],label:`${pretty(common)}  ${bi[0].split('_').pop()} ↔ ${bi[1].split('_').pop()}`}}
+  else{done.add(p.name);c={zone:p.zone,pos:p.name,label:pretty(link&&p.mirror?p.name.replace(/^([a-z]+)_l_/,'$1_'):p.name)+(link&&p.mirror?'  L+R':'')}}
+  if(link&&p.side==='l'&&p.mirror)c.mirror={[p.name]:p.mirror,...(c.neg?{[c.neg]:by[c.neg].mirror,[c.pos]:by[c.pos].mirror}:{})};
+  c.rank=Math.min(rank(c.pos),c.neg?rank(c.neg):999);out.push(c)}
+ return out.sort((a,b)=>ZONES.indexOf(a.zone)-ZONES.indexOf(b.zone)||a.rank-b.rank)}
+function setW(c,v){const put=(n,w)=>{weights[n]=w;const m=c.mirror&&c.mirror[n];if(m)weights[m]=w};
+ if(c.neg){put(c.neg,Math.max(0,-v));put(c.pos,Math.max(0,v))}else put(c.pos,v)}
+function build(){const list=$('list'),f=$('filter').value.toLowerCase();list.innerHTML='';let zone='',all=controls(),count=0;
+ for(const c of all){if(f&&!(c.label+c.pos+(c.neg||'')).toLowerCase().includes(f)&&!c.zone.includes(f))continue;
+  if(c.zone!==zone){zone=c.zone;const z=zone,n=all.filter(x=>x.zone===z).length,h=document.createElement('h3');
+   h.innerHTML=`<i>${closed[z]&&!f?'▸':'▾'}</i>${z} <span>(${n})</span><button>Reset</button>`;
+   h.onclick=()=>{closed[z]=!closed[z];build()};
+   h.querySelector('button').onclick=e=>{e.stopPropagation();all.filter(x=>x.zone===z).forEach(x=>setW(x,0));build();draw()};
+   list.appendChild(h)}
+  if(closed[zone]&&!f)continue;count++;
+  const v=c.neg?(weights[c.pos]||0)-(weights[c.neg]||0):(weights[c.pos]||0),w=Math.round(v*100);
+  const row=document.createElement('div');row.className='row'+(w?' on':'')+(c.neg?' bi':'');
+  row.innerHTML=`<span title="${c.neg?c.neg+' / ':''}${c.pos}">${c.label}</span><input type=range min=${c.neg?-100:0} max=100 value=${w}><b>${w}</b>`;
+  // update only this row while dragging: rebuilding the list would drop the slider under the mouse
+  row.querySelector('input').oninput=e=>{const x=+e.target.value;setW(c,x/100);row.querySelector('b').textContent=x;
+   row.classList.toggle('on',x!==0);draw()};
+  list.appendChild(row)}
+ $('count').textContent=`${all.length} sliders`}
 for(const k in HEADS){const o=document.createElement('option');o.value=k;o.textContent=k+' · '+HEADS[k].data.head;$('head').appendChild(o)}
-$('head').onchange=e=>{head=e.target.value;build();draw()};$('filter').oninput=build;$('restOn').onchange=draw;
+$('head').onchange=e=>{head=e.target.value;build();draw()};$('filter').oninput=build;$('restOn').onchange=draw;$('link').onchange=build;
 $('reset').onclick=()=>{weights={};build();draw()};
 document.querySelectorAll('canvas').forEach(c=>c.addEventListener('wheel',e=>{e.preventDefault();zoom*=e.deltaY<0?1.1:1/1.1;draw()},{passive:false}));
 addEventListener('resize',draw);build();draw();

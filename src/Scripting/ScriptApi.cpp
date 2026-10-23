@@ -5,7 +5,7 @@
 #include "Game/AnimGraphHook.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/Characters.hpp"
-#include "Pose/FaceRig.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/LookAtCamera.hpp"
 #include "Pose/PoseOverrides.hpp"
@@ -24,6 +24,7 @@
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <new>
 #include <string>
 #include <unordered_map>
@@ -660,34 +661,62 @@ void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 // --- Face ------------------------------------------------------------------------------------------------------
 std::vector<std::string> g_expressionNames;
 
-void FaceControlCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void FaceAvailable(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
-    Return(aOut, static_cast<int32_t>(APM::Pose::FaceRig::ControlCount()));
+    Return(aOut, APM::Pose::FacePoses::IsAvailable());
 }
 
-void FaceControlLabel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void FacePoseCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
-    int32_t control = 0;
-    RED4ext::GetParameter(aFrame, &control);
     aFrame->code++;
-    Return(aOut, CString(control >= 0 ? APM::Pose::FaceRig::ControlLabel(static_cast<size_t>(control)) : ""));
+    Return(aOut, static_cast<int32_t>(APM::Pose::FacePoses::Count()));
 }
 
-void FaceControlZone(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void FacePoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
-    int32_t control = 0;
-    RED4ext::GetParameter(aFrame, &control);
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
     aFrame->code++;
-    Return(aOut, CString(control >= 0 ? APM::Pose::FaceRig::ControlZone(static_cast<size_t>(control)) : ""));
+    Return(aOut, CString(pose >= 0 ? APM::Pose::FacePoses::Name(static_cast<size_t>(pose)) : ""));
 }
 
-void FaceControlIsAngle(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void FacePoseZone(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
-    int32_t control = 0;
-    RED4ext::GetParameter(aFrame, &control);
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
     aFrame->code++;
-    Return(aOut, control >= 0 && APM::Pose::FaceRig::ControlIsAngle(static_cast<size_t>(control)));
+    Return(aOut, CString(pose >= 0 ? APM::Pose::FacePoses::Zone(static_cast<size_t>(pose)) : ""));
+}
+
+void FacePoseSide(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
+    aFrame->code++;
+    Return(aOut, CString(pose >= 0 ? APM::Pose::FacePoses::Side(static_cast<size_t>(pose)) : ""));
+}
+
+void FacePoseMirror(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
+    aFrame->code++;
+    Return(aOut, pose >= 0 ? APM::Pose::FacePoses::Mirror(static_cast<size_t>(pose)) : -1);
+}
+
+void FaceSetLinked(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool linked = true;
+    RED4ext::GetParameter(aFrame, &linked);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetFaceLinked(linked);
+}
+
+void FaceIsLinked(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::IsFaceLinked());
 }
 
 void UiIsPartEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -700,27 +729,43 @@ void UiIsPartEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 void FaceIsEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
-    int32_t control = 0;
-    RED4ext::GetParameter(aFrame, &control);
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
     aFrame->code++;
-    Return(aOut, control >= 0 && APM::Pose::PoseOverrides::GetFaceEdit(static_cast<size_t>(control)) != 0.f);
+    Return(aOut, pose >= 0 && APM::Pose::PoseOverrides::GetFaceWeight(static_cast<size_t>(pose)) != 0.f);
 }
 
-void FaceResetControl(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+void FaceResetPose(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
-    int32_t control = 0;
-    RED4ext::GetParameter(aFrame, &control);
+    int32_t pose = 0;
+    RED4ext::GetParameter(aFrame, &pose);
     aFrame->code++;
-    if (control < 0)
+    if (pose < 0)
     {
         return;
     }
-    APM::Pose::PoseOverrides::SetFaceEdit(static_cast<size_t>(control), 0.f);
-    const int32_t twin = APM::Pose::FaceRig::ControlTwin(static_cast<size_t>(control));
-    if (APM::Ui::PhotoModeUi::IsMirror() && twin >= 0)
+    APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(pose), 0.f);
+    const int32_t mirror = APM::Pose::FacePoses::Mirror(static_cast<size_t>(pose));
+    if (APM::Ui::PhotoModeUi::IsFaceLinked() && mirror >= 0)
     {
-        APM::Pose::PoseOverrides::SetFaceEdit(static_cast<size_t>(twin), 0.f);
+        APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(mirror), 0.f);
     }
+}
+
+void FaceResetZone(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    CString zone;
+    RED4ext::GetParameter(aFrame, &zone);
+    aFrame->code++;
+    auto weights = APM::Pose::PoseOverrides::GetFaceWeights();
+    for (size_t i = 0; i < APM::Pose::FacePoses::Count(); ++i)
+    {
+        if (std::strcmp(APM::Pose::FacePoses::Zone(i), zone.c_str()) == 0)
+        {
+            weights[i] = 0.f;
+        }
+    }
+    APM::Pose::PoseOverrides::SetFaceWeights(weights, APM::Pose::PoseOverrides::GetFaceName());
 }
 
 void FaceReset(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -729,22 +774,16 @@ void FaceReset(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Pose::PoseOverrides::ResetFace();
 }
 
-void FaceUnload(IScriptable*, CStackFrame* aFrame, void*, int64_t)
-{
-    aFrame->code++;
-    APM::Pose::PoseOverrides::SetFaceBase(nullptr);
-}
-
 void FaceGetLoadedName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
-    Return(aOut, CString(APM::Pose::PoseOverrides::GetFaceBaseName().c_str()));
+    Return(aOut, CString(APM::Pose::PoseOverrides::GetFaceName().c_str()));
 }
 
 void FaceReloadList(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     aFrame->code++;
-    g_expressionNames = APM::Pose::FaceRig::ListSaved();
+    g_expressionNames = APM::Pose::FacePoses::ListSaved();
 }
 
 void FaceListCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -767,13 +806,13 @@ void FaceSave(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     CString name;
     RED4ext::GetParameter(aFrame, &name);
     aFrame->code++;
-    Return(aOut, APM::Pose::FaceRig::Save(name.c_str()));
+    Return(aOut, APM::Pose::FacePoses::Save(name.c_str()));
 }
 
 void FaceSaveNew(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
-    Return(aOut, CString(APM::Pose::FaceRig::SaveNew().c_str()));
+    Return(aOut, CString(APM::Pose::FacePoses::SaveNew().c_str()));
 }
 
 void FaceLoad(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -781,7 +820,7 @@ void FaceLoad(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     CString name;
     RED4ext::GetParameter(aFrame, &name);
     aFrame->code++;
-    Return(aOut, APM::Pose::FaceRig::Load(name.c_str()));
+    Return(aOut, APM::Pose::FacePoses::Load(name.c_str()));
 }
 
 void FaceDelete(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -789,7 +828,7 @@ void FaceDelete(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     CString name;
     RED4ext::GetParameter(aFrame, &name);
     aFrame->code++;
-    Return(aOut, APM::Pose::FaceRig::Delete(name.c_str()));
+    Return(aOut, APM::Pose::FacePoses::Delete(name.c_str()));
 }
 
 // False when the game was updated and the hooks could not be installed (the panel says so).
@@ -806,7 +845,7 @@ void OpenFolder(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     int32_t kind = 0;
     RED4ext::GetParameter(aFrame, &kind);
     aFrame->code++;
-    const auto path = kind == 1   ? APM::Pose::FaceRig::GetDirectory()
+    const auto path = kind == 1   ? APM::Pose::FacePoses::GetDirectory()
                       : kind == 2 ? APM::Ui::PhotoModeUi::GetHandPoseDirectory()
                                   : APM::Pose::PoseOverrides::GetPoseDirectory();
     std::error_code ec;
@@ -1506,14 +1545,18 @@ void Register()
     ::Register("APM_SetCameraModel", &SetCameraModel, nullptr,
                {{"Int32", "character"}, {"Vector4", "position"}, {"Vector4", "forward"}, {"Vector4", "up"}});
     ::Register("APM_CharacterGetComponent", &CharacterGetComponent, "handle:entIPlacedComponent", {{"Int32", "character"}});
-    ::Register("APM_FaceControlCount", &FaceControlCount, "Int32", {});
-    ::Register("APM_FaceControlLabel", &FaceControlLabel, "String", {{"Int32", "control"}});
-    ::Register("APM_FaceControlZone", &FaceControlZone, "String", {{"Int32", "control"}});
-    ::Register("APM_FaceControlIsAngle", &FaceControlIsAngle, "Bool", {{"Int32", "control"}});
-    ::Register("APM_FaceIsEdited", &FaceIsEdited, "Bool", {{"Int32", "control"}});
-    ::Register("APM_FaceResetControl", &FaceResetControl, nullptr, {{"Int32", "control"}});
+    ::Register("APM_FaceAvailable", &FaceAvailable, "Bool", {});
+    ::Register("APM_FacePoseCount", &FacePoseCount, "Int32", {});
+    ::Register("APM_FacePoseName", &FacePoseName, "String", {{"Int32", "pose"}});
+    ::Register("APM_FacePoseZone", &FacePoseZone, "String", {{"Int32", "pose"}});
+    ::Register("APM_FacePoseSide", &FacePoseSide, "String", {{"Int32", "pose"}});
+    ::Register("APM_FacePoseMirror", &FacePoseMirror, "Int32", {{"Int32", "pose"}});
+    ::Register("APM_FaceSetLinked", &FaceSetLinked, nullptr, {{"Bool", "linked"}});
+    ::Register("APM_FaceIsLinked", &FaceIsLinked, "Bool", {});
+    ::Register("APM_FaceIsEdited", &FaceIsEdited, "Bool", {{"Int32", "pose"}});
+    ::Register("APM_FaceResetPose", &FaceResetPose, nullptr, {{"Int32", "pose"}});
+    ::Register("APM_FaceResetZone", &FaceResetZone, nullptr, {{"String", "zone"}});
     ::Register("APM_FaceReset", &FaceReset, nullptr, {});
-    ::Register("APM_FaceUnload", &FaceUnload, nullptr, {});
     ::Register("APM_FaceGetLoadedName", &FaceGetLoadedName, "String", {});
     ::Register("APM_FaceReloadList", &FaceReloadList, nullptr, {});
     ::Register("APM_FaceListCount", &FaceListCount, "Int32", {});

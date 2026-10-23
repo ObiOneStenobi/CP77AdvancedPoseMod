@@ -5,7 +5,7 @@
 #include "Core/Runtime.hpp"
 #include "Math/Vec3.hpp"
 #include "Pose/Characters.hpp"
-#include "Pose/FaceRig.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -42,6 +42,7 @@ constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
 
 // Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
 std::atomic<bool> g_mirror{false};
+std::atomic<bool> g_faceLinked{true};
 // Last focus distance set for the eyes (cm), used when their lines of sight do not cross.
 float g_eyeFocus = 150.f;
 void MirrorCurrentPart();
@@ -632,10 +633,9 @@ float GetValue(uint32_t aAttribute)
     case Attr::Slot:
         return static_cast<float>(g_slot);
     default:
-        if (aAttribute >= Attr::FaceControl && aAttribute < Attr::FaceControl + Pose::FaceControlCount)
+        if (aAttribute >= Attr::FacePose && aAttribute < Attr::FacePose + Pose::FacePoses::Count())
         {
-            const size_t control = aAttribute - Attr::FaceControl;
-            return Pose::FaceRig::GetMeasure(control) + Pose::PoseOverrides::GetFaceEdit(control);
+            return Pose::PoseOverrides::GetFaceWeight(aAttribute - Attr::FacePose) * 100.f;
         }
         return 0.f; // action selectors always rest on "-"
     }
@@ -785,18 +785,17 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
         break;
     default:
-        if (aAttribute >= Attr::FaceControl && aAttribute < Attr::FaceControl + Pose::FaceControlCount)
+        if (aAttribute >= Attr::FacePose && aAttribute < Attr::FacePose + Pose::FacePoses::Count())
         {
-            // The value shown is the expression's own plus the player's offset: keep the offset.
-            const size_t control = aAttribute - Attr::FaceControl;
-            const float edit = aValue - Pose::FaceRig::GetMeasure(control);
-            if (!Same(edit, Pose::PoseOverrides::GetFaceEdit(control)))
+            const size_t pose = aAttribute - Attr::FacePose;
+            const float weight = std::clamp(aValue / 100.f, 0.f, 1.f);
+            if (!Same(weight, Pose::PoseOverrides::GetFaceWeight(pose)))
             {
-                Pose::PoseOverrides::SetFaceEdit(control, edit);
-                const int32_t twin = Pose::FaceRig::ControlTwin(control);
-                if (g_mirror && twin >= 0)
+                Pose::PoseOverrides::SetFaceWeight(pose, weight);
+                const int32_t mirror = Pose::FacePoses::Mirror(pose);
+                if (g_faceLinked && mirror >= 0)
                 {
-                    Pose::PoseOverrides::SetFaceEdit(static_cast<size_t>(twin), edit);
+                    Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(mirror), weight);
                 }
             }
         }
@@ -1540,6 +1539,16 @@ void SetMirror(bool aMirror)
 bool IsMirror()
 {
     return g_mirror;
+}
+
+void SetFaceLinked(bool aLinked)
+{
+    g_faceLinked = aLinked;
+}
+
+bool IsFaceLinked()
+{
+    return g_faceLinked;
 }
 
 void SetLimits(bool aLimits)
