@@ -7,11 +7,16 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <memory>
 
 namespace
 {
+// The lock only guards swapping the list and the pointer tables: readers take the current list (an immutable
+// snapshot) and release the lock before working on it. Animation threads used to keep the lock in shared mode for
+// the whole pose (VisitTarget) while the joint limits took it again; a writer waiting in between (Set, on every
+// ApplyPuppetTransforms) then deadlocked the game (SRW locks must not be acquired recursively).
 SRWLOCK g_lock = SRWLOCK_INIT;
-std::vector<APM::Pose::Target> g_targets;
+std::shared_ptr<const std::vector<APM::Pose::Target>> g_targets = std::make_shared<const std::vector<APM::Pose::Target>>();
 
 // Flat copy of all known pointers for lock-cheap scanning.
 std::array<uintptr_t, 64> g_pointers{};
@@ -33,9 +38,15 @@ struct ExclusiveGuard
     ~ExclusiveGuard() { ReleaseSRWLockExclusive(&g_lock); }
 };
 
-const APM::Pose::Target* FindUnlocked(uintptr_t aPointer)
+std::shared_ptr<const std::vector<APM::Pose::Target>> Snapshot()
 {
-    for (const auto& target : g_targets)
+    SharedGuard guard;
+    return g_targets;
+}
+
+const APM::Pose::Target* FindIn(const std::vector<APM::Pose::Target>& aTargets, uintptr_t aPointer)
+{
+    for (const auto& target : aTargets)
     {
         if (target.entity == aPointer || target.animatedComponent == aPointer)
         {
@@ -50,12 +61,13 @@ namespace APM::Pose::TargetRegistry
 {
 void Set(std::vector<Target> aTargets)
 {
+    auto targets = std::make_shared<const std::vector<Target>>(std::move(aTargets));
     ExclusiveGuard guard;
-    g_targets = std::move(aTargets);
+    g_targets = targets; // the previous list lives on while a reader still holds it
 
     g_pointerCount = 0;
     g_identityCount = 0;
-    for (const auto& target : g_targets)
+    for (const auto& target : *g_targets)
     {
         for (const uintptr_t pointer : {target.entity, target.animatedComponent})
         {
@@ -89,14 +101,13 @@ void Clear()
 
 size_t Count()
 {
-    SharedGuard guard;
-    return g_targets.size();
+    return Snapshot()->size();
 }
 
 bool FindByPointer(uintptr_t aPointer, Target& aOut)
 {
-    SharedGuard guard;
-    if (const auto* target = FindUnlocked(aPointer))
+    const auto targets = Snapshot();
+    if (const auto* target = FindIn(*targets, aPointer))
     {
         aOut = *target;
         return true;
@@ -128,8 +139,8 @@ RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer)
     {
         return {};
     }
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.entity == aPointer)
         {
@@ -145,8 +156,8 @@ RED4ext::Handle<RED4ext::ISerializable> LockObject(uintptr_t aPointer)
 
 RED4ext::Handle<RED4ext::ISerializable> LockMainComponent(uint32_t aCharacter)
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.photoModeSlot == aCharacter && target.debugName == "root")
         {
@@ -165,8 +176,8 @@ size_t GetProbePointers(std::array<uintptr_t, 64>& aOut)
 
 int32_t FindBoneIndex(uintptr_t aPointer, uint64_t aBoneNameHash)
 {
-    SharedGuard guard;
-    const auto* target = FindUnlocked(aPointer);
+    const auto targets = Snapshot();
+    const auto* target = FindIn(*targets, aPointer);
     if (!target)
     {
         return -1;
@@ -185,8 +196,8 @@ namespace APM::Pose::TargetRegistry
 {
 bool HasBoneCount(uint32_t aCount)
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.boneNames.size() == aCount)
         {
@@ -198,8 +209,8 @@ bool HasBoneCount(uint32_t aCount)
 
 bool GetReferencePose(ReferencePose& aOut)
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
@@ -223,8 +234,8 @@ bool GetReferencePose(ReferencePose& aOut)
 
 bool GetBoneReferenceForward(uint64_t aBoneHash, Math::Vec3& aOut)
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
@@ -252,8 +263,8 @@ namespace APM::Pose::TargetRegistry
 {
 bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& aVisitor)
 {
-    SharedGuard guard;
-    const auto* target = FindUnlocked(aPointer);
+    const auto targets = Snapshot(); // no lock held while the visitor runs (it may call back into the registry)
+    const auto* target = FindIn(*targets, aPointer);
     if (!target)
     {
         return false;
@@ -264,8 +275,8 @@ bool VisitTarget(uintptr_t aPointer, const std::function<void(const Target&)>& a
 
 void ForEach(const std::function<void(const Target&)>& aVisitor)
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         aVisitor(target);
     }
@@ -273,8 +284,8 @@ void ForEach(const std::function<void(const Target&)>& aVisitor)
 
 std::vector<uint64_t> GetMainSkeletonBones()
 {
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.photoModeSlot == Characters::Selected() && target.debugName == "root")
         {
@@ -290,8 +301,8 @@ namespace APM::Pose::TargetRegistry
 bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist)
 {
     using namespace Math;
-    SharedGuard guard;
-    for (const auto& target : g_targets)
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
     {
         if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
         {
