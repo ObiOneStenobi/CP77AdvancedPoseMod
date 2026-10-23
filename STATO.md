@@ -78,7 +78,7 @@ Aggiornato: 2026-10-23
   senza errori della mod; nessun Warn "parent after them".
 - Pulsanti: pressione su uno e rilascio su un altro non clicca.
 - Talloni: gizmo solo da vicino; limiti Heel {-30,30,15,15} da tarare.
-- Pose/espressioni da sottocartelle; salvataggio nella principale; rinomina resta nella sua cartella.
+- Pose/espressioni/pose mani (hands/) da sottocartelle; salvataggio nella principale; rinomina resta nella sua cartella.
 - Marker sovrapposti (vicino sopra/cliccabile, dietro trasparenti, attenuazione < 1,3 m).
 - Pose mani: salva/carica (pulsante Hands), applicata alla mano della scheda aperta.
 - Gizmo classici: Direct/Rotate/Move, Local/Global, verso degli anelli, frecce (hips, oggetti, IK), drag.
@@ -91,9 +91,34 @@ Aggiornato: 2026-10-23
 - Da verificare: contesto anim (ctx+0x48->+0x118), offset SDK (Entity::components, AnimatedComponent::rig, Rig),
   ID attributi Photo Mode (15, 74, 28, 56, 68); veicoli (piano in RESEARCH.md).
 
+## Editor espressioni dalle pose del facialsetup (piano approvato in parte, 23/10)
+- Ricerca: WolvenKit.Console 9.1.0 in tools\wolvenkit (gitignored), legge gli archivi 2.5. 388 `.facialsetup`
+  (`..._rigsetup.facialsetup`, uno per testa) + rig `..._skeleton.rig` (face_rig: 344 ossa, 414 tracce).
+  Pose principali FACS: viso 121 (133 con inbetween, es. jaw_mid_open 0.5/1), lingua 18, occhi 12; 255 correttive.
+  Dati: mainPosesData.Face.Poses[] {TransformIdx, NumTransforms} + Transforms[] {Rotation, Translation, Bone};
+  ordine = bakedData.Face.AllMainPoses[] {Track -> rig.trackNames, NumInbetweens}, pesi inbetween in
+  AllMainPosesInbetweens. Delta locali: rotazione di riposo del face_rig = identità, traslazione delta (mm).
+- Teste (pwa base vs variante pwa, pma, pma variante, wa, ma): stesse 344 ossa e 121 pose; delta diversi per testa
+  (spostamento: mediana 0,2 mm su 1,3 mm, p90 ~1 mm; rotazione: mediana ~1,2° su 4,6°, p90 ~5°). Diff. tra generi
+  uguale a quella tra due teste dello stesso genere -> ogni testa è tarata a sé.
+- Decisioni: slider = peso posa (0-100%) sommato all'espressione di Photo Mode; togliere i 23 controlli euristici e
+  Observe; escludere sguardo, collo, testa; modalità Semplice (~25-30, lista da proporre dopo l'anteprima) /
+  Avanzata (tutte); L+R collegati; espressioni salvate: + pesi nel JSON. Niente "parti da neutro" (c'è già
+  l'espressione neutra di Photo Mode). Correttive e gizmo osso per osso dopo; rughe non fattibili (materiale).
+- Deciso: dati delle teste in file JSON pwa (femminili, e NPC come riserva) e pma (maschili) in
+  dist\red4ext\plugins\AdvancedPoseMod\face\; scelta col tipo Photo Mode (1 = F, 2 = M). Obiettivo dopo i test in
+  gioco: leggere il facialsetup già caricato per il personaggio (taratura esatta), JSON come riserva.
+- Prossimo passo: fase A.
+- Fasi: A) tools\extract_face_poses.ps1 + tools\face_poses.py (-> dist\...\face\*.json) + tools\face_preview.py;
+  B) src/Pose/FacePoses.* (carica, mappa ossa per nome, Apply al posto di FaceRig::Apply), PoseOverrides, natives;
+  C) UI APM_Face (zone, Semplice/Avanzato, L+R), testi + gen_loc_template, APM_FaceFeatureEnabled true;
+  D) build, check script, dist, STATO.
+- File temporanei della ricerca nello scratchpad della sessione (rigenerabili con gli script della fase A).
+
 ## Da fare (ordine proposto)
 1. Rilascio 1.4.0: changelog/testo Nexus + lista test in gioco.
-2. Pose adattate all'altezza (opzionale).
+2. Editor espressioni (sopra), fase A subito, B-D dopo.
+3. Pose adattate all'altezza (opzionale).
 - In attesa: release RED4ext con 2.5 (supporto già su master) e Codeware per 2.5.
 
 ## Prossimi passi
