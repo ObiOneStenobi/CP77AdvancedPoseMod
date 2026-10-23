@@ -20,7 +20,15 @@ bool HasRange(std::string_view aBone);
 // A final local rotation kept within the bone's range. aAnimatedLocal is where the animation has the joint.
 // aSwapBends: the bone's bends are swapped (finger axes, as the panel uses them).
 // Reference (T pose) local rotation of a bone and the sign that makes its bend1 curl towards the palm / go forward.
+// Without aCharacter: the selected character (0 = V, 1-3 = added characters).
 bool GetReferenceFrame(std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal, float& aForwardSign);
+bool GetReferenceFrame(uint32_t aCharacter, std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal,
+                       float& aForwardSign);
 
 Math::Quat LimitLocal(std::string_view aBone, const Math::Quat& aLocal, const Math::Quat& aAnimatedLocal, bool aSwapBends);
+Math::Quat LimitLocal(uint32_t aCharacter, std::string_view aBone, const Math::Quat& aLocal,
+                      const Math::Quat& aAnimatedLocal, bool aSwapBends);
+
+// Drops the joint frames worked out so far (Photo Mode opened / closed).
+void ResetCache();
 } // namespace APM::Pose::JointLimits

@@ -1127,12 +1127,14 @@ int32_t MirrorParts(bool aFromLeft, const std::string& aGroup)
             Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
             const int32_t is = refIndex(source.bones.front());
             const int32_t it = refIndex(target->bones.front());
-            if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+            const int16_t ps = is >= 0 ? reference.parents[is] : int16_t(-1);
+            const int16_t pt = it >= 0 ? reference.parents[it] : int16_t(-1);
+            if (ps >= 0 && pt >= 0 && static_cast<size_t>(ps) < reference.modelRotations.size() &&
+                static_cast<size_t>(pt) < reference.modelRotations.size())
             {
-                const Math::Vec3 model =
-                    Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
+                const Math::Vec3 model = Math::Rotate(reference.modelRotations[ps], Math::Vec3{offset[0], offset[1], offset[2]});
                 const Math::Vec3 local =
-                    Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]), Math::Vec3{-model.x, model.y, model.z});
+                    Math::Rotate(Math::Conjugate(reference.modelRotations[pt]), Math::Vec3{-model.x, model.y, model.z});
                 Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
             }
         }
@@ -1436,12 +1438,14 @@ void MirrorGroup(const std::string& aGroup)
             Pose::PoseOverrides::GetTranslation(source.bones.front(), offset);
             const int32_t is = refIndex(source.bones.front());
             const int32_t it = refIndex(target->bones.front());
-            if (is >= 0 && it >= 0 && reference.parents[is] >= 0 && reference.parents[it] >= 0)
+            const int16_t ps = is >= 0 ? reference.parents[is] : int16_t(-1);
+            const int16_t pt = it >= 0 ? reference.parents[it] : int16_t(-1);
+            if (ps >= 0 && pt >= 0 && static_cast<size_t>(ps) < reference.modelRotations.size() &&
+                static_cast<size_t>(pt) < reference.modelRotations.size())
             {
-                const Math::Vec3 model =
-                    Math::Rotate(reference.modelRotations[reference.parents[is]], Math::Vec3{offset[0], offset[1], offset[2]});
-                const Math::Vec3 local = Math::Rotate(Math::Conjugate(reference.modelRotations[reference.parents[it]]),
-                                                      Math::Vec3{-model.x, model.y, model.z});
+                const Math::Vec3 model = Math::Rotate(reference.modelRotations[ps], Math::Vec3{offset[0], offset[1], offset[2]});
+                const Math::Vec3 local =
+                    Math::Rotate(Math::Conjugate(reference.modelRotations[pt]), Math::Vec3{-model.x, model.y, model.z});
                 Pose::PoseOverrides::SetTranslation(target->bones.front(), local.x, local.y, local.z);
             }
         }

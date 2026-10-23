@@ -1,6 +1,7 @@
 #include "Pose/JointLimits.hpp"
 
 #include "Math/Vec3.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -117,9 +118,9 @@ struct Axes
     Math::Vec3 twist;
 };
 
-bool GetAxes(uint64_t aHash, bool aSwapBends, Axes& aOut)
+bool GetAxes(uint32_t aCharacter, uint64_t aHash, bool aSwapBends, Axes& aOut)
 {
-    if (!Pose::TargetRegistry::GetBoneAxes(aHash, aOut.bend1, aOut.bend2, aOut.twist))
+    if (!Pose::TargetRegistry::GetBoneAxes(aCharacter, aHash, aOut.bend1, aOut.bend2, aOut.twist))
     {
         return false;
     }
@@ -154,21 +155,44 @@ struct JointFrame
     float forwardSign = 1.f; // +1 when a positive bend1 moves the bone's end forward (fingers: towards the palm)
 };
 
-std::mutex g_frameMutex;
-
-// Reference local rotation and bend direction of a bone, worked out once from the reference pose.
-bool GetJointFrame(std::string_view aBone, uint64_t aHash, bool aSwapBends, JointFrame& aOut)
+// Joint frames of a character, valid for the rig they were worked out from.
+struct CharacterFrames
 {
+    uintptr_t rig = 0;
+    std::unordered_map<uint64_t, JointFrame> frames[2]; // [aSwapBends]
+};
+std::mutex g_frameMutex;
+std::array<CharacterFrames, Pose::Characters::Count> g_frames; // g_frameMutex
+
+// Reference local rotation and bend direction of a bone of a character, worked out once from its reference pose.
+bool GetJointFrame(uint32_t aCharacter, std::string_view aBone, uint64_t aHash, bool aSwapBends, JointFrame& aOut)
+{
+    if (aCharacter >= Pose::Characters::Count)
+    {
+        return false;
+    }
+    const uintptr_t rig = Pose::TargetRegistry::GetMainRig(aCharacter);
+    if (!rig)
+    {
+        return false;
+    }
     std::scoped_lock lock(g_frameMutex);
-    static std::unordered_map<uint64_t, JointFrame> cache[2];
-    auto& frames = cache[aSwapBends ? 1 : 0];
+    auto& character = g_frames[aCharacter];
+    if (character.rig != rig)
+    {
+        // Another character in the slot (or another body): the frames of the old rig no longer apply.
+        character.frames[0].clear();
+        character.frames[1].clear();
+        character.rig = rig;
+    }
+    auto& frames = character.frames[aSwapBends ? 1 : 0];
     if (const auto it = frames.find(aHash); it != frames.end())
     {
         aOut = it->second;
         return true;
     }
     Pose::TargetRegistry::ReferencePose reference;
-    if (!Pose::TargetRegistry::GetReferencePose(reference))
+    if (!Pose::TargetRegistry::GetReferencePose(aCharacter, reference) || reference.rig != rig)
     {
         return false;
     }
@@ -177,7 +201,7 @@ bool GetJointFrame(std::string_view aBone, uint64_t aHash, bool aSwapBends, Join
     for (size_t i = 0; i < count; ++i)
     {
         const int16_t parent = reference.parents[i];
-        positions[i] = parent >= 0 ? positions[parent] + Math::Rotate(reference.modelRotations[parent], reference.localTranslations[i])
+        positions[i] = parent >= 0 && static_cast<size_t>(parent) < i ? positions[parent] + Math::Rotate(reference.modelRotations[parent], reference.localTranslations[i])
                                    : reference.localTranslations[i];
     }
     const auto indexOf = [&](uint64_t aName) -> int32_t
@@ -230,12 +254,12 @@ bool GetJointFrame(std::string_view aBone, uint64_t aHash, bool aSwapBends, Join
     {
         direction = tip * (1.f / static_cast<float>(children)) - positions[index];
     }
-    else if (reference.parents[index] >= 0)
+    else if (const int16_t parent = reference.parents[index]; parent >= 0 && static_cast<size_t>(parent) < count)
     {
-        direction = positions[index] - positions[reference.parents[index]]; // leaf: continue the parent's direction
+        direction = positions[index] - positions[parent]; // leaf: continue the parent's direction
     }
     Axes axes;
-    if (Math::Length(direction) > 1e-4f && GetAxes(aHash, aSwapBends, axes))
+    if (Math::Length(direction) > 1e-4f && GetAxes(aCharacter, aHash, aSwapBends, axes))
     {
         const Math::Vec3 axis = Math::Rotate(reference.modelRotations[index], axes.bend1);
         frame.forwardSign = Math::Dot(Math::Cross(axis, direction), forward) >= 0.f ? 1.f : -1.f;
@@ -258,10 +282,22 @@ bool IsEnabled()
     return g_enabled;
 }
 
+void ResetCache()
+{
+    std::scoped_lock lock(g_frameMutex);
+    g_frames = {};
+}
+
 bool GetReferenceFrame(std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal, float& aForwardSign)
 {
+    return GetReferenceFrame(Characters::Selected(), aBone, aSwapBends, aReferenceLocal, aForwardSign);
+}
+
+bool GetReferenceFrame(uint32_t aCharacter, std::string_view aBone, bool aSwapBends, Math::Quat& aReferenceLocal,
+                       float& aForwardSign)
+{
     JointFrame frame;
-    if (!GetJointFrame(aBone, RED4ext::CName(std::string(aBone).c_str()).hash, aSwapBends, frame))
+    if (!GetJointFrame(aCharacter, aBone, RED4ext::CName(std::string(aBone).c_str()).hash, aSwapBends, frame))
     {
         return false;
     }
@@ -278,6 +314,12 @@ bool HasRange(std::string_view aBone)
 
 Math::Quat LimitLocal(std::string_view aBone, const Math::Quat& aLocal, const Math::Quat& aAnimatedLocal, bool aSwapBends)
 {
+    return LimitLocal(Characters::Selected(), aBone, aLocal, aAnimatedLocal, aSwapBends);
+}
+
+Math::Quat LimitLocal(uint32_t aCharacter, std::string_view aBone, const Math::Quat& aLocal,
+                      const Math::Quat& aAnimatedLocal, bool aSwapBends)
+{
     JointRange range{};
     if (!g_enabled || !FindRange(aBone, range))
     {
@@ -286,7 +328,7 @@ Math::Quat LimitLocal(std::string_view aBone, const Math::Quat& aLocal, const Ma
     const uint64_t hash = RED4ext::CName(std::string(aBone).c_str()).hash;
     JointFrame frame;
     Axes axes;
-    if (!GetJointFrame(aBone, hash, aSwapBends, frame) || !GetAxes(hash, aSwapBends, axes))
+    if (!GetJointFrame(aCharacter, aBone, hash, aSwapBends, frame) || !GetAxes(aCharacter, hash, aSwapBends, axes))
     {
         return aLocal;
     }

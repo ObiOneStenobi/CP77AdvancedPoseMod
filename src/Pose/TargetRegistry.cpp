@@ -209,10 +209,28 @@ bool HasBoneCount(uint32_t aCount)
 
 bool GetReferencePose(ReferencePose& aOut)
 {
+    return GetReferencePose(Characters::Selected(), aOut);
+}
+
+uintptr_t GetMainRig(uint32_t aCharacter)
+{
     const auto targets = Snapshot();
     for (const auto& target : *targets)
     {
-        if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
+        if (target.photoModeSlot == aCharacter && target.debugName == "root")
+        {
+            return target.rig;
+        }
+    }
+    return 0;
+}
+
+bool GetReferencePose(uint32_t aCharacter, ReferencePose& aOut)
+{
+    const auto targets = Snapshot();
+    for (const auto& target : *targets)
+    {
+        if (target.photoModeSlot != aCharacter || target.debugName != "root")
         {
             continue;
         }
@@ -227,6 +245,7 @@ bool GetReferencePose(ReferencePose& aOut)
         aOut.localRotations.assign(target.refRotationsLS.begin(), target.refRotationsLS.begin() + count);
         aOut.localTranslations.assign(target.refTranslationsLS.begin(), target.refTranslationsLS.begin() + count);
         aOut.modelRotations.assign(target.refRotationsMS.begin(), target.refRotationsMS.begin() + count);
+        aOut.rig = target.rig;
         return true;
     }
     return false;
@@ -300,11 +319,16 @@ namespace APM::Pose::TargetRegistry
 {
 bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist)
 {
+    return GetBoneAxes(Characters::Selected(), aBoneHash, aBend1, aBend2, aTwist);
+}
+
+bool GetBoneAxes(uint32_t aCharacter, uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist)
+{
     using namespace Math;
     const auto targets = Snapshot();
     for (const auto& target : *targets)
     {
-        if (target.photoModeSlot != Characters::Selected() || target.debugName != "root")
+        if (target.photoModeSlot != aCharacter || target.debugName != "root")
         {
             continue;
         }
@@ -322,7 +346,7 @@ bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Mat
 
         // Twist axis (local): towards the first child, or continuing the parent->bone direction for leaf bones.
         Vec3 twistLocal{};
-        for (size_t child = index + 1; child < target.parents.size(); ++child)
+        for (size_t child = index + 1; child < target.parents.size() && child < target.refTranslationsLS.size(); ++child)
         {
             if (target.parents[child] == static_cast<int16_t>(index) && Length(target.refTranslationsLS[child]) > 1e-4f)
             {

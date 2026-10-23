@@ -337,6 +337,7 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
                        const APM::Pose::OverrideSnapshot& aPose, const ModelPose& aOriginalPose, ModelPose& aCurrentPose)
 {
     uint32_t solved = 0;
+    const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
     for (size_t chainIndex = 0; chainIndex < IkChainCount; ++chainIndex)
     {
         const auto& settings = aPose.ik[chainIndex];
@@ -412,8 +413,8 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         if (APM::Pose::JointLimits::IsEnabled())
         {
             const Quat parentGlobal = APM::Math::Mul(input.aGlobal, APM::Math::Conjugate(input.aLocal));
-            result.aLocal = APM::Pose::JointLimits::LimitLocal(chain.upper, result.aLocal, input.aLocal, false);
-            result.bLocal = APM::Pose::JointLimits::LimitLocal(chain.middle, result.bLocal, input.bLocal, false);
+            result.aLocal = APM::Pose::JointLimits::LimitLocal(character, chain.upper, result.aLocal, input.aLocal, false);
+            result.bLocal = APM::Pose::JointLimits::LimitLocal(character, chain.middle, result.bLocal, input.bLocal, false);
             result.aGlobal = APM::Math::Normalize(APM::Math::Mul(parentGlobal, result.aLocal));
             result.bGlobal = APM::Math::Normalize(APM::Math::Mul(result.aGlobal, result.bLocal));
         }
@@ -430,7 +431,7 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         }
         Quat cLocalNew = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(result.bGlobal), cWorld));
         // The pinned hand / foot still bends only as far as a wrist / ankle can (joint limits).
-        cLocalNew = APM::Pose::JointLimits::LimitLocal(chain.end, cLocalNew, cLocalOriginal, false);
+        cLocalNew = APM::Pose::JointLimits::LimitLocal(character, chain.end, cLocalNew, cLocalOriginal, false);
 
         SetRotation(aBones[a], result.aLocal);
         SetRotation(aBones[b], result.bLocal);
@@ -558,7 +559,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     {
         const int32_t eye = IndexOf(aTarget, Hash(Eyes[e]));
         const int16_t parent = eye >= 0 && static_cast<size_t>(eye) < aTarget.parents.size() ? aTarget.parents[eye] : int16_t(-1);
-        if (eye < 0 || static_cast<uint32_t>(eye) >= aCount || parent < 0 || static_cast<size_t>(eye) >= aTarget.refRotationsMS.size())
+        if (eye < 0 || static_cast<uint32_t>(eye) >= aCount || parent < 0 || static_cast<uint32_t>(parent) >= aCount ||
+            static_cast<size_t>(eye) >= aTarget.refRotationsMS.size())
         {
             ok = false;
             break;
@@ -693,7 +695,7 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
             continue;
         }
         const int16_t parent = static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
-        if (parent < 0)
+        if (parent < 0 || static_cast<uint32_t>(parent) >= aCount)
         {
             continue;
         }
@@ -740,6 +742,7 @@ struct NoLookAtCache
     uint32_t poseGeneration = 0; // Photo Mode pose the bones belong to (LookAtCamera::PoseGeneration)
     std::array<Quat, std::size(LookAtChain)> chain{};
 };
+std::mutex g_noLookAtMutex; // anim threads remember and restore, the game thread resets
 std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
 // Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,
@@ -757,31 +760,40 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     }
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
     const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(character);
-    auto& g_noLookAt = g_noLookAtCaches[character];
     if (APM::Pose::LookAtCamera::Reach(character) < 2)
     {
+        std::array<Quat, std::size(LookAtChain)> rotations{};
         for (size_t i = 0; i < chain.size(); ++i)
         {
-            g_noLookAt.chain[i] = GetRotation(aBones[chain[i]]);
+            rotations[i] = GetRotation(aBones[chain[i]]);
         }
+        std::scoped_lock lock(g_noLookAtMutex);
+        auto& g_noLookAt = g_noLookAtCaches[character];
+        g_noLookAt.chain = rotations;
         g_noLookAt.poseGeneration = generation;
         g_noLookAt.valid = true;
         return false;
     }
-    if (!g_noLookAt.valid)
+    std::array<Quat, std::size(LookAtChain)> rotations{};
     {
-        return false;
-    }
-    if (g_noLookAt.poseGeneration != generation)
-    {
-        g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
-        APM::Log::Verbose("Character %u: Photo Mode pose changed while Look at camera is on; remembered pose dropped",
-                          character);
-        return false;
+        std::scoped_lock lock(g_noLookAtMutex);
+        auto& g_noLookAt = g_noLookAtCaches[character];
+        if (!g_noLookAt.valid)
+        {
+            return false;
+        }
+        if (g_noLookAt.poseGeneration != generation)
+        {
+            g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
+            APM::Log::Verbose("Character %u: Photo Mode pose changed while Look at camera is on; remembered pose dropped",
+                              character);
+            return false;
+        }
+        rotations = g_noLookAt.chain;
     }
     for (size_t i = 0; i < chain.size(); ++i)
     {
-        SetRotation(aBones[chain[i]], g_noLookAt.chain[i]);
+        SetRotation(aBones[chain[i]], rotations[i]);
     }
     return true;
 }
@@ -880,7 +892,10 @@ void ResetCharacter(uint32_t aCharacter)
         std::scoped_lock lock(g_cameraEyeMutex);
         g_cameraEyesValid[aCharacter] = false;
     }
-    g_noLookAtCaches[aCharacter].valid = false;
+    {
+        std::scoped_lock lock(g_noLookAtMutex);
+        g_noLookAtCaches[aCharacter].valid = false;
+    }
     {
         std::scoped_lock lock(g_animatedEyeMutex);
         g_animatedEyes[aCharacter] = {};

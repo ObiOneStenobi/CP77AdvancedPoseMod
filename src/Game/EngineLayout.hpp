@@ -1,6 +1,8 @@
 #pragma once
 
 #include <RED4ext/CName.hpp>
+#include <RED4ext/Handle.hpp>
+#include <RED4ext/ISerializable.hpp>
 #include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
 
 #include <cstdint>
@@ -38,4 +40,9 @@ struct RigView
     uint64_t hash = 0;
 };
 bool ViewRig(uintptr_t aRig, RigView& aOut);
+
+// Strong handle to an engine object (ISerializable*) read from raw memory, only while it is still alive: its own
+// weak reference must point back at it and still count a strong owner. Empty for a destroyed (despawned) object.
+// Holding the handle keeps the object from being freed.
+RED4ext::Handle<RED4ext::ISerializable> LockAlive(uintptr_t aObject);
 } // namespace APM::EngineLayout

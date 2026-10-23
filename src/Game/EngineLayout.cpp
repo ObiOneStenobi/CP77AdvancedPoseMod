@@ -22,6 +22,8 @@ constexpr uint32_t SdkRigTags = 0x120;
 constexpr int32_t RigParentsFromBoneNames = -0x10;
 constexpr int32_t RigReferenceFromBoneNames = -0x08;
 constexpr int32_t RigHashFromTags = -0x08;
+// ISerializable::ref, the object's own weak reference (instance, refCount).
+constexpr uint32_t SerializableRef = 0x08;
 
 uint32_t g_componentName = SdkComponentName;
 uint32_t g_animatedRig = SdkAnimatedRig;
@@ -195,5 +197,27 @@ bool ViewRig(uintptr_t aRig, RigView& aOut)
         SafeMemory::LooksLikePointer(reference) ? reinterpret_cast<const RED4ext::QsTransform*>(reference) : nullptr;
     aOut.hash = hash;
     return true;
+}
+
+RED4ext::Handle<RED4ext::ISerializable> LockAlive(uintptr_t aObject)
+{
+    struct RawRef
+    {
+        uint64_t instance;
+        uint64_t refCount;
+    } raw{};
+    uint64_t vtable = 0;
+    uint32_t strongRefs = 0;
+    if (!SafeMemory::LooksLikePointer(aObject) || !SafeMemory::ReadU64(aObject, vtable) ||
+        !SafeMemory::IsInGameImage(vtable) || !SafeMemory::ReadBytes(aObject + SerializableRef, &raw, sizeof(raw)) ||
+        raw.instance != aObject || !SafeMemory::LooksLikePointer(raw.refCount) ||
+        !SafeMemory::ReadU32(raw.refCount, strongRefs) || strongRefs == 0)
+    {
+        return {};
+    }
+    // Borrows the weak reference without copying it (no weak count change) and takes a strong one only if the
+    // object still has an owner (atomic compare-exchange): from here on it cannot be freed while the handle lives.
+    static_assert(sizeof(RawRef) == sizeof(RED4ext::WeakHandle<RED4ext::ISerializable>));
+    return reinterpret_cast<const RED4ext::WeakHandle<RED4ext::ISerializable>&>(raw).Lock();
 }
 } // namespace APM::EngineLayout

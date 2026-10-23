@@ -1,6 +1,6 @@
 # STATO – AdvancedPoseMod 1.4.0 (in corso)
 
-Aggiornato: 2026-10-22 (sera)
+Aggiornato: 2026-10-23
 
 ## Obiettivo 1.4.0
 1. Supporto gioco 2.5 (3.0.88.46235) oltre alla 2.31 (3.0.80.51928).
@@ -46,6 +46,55 @@ Aggiornato: 2026-10-22 (sera)
   tangente (rad o m); marker solo selezione quando attivo; pref "ClassicGizmo", "ClassicGizmoModelAxes".
 - README e RESEARCH.md aggiornati (2.5, veicoli, file mani, sottocartelle, gizmo).
 - Il gioco è già alla 2.5: nessun test in gioco possibile finché RED4ext non è aggiornato.
+
+## Fatto il 23/10
+- Build con RED4ext.SDK 0f5eba4 (2.5): CBaseFunction/CStackFrame cambiati -> la 1.4.0 accetta SOLO 2.5 (2.31 resta 1.3.0).
+  setup.sh e CMakeLists.txt aggiornati; redscript 0.5.32 in setup.sh.
+- Script della mod: 0 errori sul bundle 2.5 (errori solo dentro Codeware, non ancora aggiornato per 2.5).
+- Pulsante modalità gizmo "Direct / Rotate / Move" accanto a Gizmos; pulsante assi "Local / Global".
+- FIX crash/freeze (segnalazioni utenti 1.3.0: freeze toccando un osso; CTD uscendo da Photo Mode dopo molto tempo):
+  TargetRegistry teneva lo SRW lock condiviso per tutta la posa (VisitTarget) e i limiti articolari lo riprendevano
+  (GetBoneAxes/GetReferencePose) -> deadlock con Set/Clear esclusivo. Ora i lettori usano uno snapshot
+  shared_ptr e rilasciano il lock.
+- Exe 2.5 ricontrollato il 23/10: invariato (cambiato solo GameServicesSteam.dll).
+
+## Fatto il 23/10 (robustezza, build ok, DLL in dist)
+- Genitori: in PhotoModeTracker (costruzione Target) parent >= indice osso -> -1 (radice) + Warn una volta per rig;
+  controlli locali in JointLimits, PoseProcessor (occhi, KeepLookAt), GizmoState (catena, punta foglia),
+  PoseOverrides (posa neutra), PhotoModeUi (specchio x2), FaceRig, TargetRegistry::GetBoneAxes.
+- g_noLookAtCaches protetto da `g_noLookAtMutex` (anche ResetCharacter).
+- JointLimits per personaggio: overload con `aCharacter` (LimitLocal, GetReferenceFrame; IK passa il personaggio
+  del target, la UI quello selezionato); cache per slot valida per il rig (`TargetRegistry::GetMainRig`), svuotata
+  se il rig cambia e con `JointLimits::ResetCache()` ad Activate/Deactivate/uscita. TargetRegistry: GetBoneAxes e
+  GetReferencePose con personaggio, ReferencePose.rig.
+- Despawn: `EngineLayout::LockAlive` (legge ISerializable::ref +0x08 con SafeMemory, instance == oggetto,
+  strongRefs > 0, poi WeakHandle::Lock = IncRefIfNotZero) usato in AddPuppetTargets (entità e componenti, handle
+  tenuti per tutta la funzione; entityRef/componentRef presi dagli handle) e ProbePuppet.
+- Build: il CMake 3.22 di VS 2022 non conosce DOWNLOAD_EXTRACT_TIMESTAMP -> usare CMake >= 3.24 (quello di VS 18:
+  ...\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe 4.2).
+
+## Test in gioco (quando escono RED4ext/Codeware per 2.5)
+- Avvio: log red4ext (versione 2.5 accettata, "Layout:" senza Warn inattesi, MenuGuard), redscript_rCURRENT.log
+  senza errori della mod; nessun Warn "parent after them".
+- Pulsanti: pressione su uno e rilascio su un altro non clicca.
+- Talloni: gizmo solo da vicino; limiti Heel {-30,30,15,15} da tarare.
+- Pose/espressioni da sottocartelle; salvataggio nella principale; rinomina resta nella sua cartella.
+- Marker sovrapposti (vicino sopra/cliccabile, dietro trasparenti, attenuazione < 1,3 m).
+- Pose mani: salva/carica (pulsante Hands), applicata alla mano della scheda aperta.
+- Gizmo classici: Direct/Rotate/Move, Local/Global, verso degli anelli, frecce (hips, oggetti, IK), drag.
+- Freeze/CTD 1.3.0: trascinare a lungo con IK + limiti; uscire da Photo Mode dopo molto tempo.
+- Nuovo: IK + limiti su un personaggio aggiunto (NPC, corporatura diversa) e su V mentre è selezionato l'altro:
+  ginocchia/gomiti nel verso giusto; cambiare selezione avanti e indietro.
+- Nuovo: aggiungere, sostituire e rimuovere personaggi più volte, uscire/rientrare in Photo Mode (despawn): niente
+  crash, target aggiornati.
+- Nuovo: "Look at camera" con cambio della posa di Photo Mode (posa ricordata scartata, nessun scatto).
+- Da verificare: contesto anim (ctx+0x48->+0x118), offset SDK (Entity::components, AnimatedComponent::rig, Rig),
+  ID attributi Photo Mode (15, 74, 28, 56, 68); veicoli (piano in RESEARCH.md).
+
+## Da fare (ordine proposto)
+1. Rilascio 1.4.0: changelog/testo Nexus + lista test in gioco.
+2. Pose adattate all'altezza (opzionale).
+- In attesa: release RED4ext con 2.5 (supporto già su master) e Codeware per 2.5.
 
 ## Prossimi passi
 - Quando escono RED4ext/redscript/Codeware per 2.5: check_scripts sul bundle 2.5, test in gioco di tutto

@@ -86,6 +86,8 @@ bool HasBoneCount(uint32_t aCount);
 //   twist  = along the bone
 // Returns false if the main skeleton is not available or the bone is unknown.
 bool GetBoneAxes(uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist);
+// Same, for a given character's main skeleton (0 = V, 1-3 = added characters) instead of the selected one.
+bool GetBoneAxes(uint32_t aCharacter, uint64_t aBoneHash, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist);
 
 // Direction, in the bone's local space, that points where the face looks in the skeleton's reference pose.
 // Used for the eyes' gaze. Returns false if the main skeleton is not available or the bone is unknown.
@@ -99,8 +101,13 @@ struct ReferencePose
     std::vector<Math::Quat> localRotations;
     std::vector<Math::Vec3> localTranslations;
     std::vector<Math::Quat> modelRotations;
+    uintptr_t rig = 0; // anim::Rig* it was read from
 };
 bool GetReferencePose(ReferencePose& aOut);
+bool GetReferencePose(uint32_t aCharacter, ReferencePose& aOut);
+
+// Rig of a character's main skeleton (anim::Rig*, identity only), 0 if not available.
+uintptr_t GetMainRig(uint32_t aCharacter);
 
 // Bone names of V's main skeleton ("root" component), for UIs. Empty if not available.
 std::vector<uint64_t> GetMainSkeletonBones();

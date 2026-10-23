@@ -11,6 +11,7 @@
 #include "Game/EngineLayout.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/JointLimits.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
@@ -51,6 +52,7 @@ ApplyPuppetTransforms_t g_origApplyPuppetTransforms = nullptr;
 std::atomic<bool> g_active{false};
 std::atomic<uint32_t> g_sessionId{0};
 std::set<uint64_t> g_dumpedRigs; // game thread only
+std::set<uintptr_t> g_badParentRigs; // game thread only (warned once per rig)
 
 struct RawArray
 {
@@ -272,9 +274,8 @@ void ProbeSpawn(void* aSystem, void* aCharacter)
 void ProbePuppet(uint64_t aPuppet, const char* aWhere, uint32_t aType)
 {
     using namespace APM;
-    uint64_t vtable = 0;
-    if (!aPuppet || !SafeMemory::LooksLikePointer(aPuppet) || !SafeMemory::ReadU64(aPuppet, vtable) ||
-        !SafeMemory::IsInGameImage(vtable) || g_probedPuppets.contains(aPuppet))
+    const auto alive = EngineLayout::LockAlive(aPuppet); // kept alive while probed
+    if (!alive || g_probedPuppets.contains(aPuppet))
     {
         return;
     }
@@ -399,7 +400,12 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
                       RED4ext::CClass* animatedCls, const APM::Config::Values& config)
 {
     using namespace APM;
-    auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(puppet);
+    // A puppet being despawned may already be freed: work only on one that is alive, and keep it alive meanwhile.
+    const auto entity = EngineLayout::LockAlive(puppet);
+    if (!entity)
+    {
+        return;
+    }
     EngineLayout::ComponentList components;
     if (!EngineLayout::GetComponents(puppet, components))
     {
@@ -407,7 +413,8 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
     }
     for (uint32_t c = 0; c < components.size; ++c)
     {
-        auto* component = reinterpret_cast<RED4ext::ISerializable*>(EngineLayout::GetComponent(components, c));
+        const auto componentAddress = EngineLayout::GetComponent(components, c);
+        const auto component = componentAddress ? EngineLayout::LockAlive(componentAddress) : RED4ext::Handle<RED4ext::ISerializable>{};
         if (!component)
         {
             continue;
@@ -418,15 +425,14 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
             continue;
         }
 
-        const auto componentAddress = reinterpret_cast<uintptr_t>(component);
         EngineLayout::RigView rigView;
         const bool hasRig = EngineLayout::ViewRig(EngineLayout::GetRig(componentAddress), rigView);
 
         Pose::Target target;
         target.entity = puppet;
         target.animatedComponent = componentAddress;
-        target.entityRef = entity->ref;
-        target.componentRef = component->ref;
+        target.entityRef = entity;
+        target.componentRef = component;
         target.rig = hasRig ? rigView.rig : 0;
         target.photoModeSlot = aCharacter;
         target.characterType = aCharacterType;
@@ -437,10 +443,23 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
             const auto& rig = rigView;
             target.boneNames.reserve(rig.boneCount);
             target.parents.reserve(rig.boneCount);
+            uint32_t badParents = 0;
             for (uint32_t i = 0; i < rig.boneCount; ++i)
             {
                 target.boneNames.push_back(rig.boneNames[i].hash);
-                target.parents.push_back(rig.parents ? rig.parents[i] : int16_t(-1));
+                // Parents come before their children; anything else is treated as a root.
+                int16_t parent = rig.parents ? rig.parents[i] : int16_t(-1);
+                if (parent >= 0 && static_cast<uint32_t>(parent) >= i)
+                {
+                    parent = -1;
+                    ++badParents;
+                }
+                target.parents.push_back(parent);
+            }
+            if (badParents > 0 && g_badParentRigs.insert(rig.rig).second)
+            {
+                Log::Warn("Rig %016llx: %u bones with a parent after them, treated as roots",
+                          static_cast<unsigned long long>(rig.rig), badParents);
             }
             target.refRotationsMS = ComputeModelSpaceRotations(rig);
             if (rig.referencePose)
@@ -601,6 +620,7 @@ bool Detour_Activate(void* aSystem)
     APM::Ui::PhotoModeUi::ResetSession();
     APM::Pose::EyelidFollow::ResetSession();
     APM::Pose::PoseProcessor::ResetCharacter(0); // V's per-session state (added characters reset when they appear)
+    APM::Pose::JointLimits::ResetCache();
     const bool result = g_origActivate(aSystem);
 
     APM::Config::Load();
@@ -622,6 +642,7 @@ void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
     APM::Pose::TargetRegistry::Clear();
+    APM::Pose::JointLimits::ResetCache();
     APM::Pose::GizmoState::Clear();
     // The edits are dropped: the next session starts from the game's pose.
     APM::Pose::PoseOverrides::ClearSession();
@@ -725,6 +746,7 @@ void OnExitRequested()
         }
     }
     APM::Pose::TargetRegistry::Clear();
+    APM::Pose::JointLimits::ResetCache();
     APM::Pose::GizmoState::Clear();
     APM::Ui::TextEntry::End();
     APM::Log::Info("PhotoMode: leaving (edits no longer applied)");

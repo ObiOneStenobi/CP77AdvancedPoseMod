@@ -854,7 +854,7 @@ bool SetNeutralPose(bool aArmsDown)
             const auto ia = static_cast<size_t>(std::distance(reference.boneNames.begin(), a));
             const auto ib = static_cast<size_t>(std::distance(reference.boneNames.begin(), b));
             const int16_t parent = reference.parents[ia];
-            if (parent < 0)
+            if (parent < 0 || static_cast<size_t>(parent) >= ia)
             {
                 continue;
             }

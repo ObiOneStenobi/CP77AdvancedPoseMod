@@ -582,12 +582,13 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
         }
         for (size_t i = 0; i < offsets.size(); ++i)
         {
-            if (!hasOffset[i])
+            if (!hasOffset[i] || i >= aTarget.parents.size())
             {
                 continue;
             }
             const int16_t parent = aTarget.parents[i];
-            if (parent < 0)
+            if (parent < 0 || static_cast<size_t>(parent) >= offsets.size() ||
+                static_cast<size_t>(parent) >= pose.rotations.size())
             {
                 continue;
             }

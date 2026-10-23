@@ -295,7 +295,8 @@ bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRo
         return false;
     }
     const bool fresh = g_animated.boneNames == skeleton.boneNames && GetTickCount64() - g_animated.lastUpdate <= 1000 &&
-                       g_animated.rotations.size() >= skeleton.positions.size();
+                       g_animated.rotations.size() >= skeleton.positions.size() &&
+                       g_animated.translations.size() >= skeleton.positions.size();
     if (!fresh)
     {
         // No custom pose applied: what is shown is the animation.
@@ -305,10 +306,11 @@ bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRo
     }
     // Chain from the root down to the bone.
     std::vector<int32_t> chain;
-    for (int32_t i = index; i >= 0 && chain.size() < 256;
-         i = static_cast<size_t>(i) < skeleton.parents.size() ? skeleton.parents[i] : -1)
+    for (int32_t i = index; i >= 0 && static_cast<size_t>(i) < skeleton.positions.size() && chain.size() < 256;)
     {
         chain.push_back(i);
+        const int32_t parent = static_cast<size_t>(i) < skeleton.parents.size() ? skeleton.parents[i] : -1;
+        i = parent < i ? parent : -1; // parents come before their children
     }
     Vec3 position{};
     Quat rotation{0.f, 0.f, 0.f, 1.f};
@@ -442,7 +444,7 @@ bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
     }
     // Leaf bone: continue the parent -> bone direction.
     const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
-    if (parent < 0)
+    if (parent < 0 || static_cast<size_t>(parent) >= skeleton.positions.size())
     {
         return false;
     }
