@@ -67,12 +67,3 @@ public func APM_PartShortText(label: String) -> String {
 public func APM_GroupText(group: String) -> String {
     return APM_Text("APM-Group-" + APM_KeyName(group), group);
 }
-
-// Face control and face zone (face controls, not shown yet).
-public func APM_FaceControlText(label: String) -> String {
-    return APM_Text("APM-FaceControl-" + APM_KeyName(label), label);
-}
-
-public func APM_FaceZoneText(zone: String) -> String {
-    return APM_Text("APM-FaceZone-" + APM_KeyName(zone), zone);
-}

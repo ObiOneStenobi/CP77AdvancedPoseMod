@@ -4,8 +4,6 @@ Keys come from the scripts (APM_Text / APM_TextWith calls) and from the DLL's la
 keys built from the English label, as Localization.reds does). Run it after changing texts:
 
     python tools/gen_loc_template.py
-
-The face controls are not shown yet: their texts are left out of the template until they are.
 """
 
 import re
@@ -16,13 +14,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts" / "AdvancedPoseMod"
 OUT = ROOT / "tools" / "translation_template.reds"
 
-# Not shown yet (face controls and saved expressions).
-HIDDEN_PREFIXES = ("APM-Face", "APM-Tip-Face", "APM-Title-Face", "APM-Msg-Expression")
-HIDDEN_KEYS = {"APM-Label-PhotoModeExpression", "APM-Label-NoExpressions", "APM-Button-Confirm", "APM-Msg-ClickAgainDelete"}
-
 STRING = r'"((?:[^"\\]|\\.)*)"'
 CALL = re.compile(r'(?:APM_Text(?:With)?\(|this\.L\(|TipL\([^,()]+,\s*)' + STRING + r',\s*' + STRING)
-# Keys and English texts kept in two parallel arrays (hand preset tooltips).
+# Keys and English texts kept in two parallel arrays (hand preset tooltips, face zones and face rows).
 ARRAYS = re.compile(r'let (\w+)Keys: array<String> = \[([^\]]*)\];\s*let \1Texts: array<String> = \[([^\]]*)\];')
 
 
@@ -47,8 +41,6 @@ def main():
     sections = {}
 
     def add(key, english, section):
-        if key.startswith(HIDDEN_PREFIXES) or key in HIDDEN_KEYS:
-            return
         if key in entries and entries[key] != english:
             sys.exit(f"Key {key} has two English texts: {entries[key]!r} / {english!r}")
         if key not in entries:

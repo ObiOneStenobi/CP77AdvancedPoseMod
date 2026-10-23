@@ -135,8 +135,14 @@ Aggiornato: 2026-10-23
   PoseOverrides FaceWeights[128] + faceName (undo); PhotoModeUi Attr::FacePose 7800, Last 7999, g_faceLinked;
   natives APM_FaceAvailable/PoseCount/PoseName/PoseZone/PoseSide/PoseMirror/SetLinked/IsLinked/IsEdited/ResetPose/
   ResetZone/Reset (tolti FaceControl*, FaceResetControl, FaceUnload); Natives.reds aggiornato. FaceRig.* e Observe
-  rimossi. ATTENZIONE: PoseEditor.reds usa ancora i natives vecchi -> script non compilano e dist non è coerente
-  (DLL nuova, script vecchi) finché non si fa la fase C.
+  rimossi.
+- Fase C FATTA (24/10): redscript-cli 0.5.32 scaricato in tools\redscript; 0 errori nei file della mod (errori solo
+  in Codeware, attesi); script e DLL in dist (md5 verificati). Selettore Body / Face sotto Tools (sezione APM_Mode, sessione
+  "FaceMode"); in Face spariscono le sezioni del corpo e c'è la sezione viso: intestazione (espressione caricata, L+R
+  pref "FaceLinked", cartella, reset), 8 schede zona (sessione "FaceZone"), righe della zona (LayoutFace le
+  riposiziona solo se cambia zona/L+R), "Reset zone" e libreria espressioni sotto. Righe bipolari:
+  APM_ValueRow.pairAttribute + RowValue/SetRowValue. Catalogo righe/etichette/chiavi in FacePoseCatalog.reds
+  (lips_lower_raise = "Lower lip down", verificato in anteprima). gen_loc_template senza filtro viso: 322 testi.
 - Ipotesi da verificare in gioco (RESEARCH.md "Face poses"): scrivere i pesi nelle tracce float del face_rig prima del
   risolutore facciale del gioco -> correttive e taratura per testa automatiche; sostituirebbe solo FacePoses::Apply.
 - Fasi: A) tools\extract_face_poses.ps1 + tools\face_poses.py (-> dist\...\face\*.json) + tools\face_preview.py;
