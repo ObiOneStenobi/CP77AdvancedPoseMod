@@ -108,7 +108,20 @@ Aggiornato: 2026-10-23
 - Deciso: dati delle teste in file JSON pwa (femminili, e NPC come riserva) e pma (maschili) in
   dist\red4ext\plugins\AdvancedPoseMod\face\; scelta col tipo Photo Mode (1 = F, 2 = M). Obiettivo dopo i test in
   gioco: leggere il facialsetup già caricato per il personaggio (taratura esatta), JSON come riserva.
-- Prossimo passo: fase A.
+- Fase A FATTA (23/10): `tools\extract_face_poses.ps1` (WolvenKit unbundle+serialize di
+  player_base_heads\player_(female|man)_average\h0_000_p(w|m)a_c__basehead, lavoro in %TEMP%\apm_face o -WorkDir)
+  -> `tools\face_poses.py` -> dist\...\face\pwa.json e pma.json (~340 KB, una posa per riga);
+  `tools\face_preview.py` -> face_preview.html nella cartella di lavoro (aprirla via http locale, es.
+  `python -m http.server`; file:// dal browser della app non va).
+  Formato: {version, head, game, bones[nomi], poses[{name, zone, side, mirror, inbetweens[{w, t[[osso,qx,qy,qz,qw,
+  tx,ty,tz]]}]}]}, metri. 87 pose: brows 8, eyelids 10, nose 8, lips 35, cheeks 4, jaw 5, ears 2, tongue 15; 257 ossa.
+  Inbetween: tra due inbetween (il primo a w=0 è il riposo) slerp rotazione / lerp traslazione; pose sommate per osso
+  (rotazioni moltiplicate, traslazioni sommate); locale = riposo*rot, riposo+trasl. Verificato in anteprima
+  (jaw_mid_open 31 mm, a 0,5 14 mm; blink solo palpebre).
+  Note: lips_together_up/dn, lips_tighten_up/dn, jaw_mid_close, jaw_mid_clench sono VUOTE nelle pose principali
+  (agiscono solo via correttive, es. `lips_together_dn__Corr`) -> valutare le correttive singole nella fase B/C.
+  tongue_mid_thick scartata (posa di scala). La pwa di head\pwa\ (NPC) ha delta diversi da quella del giocatore.
+- Prossimo passo: scegliere la lista Semplice con l'anteprima, poi fase B.
 - Fasi: A) tools\extract_face_poses.ps1 + tools\face_poses.py (-> dist\...\face\*.json) + tools\face_preview.py;
   B) src/Pose/FacePoses.* (carica, mappa ossa per nome, Apply al posto di FaceRig::Apply), PoseOverrides, natives;
   C) UI APM_Face (zone, Semplice/Avanzato, L+R), testi + gen_loc_template, APM_FaceFeatureEnabled true;
