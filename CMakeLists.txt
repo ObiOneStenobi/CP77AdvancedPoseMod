@@ -21,10 +21,17 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 include(FetchContent)
 
 # RED4ext.SDK pinned to a known commit (game 2.5: script function and stack frame layouts changed).
+# APM_GAME_231 builds the same sources for game 2.31 with the SDK used by 1.3.0 (test build, separate build folder).
+option(APM_GAME_231 "Build for game 2.31 instead of 2.5" OFF)
+if(APM_GAME_231)
+  set(APM_SDK_COMMIT ad7277714ad30d6885d7050c5ba24fa0102f6920)
+else()
+  set(APM_SDK_COMMIT 0f5eba42a4cf3a1161ad3de0b4ed6f1901ec169e)
+endif()
 FetchContent_Declare(
   red4ext_sdk
   GIT_REPOSITORY https://github.com/wopss/RED4ext.SDK.git
-  GIT_TAG        0f5eba42a4cf3a1161ad3de0b4ed6f1901ec169e
+  GIT_TAG        ${APM_SDK_COMMIT}
   GIT_SHALLOW    FALSE
 )
 FetchContent_MakeAvailable(red4ext_sdk)
@@ -57,6 +64,7 @@ target_compile_definitions(AdvancedPoseMod PRIVATE
   APM_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
   APM_VERSION_MINOR=${PROJECT_VERSION_MINOR}
   APM_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+  $<$<BOOL:${APM_GAME_231}>:APM_GAME_231>
 )
 
 target_compile_options(AdvancedPoseMod PRIVATE /W4 /permissive- /Zc:preprocessor /MP /utf-8)

@@ -69,11 +69,19 @@ bool ReadGameVersion(uint16_t (&aOut)[4])
 // panel shows "Unsupported game version".
 bool CheckGameVersion()
 {
-    // File versions of the supported game builds. Built with the RED4ext.SDK for 2.5, whose script function and
-    // stack frame layouts differ from 2.31: 2.31 stays with AdvancedPoseMod 1.3.0.
+    // File versions of the supported game builds. The RED4ext.SDK for 2.5 has other script function and stack frame
+    // layouts than the one for 2.31, so each game needs its own build (APM_GAME_231: test build for 2.31).
+#ifdef APM_GAME_231
+    constexpr const char* BuiltFor = "2.31 = 3.0.80.51928";
+    constexpr uint16_t Supported[][4] = {
+        {3, 0, 80, 51928}, // 2.31
+    };
+#else
+    constexpr const char* BuiltFor = "2.5 = 3.0.88.46235";
     constexpr uint16_t Supported[][4] = {
         {3, 0, 88, 46235}, // 2.5
     };
+#endif
     uint16_t version[4]{};
     if (!ReadGameVersion(version))
     {
@@ -89,14 +97,14 @@ bool CheckGameVersion()
     }
     if (APM::Config::Get().allowUnknownGameVersion)
     {
-        APM::Log::Warn("Game version %u.%u.%u.%u is not the one AdvancedPoseMod was built for (2.5 = 3.0.88.46235); "
+        APM::Log::Warn("Game version %u.%u.%u.%u is not the one AdvancedPoseMod was built for (%s); "
                        "AllowUnknownGameVersion=1: hooks installed anyway. If the game crashes, set it back to 0.",
-                       version[0], version[1], version[2], version[3]);
+                       version[0], version[1], version[2], version[3], BuiltFor);
         return true;
     }
-    APM::Log::Error("Game version %u.%u.%u.%u is not supported (built for 2.5 = 3.0.88.46235): Photo Mode hooks are off. "
+    APM::Log::Error("Game version %u.%u.%u.%u is not supported (built for %s): Photo Mode hooks are off. "
                     "Update AdvancedPoseMod (or try [Compatibility] AllowUnknownGameVersion=1 in config.ini).",
-                    version[0], version[1], version[2], version[3]);
+                    version[0], version[1], version[2], version[3], BuiltFor);
     return false;
 }
 

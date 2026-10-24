@@ -17,6 +17,9 @@ tecnici in docs/RESEARCH.md (sezioni "Game 2.5" e "Vehicles").
   Il generatore resta "Visual Studio 17 2022"; serve `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer` nel PATH (vswhere).
 - `cmake --preset vs2022` poi `cmake --build --preset release` -> build\RelWithDebInfo\AdvancedPoseMod.dll.
   Se la build fallisce per un SDK vecchio: cancellare build e riconfigurare.
+- Build di test per la 2.31 (stesso codice, SDK ad72777 della 1.3.0, macro APM_GAME_231): `cmake --preset vs2022-231`
+  poi `cmake --build --preset release-231` -> build231\RelWithDebInfo\AdvancedPoseMod.dll, da copiare in dist231\
+  (copia di dist\ con questa DLL). Si prova sulla 2.31 dal ramo beta Steam `2_31_old` con RED4ext 1.30.x.
 
 ## Dopo ogni modifica
 - Copiare la DLL in dist\red4ext\plugins\AdvancedPoseMod\ e gli script in dist\r6\scripts\AdvancedPoseMod\.

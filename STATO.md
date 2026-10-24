@@ -155,9 +155,23 @@ Aggiornato: 2026-10-23
 1. Rilascio 1.4.0: changelog/testo Nexus + lista test in gioco.
 2. Editor espressioni (sopra), fase A subito, B-D dopo.
 3. Pose adattate all'altezza (opzionale).
-- In attesa: release RED4ext con 2.5 (supporto già su master) e Codeware per 2.5.
+- 24/10: RED4ext 1.31.0 (2.5) installato nel gioco. In attesa: Codeware per 2.5 (installato 1.20.5, per 2.31).
+  Nel gioco c'è ancora la DLL APM del 17/10 (non la 1.4.0 di dist).
+  RED4ext 1.31.0 verificato su GitHub: minimo gioco 2.5, API v1 (la nostra), nessun controllo SDK massimo.
+  SDK: dopo il nostro 0f5eba4 c'è 5246e65 (#232, tipi RTTI 2.5): Entity, IComponent, IPlacedComponent,
+  ISkinableComponent, AnimatedComponent, Rig, QsTransform invariati -> aggiornamento non necessario.
+  Codeware su GitHub: v1.20.6 (19/10) usa ancora l'SDK pre-2.5 (f9ad533); supporto 2.5 solo in PR non ufficiali
+  aperte #63 (KelpHect, completa, richiede SDK #227+#228) e #64 (butrico31, rinomina i tipi in conflitto con
+  prefisso Codeware). La 2.5 ha nativi CallbackSystem, ScriptableService, KeyInputEvent, AttachController ecc.:
+  gli script APM non li usano (grep 24/10), quindi la scelta dei nomi non ci tocca.
+
+- 24/10: build di test 1.4.0 per la 2.31 (APM_GAME_231, preset vs2022-231 / release-231, SDK ad72777): il codice
+  compila con entrambi gli SDK (cambiano solo layout, non API; tipi generati usati identici). DLL in dist231\.
+  Downgrade: Steam -> Proprietà -> Beta -> `2_31_old` (manifest 8416009761612439010); a mano: depot 1091501
+  manifest 3389237510439361019. Sulla 2.31 servono RED4ext 1.30.x e Codeware 1.20.5.
 
 ## Prossimi passi
+- Dopo il downgrade a 2.31: check_scripts.ps1 (bundle 2.31), test in gioco di dist231 (editor espressioni, FacePoses).
 - Quando escono RED4ext/redscript/Codeware per 2.5: check_scripts sul bundle 2.5, test in gioco di tutto
   (soprattutto verso degli anelli, limiti talloni, log "Layout:"), test veicoli (piano in RESEARCH.md).
 - In attesa: pose adattate all'altezza (rimandato dall'utente), area clic marker (non serve per ora).

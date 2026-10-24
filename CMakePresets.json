@@ -8,10 +8,18 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "vs2022-231",
+      "displayName": "Visual Studio 2022 (x64), game 2.31",
+      "inherits": "vs2022",
+      "binaryDir": "${sourceDir}/build231",
+      "cacheVariables": { "APM_GAME_231": "ON" }
     }
   ],
   "buildPresets": [
     { "name": "release", "displayName": "Release", "configurePreset": "vs2022", "configuration": "RelWithDebInfo" },
+    { "name": "release-231", "displayName": "Release (game 2.31)", "configurePreset": "vs2022-231", "configuration": "RelWithDebInfo" },
     { "name": "debug", "displayName": "Debug", "configurePreset": "vs2022", "configuration": "Debug" }
   ]
 }

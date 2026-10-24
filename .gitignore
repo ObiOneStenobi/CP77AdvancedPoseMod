@@ -1,9 +1,11 @@
 build/
+build231/
 out/
 .vs/
 *.user
 CMakeUserPresets.json
 dist/
+dist231/
 Claude outputs/
 release/
 tools/wolvenkit/
