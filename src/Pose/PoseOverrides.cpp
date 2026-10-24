@@ -365,13 +365,18 @@ void ResetBone(const std::string& aBone)
     PublishLocked();
 }
 
-void ResetAll()
+void ResetAll(bool aKeepFace)
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
     S().bones.clear();
     S().ik = {};
     S().base.reset();
+    if (!aKeepFace)
+    {
+        S().faceWeights = {};
+        S().faceName.clear();
+    }
     PublishLocked();
 }
 

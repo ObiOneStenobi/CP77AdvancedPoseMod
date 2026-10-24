@@ -239,6 +239,12 @@ void ResetAll(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Pose::PoseOverrides::ResetAll();
 }
 
+void ResetBody(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    aFrame->code++;
+    APM::Pose::PoseOverrides::ResetAll(true);
+}
+
 // --- IK chains: "LeftHand", "RightHand", "LeftFoot", "RightFoot" ------------------------------------------------
 
 void SetIkChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -831,6 +837,16 @@ void FaceDelete(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Pose::FacePoses::Delete(name.c_str()));
 }
 
+void FaceRename(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString from;
+    CString to;
+    RED4ext::GetParameter(aFrame, &from);
+    RED4ext::GetParameter(aFrame, &to);
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::FacePoses::Rename(from.c_str(), to.c_str()).c_str()));
+}
+
 // False when the game was updated and the hooks could not be installed (the panel says so).
 void IsReady(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -1208,17 +1224,6 @@ void GizmoIsPartDetail(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
                      (catalog[part].mode == APM::Ui::EntryMode::FingerSegment || catalog[part].detail));
 }
 
-// True for body parts listed in the panel whose gizmo only shows close up (heels).
-void GizmoIsPartCloseUp(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
-{
-    int32_t part = 0;
-    RED4ext::GetParameter(aFrame, &part);
-    aFrame->code++;
-
-    const auto& catalog = APM::Ui::GetBoneCatalog();
-    Return(aOut, part >= 0 && part < static_cast<int32_t>(catalog.size()) && catalog[part].closeUp);
-}
-
 // Model-space direction of one of the panel's rotation axes of a body part's main bone, as it is posed now
 // (axis 0 = bend forward / back, 1 = bend sideways, 2 = twist; the classic gizmo's rings); w = 1 when valid.
 void GizmoGetPartAxis(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1289,9 +1294,7 @@ void GizmoGetPartParent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
         std::vector<uint64_t> bones;
         for (const auto& entry : APM::Ui::GetBoneCatalog())
         {
-            // Close-up parts (heels) are left out: the lines of their children (toes) start from the foot, which is
-            // always shown.
-            if ((entry.bones.size() == 1 || entry.mode == APM::Ui::EntryMode::Curl) && !entry.closeUp)
+            if (entry.bones.size() == 1 || entry.mode == APM::Ui::EntryMode::Curl)
             {
                 bones.push_back(RED4ext::CName(entry.bones.front()).hash);
             }
@@ -1494,6 +1497,7 @@ void Register()
     ::Register("APM_GetBoneTranslation", &GetBoneTranslation, "Vector4", {{"CName", "bone"}});
     ::Register("APM_ResetBone", &ResetBone, nullptr, {{"CName", "bone"}});
     ::Register("APM_ResetAll", &ResetAll, nullptr, {});
+    ::Register("APM_ResetBody", &ResetBody, nullptr, {});
 
     ::Register("APM_SetIkChain", &SetIkChain, "Bool",
                {{"CName", "chain"}, {"Bool", "enabled"}, {"Float", "x"}, {"Float", "y"}, {"Float", "z"}, {"Float", "swivel"}});
@@ -1565,6 +1569,7 @@ void Register()
     ::Register("APM_FaceSaveNew", &FaceSaveNew, "String", {});
     ::Register("APM_FaceLoad", &FaceLoad, "Bool", {{"String", "name"}});
     ::Register("APM_FaceDelete", &FaceDelete, "Bool", {{"String", "name"}});
+    ::Register("APM_FaceRename", &FaceRename, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_IsReady", &IsReady, "Bool", {});
     ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
@@ -1588,7 +1593,6 @@ void Register()
     ::Register("APM_GizmoGetChainJoint", &GizmoGetChainJoint, "Vector4", {{"Int32", "chain"}, {"Int32", "joint"}});
     ::Register("APM_GizmoIsPartLocked", &GizmoIsPartLocked, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoIsPartDetail", &GizmoIsPartDetail, "Bool", {{"Int32", "part"}});
-    ::Register("APM_GizmoIsPartCloseUp", &GizmoIsPartCloseUp, "Bool", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartAxis", &GizmoGetPartAxis, "Vector4", {{"Int32", "part"}, {"Int32", "axis"}});
     ::Register("APM_GizmoGetPartForward", &GizmoGetPartForward, "Vector4", {{"Int32", "part"}});
     ::Register("APM_GizmoGetPartParent", &GizmoGetPartParent, "Vector4", {{"Int32", "part"}});

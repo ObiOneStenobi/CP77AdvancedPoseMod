@@ -25,7 +25,9 @@ public native func APM_SetBoneTranslation(bone: CName, x: Float, y: Float, z: Fl
 public native func APM_GetBoneRotation(bone: CName) -> Vector4
 public native func APM_GetBoneTranslation(bone: CName) -> Vector4
 public native func APM_ResetBone(bone: CName) -> Void
+// Clears the pose, IK, base pose and face weights (ResetBody keeps the face)
 public native func APM_ResetAll() -> Void
+public native func APM_ResetBody() -> Void
 
 // IK chains: n"LeftHand", n"RightHand", n"LeftFoot", n"RightFoot".
 // Enabled = the hand/foot is pinned where the original pose put it, plus an offset in meters
@@ -137,6 +139,8 @@ public native func APM_FaceSave(name: String) -> Bool
 public native func APM_FaceSaveNew() -> String
 public native func APM_FaceLoad(name: String) -> Bool
 public native func APM_FaceDelete(name: String) -> Bool
+// Renames a saved expression; returns the new name (made unique), or "" on failure
+public native func APM_FaceRename(oldName: String, newName: String) -> String
 // False when the game was updated and the mod could not hook into it.
 public native func APM_IsReady() -> Bool
 // Opens the folder of saved poses (0) or saved expressions (1).
@@ -181,8 +185,6 @@ public native func APM_GizmoGetChainJoint(chain: Int32, joint: Int32) -> Vector4
 // True while Photo Mode's "Look at camera" turns the part (eyes, head and neck, back for the torso): not editable.
 public native func APM_GizmoIsPartLocked(part: Int32) -> Bool
 public native func APM_GizmoIsPartDetail(part: Int32) -> Bool
-// True for parts listed in the panel whose gizmo only shows close up, like the fingers (heels)
-public native func APM_GizmoIsPartCloseUp(part: Int32) -> Bool
 // Model-space direction of a part's rotation axis as posed now (0 bend forward / back, 1 sideways, 2 twist); w = 1 when valid
 public native func APM_GizmoGetPartAxis(part: Int32, axis: Int32) -> Vector4
 // Model-space direction a part looks along (e.g. an eye's gaze); w = 1 when valid

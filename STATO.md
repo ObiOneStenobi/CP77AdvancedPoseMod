@@ -1,11 +1,11 @@
 # STATO – AdvancedPoseMod 1.4.0 (in corso)
 
-Aggiornato: 2026-10-23
+Aggiornato: 2026-10-24
 
 ## Obiettivo 1.4.0
 1. Supporto gioco 2.5 (3.0.88.46235) oltre alla 2.31 (3.0.80.51928).
 2. Fix: il clic su un pulsante vale solo se pressione e rilascio sono sullo stesso pulsante.
-3. Talloni (LeftHeel/RightHeel): nel pannello, gizmo solo da vicino.
+3. Talloni (LeftHeel/RightHeel): TOLTI di nuovo il 24/10 (l'osso è il perno che muove l'avampiede).
 4. Pose (ed espressioni) lette anche dalle sottocartelle.
 5. Marker sovrapposti: il più vicino sopra e cliccabile, quelli dietro più trasparenti (sempre selezionabili).
 6. Pose della mano (dita e palmo) salvate, un file per entrambe le mani.
@@ -77,7 +77,6 @@ Aggiornato: 2026-10-23
 - Avvio: log red4ext (versione 2.5 accettata, "Layout:" senza Warn inattesi, MenuGuard), redscript_rCURRENT.log
   senza errori della mod; nessun Warn "parent after them".
 - Pulsanti: pressione su uno e rilascio su un altro non clicca.
-- Talloni: gizmo solo da vicino; limiti Heel {-30,30,15,15} da tarare.
 - Pose/espressioni/pose mani (hands/) da sottocartelle; salvataggio nella principale; rinomina resta nella sua cartella.
 - Marker sovrapposti (vicino sopra/cliccabile, dietro trasparenti, attenuazione < 1,3 m).
 - Pose mani: salva/carica (pulsante Hands), applicata alla mano della scheda aperta.
@@ -170,7 +169,28 @@ Aggiornato: 2026-10-23
   Downgrade: Steam -> Proprietà -> Beta -> `2_31_old` (manifest 8416009761612439010); a mano: depot 1091501
   manifest 3389237510439361019. Sulla 2.31 servono RED4ext 1.30.x e Codeware 1.20.5.
 
+## Fatto il 24/10 (feedback dal test su 2.31; build 2.5 e 2.31 ok, script ok, dist e dist231 aggiornati)
+- Reset all azzera anche viso e oggetti in mano (SetHandProp 0 = oggetti della posa); riga Body/Face con "Reset" della
+  sola parte (APM_ResetBody = PoseOverrides::ResetAll(true), APM_FaceReset). Tolti gomma e cartella dall'header Face.
+- Libreria unica (sezione Pose): Body mode -> schede Corpo | Mani; Face mode -> espressioni (stessa vista, sotto la
+  sezione viso). Voci interne in testa ("::t", "::a", "::preset:N": solo Carica): T/A pose e preset mani; tolti i
+  pulsanti T/A/Hands dall'header. Riga preset della scheda mano: preset più stretti + "Saved..." (apre Mani).
+  APM_FaceRename (NamedFiles::Rename condiviso con le pose mani). Tolto il vecchio selettore espressioni.
+- Viso: pallino (AddDot/SetDot) su schede zona e valori delle righe al posto del testo blu; 12 righe per pagina
+  (APM_FaceRowsPerPage, < n/N > accanto a Reset zone).
+- Gizmo: pulsanti icona nella riga Tools (mouse-pointer-2 / move / rotate-3d, box/globe per gli assi, Lucide 1.54.0
+  rasterizzate dal browser: stroke 2, 8x8 campioni, opacità per eccesso a quarti = identiche alle esistenti);
+  header: titolo largo 286, Pose/Gizmos spostati. Info: tre righe brevi per i gizmo.
+- Move: clic+trascina sul marker della parte selezionata = spostamento libero come Direct (m_centerDrag).
+- Rotazione ad anello oltre il limite: RotatePart applica solo la frazione dentro i limiti (bisezione, 10 passi).
+- Marker: opacità in base alla profondità dietro il più vicino (0-50 cm -> 100-45%), oltre all'attenuazione per
+  sovrapposizione.
+- Talloni tolti (catalogo, JointLimits Heel, closeUp, APM_GizmoIsPartCloseUp, marker CloseUp). Nota: il tipo CloseUp
+  valeva 3 come EyeLook, per questo il rombo non si vedeva.
+
 ## Prossimi passi
+- Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
+  rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
 - Dopo il downgrade a 2.31: check_scripts.ps1 (bundle 2.31), test in gioco di dist231 (editor espressioni, FacePoses).
 - Quando escono RED4ext/redscript/Codeware per 2.5: check_scripts sul bundle 2.5, test in gioco di tutto
   (soprattutto verso degli anelli, limiti talloni, log "Layout:"), test veicoli (piano in RESEARCH.md).

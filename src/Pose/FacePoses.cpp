@@ -464,4 +464,9 @@ bool Delete(const std::string& aName)
     std::error_code ec;
     return std::filesystem::remove(path, ec);
 }
+
+std::string Rename(const std::string& aOldName, const std::string& aNewName)
+{
+    return NamedFiles::Rename(GetDirectory(), aOldName, aNewName);
+}
 } // namespace APM::Pose::FacePoses

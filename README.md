@@ -59,8 +59,10 @@ Open Photo Mode and click **Pose editor** (top left).
 - Header: **Pose on/off** (custom pose switch), **Gizmos** (joint markers on/off), panel **opacity** (100/75/50/25 %),
 **X** hides the panel. These settings are remembered in `panel.ini`.
   Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**,
-  **Mirror**, **Joint limits**, **Auto IK**, and at the far right **Reset all** (click twice). **?** opens the info
-  window (marker legend and shortcuts).
+  **Mirror**, **Joint limits**, **Auto IK**, the gizmo mode (**Direct** / **Move** / **Rotate** and the axes, see
+  Gizmos), and at the far right **Reset all** (click twice: pose, expression and items in hand back to the Photo Mode
+  ones). **?** opens the info window (marker legend and shortcuts). Under them **Body / Face** picks what the panel
+  edits; **Reset** next to them resets only that part (the body keeps the face, the face keeps the body).
 - **Reset** (next to the selected part's name) undoes every edit of that part; a pinned hand / foot goes back to where
   the pose puts it (the pin stays). **Right-click a marker** does the same for its part. A small blue dot marks the
   edited parts and the tabs that hold them (a loaded pose or T / A pose alone does not count). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
@@ -71,15 +73,16 @@ Open Photo Mode and click **Pose editor** (top left).
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
-- **Poses**: unlimited library (`poses\*.json`), five per page. **Save new** saves the pose and lets you type its
+- **Poses**: unlimited library (`poses\*.json`), five per page, after the built-in **T pose** and **A pose** (they can
+  only be loaded). **Save new** saves the pose and lets you type its
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
   writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
   Poses in subfolders of `poses` are listed too, as `Folder/Name` (pose packs can ship in their own folder, so they
   never overwrite each other); the mod saves its own poses in `poses` itself, and renaming keeps a pose in its folder.
   Saved expressions (`expressions`) are read from subfolders the same way.
-- **Hand poses** (**Hands** button on the Poses section): a second library, `hands\*.json`, with the palm and fingers
-  of one hand. Open the tab of a hand (or of its arm), then **Save new**, **Overwrite** or **Load** work on that hand;
+- **Hand poses** (**Hands** tab of the Poses section, or **Saved...** in a hand's preset row): a second library,
+  `hands\*.json`, with the palm and fingers of one hand, after the built-in presets (Open, Relaxed, Fist, Point, Grip). Open the tab of a hand (or of its arm), then **Save new**, **Overwrite** or **Load** work on that hand;
   one file poses either hand (the rig is mirrored). Rename, delete, pages and subfolders work as for the poses.
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
   previous session are cleared. Save a pose to keep it. While there are edits, leaving Photo Mode asks for
@@ -106,14 +109,14 @@ closer.
 - Click a marker to select that body part in the panel.
 - Markers that cover each other on screen (e.g. the fingers of two hands one over the other): the nearest is drawn on
   top and takes the click. Up close the ones behind turn fainter, the more the farther behind (from 1 to 5 cm);
-  they stay selectable. From afar nothing fades.
-- **Heels** (Left / Right leg tabs; close-up markers like the fingers): the pivot of the front of the foot, turning one
-  lifts or lowers the toes around the heel.
-- **Gizmo mode** (button next to *Gizmos*: **Direct**, **Rotate**, **Move**): Direct drags the markers (as described below); Rotate puts on the selected part
+  they stay selectable. Besides, every marker fades with its depth behind the nearest one (faintest half a meter
+  behind), so the far side of the body reads as farther.
+- **Gizmo mode** (tools row: pointer = **Direct**, arrows = **Move**, rings = **Rotate**): Direct drags the markers (as described below); Rotate puts on the selected part
   three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
   that turns it as seen from the camera; drag a ring to turn the part around that axis. Move shows arrows that move the hips, held
-  items and hands / feet (IK). **Local / Global** (next to it) switches between the part's own axes (they turn with it) and the character's. In Rotate / Move the
-  markers only select (click one to put the gizmo on it). The back half of a ring is faint and cannot be picked.
+  items and hands / feet (IK); dragging their center (the selected part's marker) moves it freely, as in Direct. The
+  axes button next to them switches between the part's own axes (cube, they turn with it) and the character's (globe). In Rotate / Move the
+  other markers only select (click one to put the gizmo on it). A ring stops at the joint limit. The back half of a ring is faint and cannot be picked.
 - Drag a white marker to rotate the part: the end of the bone follows the cursor. The head turns as seen from the
   camera instead (left/right around the screen's vertical axis, up/down around its horizontal axis).
 - **Ctrl+drag** any marker to twist the part around the bone itself.
@@ -171,7 +174,7 @@ closer.
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
   "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
-  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset all** keeps them.
+  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset all** gives back the pose's own ones.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
@@ -180,7 +183,7 @@ closer.
 - **Mirror** (toggle): turning it on changes nothing; from then on, every edit of a left / right part makes the other
   side a mirror copy of that whole limb (arm, hand or leg, IK pin included), following it step by step. Eyes are not
   mirrored.
-- **T pose / A pose**: replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
+- **T pose / A pose** (first entries of the pose list): replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
   keep their edits); **Reset all** goes back.
 - Moving a whole finger keeps the extra bend of its segments.
 

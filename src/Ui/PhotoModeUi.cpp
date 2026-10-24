@@ -185,6 +185,12 @@ Math::Quat LimitEdit(const char* aBone, const Math::Quat& aEdit, bool aSwapBends
     return Math::Normalize(Math::Mul(Math::Conjugate(animated), limited));
 }
 
+bool IsWithinLimits(const char* aBone, const Math::Quat& aEdit, bool aSwapBends)
+{
+    const Math::Quat limited = LimitEdit(aBone, aEdit, aSwapBends);
+    return std::abs(limited.i * aEdit.i + limited.j * aEdit.j + limited.k * aEdit.k + limited.r * aEdit.r) >= 0.999999f;
+}
+
 // Stores an edit given as UI angles, within the joint limits (the stored angles follow the limited rotation).
 void StoreEdit(const char* aBone, std::array<float, 3> aAngles, bool aSwapBends)
 {
@@ -958,8 +964,31 @@ bool RotatePart(int32_t aPart, const Math::Vec3& aModelAxis, float aDegrees)
             r = Math::Normalize(Math::Mul(Math::Mul(parentModel, limited), Math::Conjugate(boneModel)));
         }
     }
-    const Math::Quat local = Math::Mul(Math::Mul(Math::Conjugate(boneModel), r), boneModel);
-    const Math::Quat updated = Math::Normalize(Math::Mul(offset, local));
+    const auto rotated = [&](const Math::Quat& aModelRotation)
+    {
+        const Math::Quat local = Math::Mul(Math::Mul(Math::Conjugate(boneModel), aModelRotation), boneModel);
+        return Math::Normalize(Math::Mul(offset, local));
+    };
+    Math::Quat updated = rotated(r);
+    if (!IsPinnedChainEnd(bone) && !IsWithinLimits(bone, updated, isFinger) && IsWithinLimits(bone, offset, isFinger))
+    {
+        // The limits clamp each angle on its own: past one, the rest of the rotation would turn the bone around other
+        // axes. Turn around the gizmo axis only as far as the limit allows.
+        const Math::Vec3 axis = Math::Normalize(aModelAxis);
+        float inside = 0.f;
+        float outside = 1.f;
+        for (int i = 0; i < 10; ++i)
+        {
+            const float middle = 0.5f * (inside + outside);
+            const Math::Quat edit = rotated(Math::FromAxisAngle(axis, Math::DegToRad(aDegrees * middle)));
+            (IsWithinLimits(bone, edit, isFinger) ? inside : outside) = middle;
+        }
+        if (inside <= 0.f)
+        {
+            return true;
+        }
+        updated = rotated(Math::FromAxisAngle(axis, Math::DegToRad(aDegrees * inside)));
+    }
 
     std::array<float, 3> result{};
     if (!RotationToAngles(bone, updated, isFinger, result))
@@ -1838,44 +1867,6 @@ bool DeleteHandPose(const std::string& aName)
 
 std::string RenameHandPose(const std::string& aOldName, const std::string& aNewName)
 {
-    const std::string folder = NamedFiles::FolderOf(aOldName);
-    const bool typedFolder = !folder.empty() && aNewName.rfind(folder, 0) == 0;
-    std::string base = NamedFiles::SanitizeNew(typedFolder ? aNewName.substr(folder.size()) : aNewName);
-    while (!base.empty() && base.front() == ' ')
-    {
-        base.erase(base.begin());
-    }
-    std::filesystem::path source;
-    std::filesystem::path target;
-    std::error_code ec;
-    if (base.empty() || !NamedFiles::Resolve(GetHandPoseDirectory(), aOldName, source) ||
-        !std::filesystem::exists(source, ec))
-    {
-        return {};
-    }
-    std::string name = folder + base;
-    if (name == aOldName)
-    {
-        return name;
-    }
-    for (int number = 2; NamedFiles::Resolve(GetHandPoseDirectory(), name, target) && std::filesystem::exists(target, ec);
-         ++number)
-    {
-        if (std::filesystem::equivalent(source, target, ec))
-        {
-            break;
-        }
-        if (number > 999)
-        {
-            return {};
-        }
-        name = folder + base + " " + std::to_string(number);
-    }
-    if (!NamedFiles::Resolve(GetHandPoseDirectory(), name, target))
-    {
-        return {};
-    }
-    std::filesystem::rename(source, target, ec);
-    return ec ? std::string() : name;
+    return NamedFiles::Rename(GetHandPoseDirectory(), aOldName, aNewName);
 }
 } // namespace APM::Ui::PhotoModeUi

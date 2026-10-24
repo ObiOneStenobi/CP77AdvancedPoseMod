@@ -79,10 +79,6 @@ const std::vector<CatalogEntry>& GetBoneCatalog()
         {"Right hand", "Right palm - ring", {"RightInHandRing"}, EntryMode::FingerSegment, false, true, true},
         {"Right hand", "Right palm - little", {"RightInHandPinky"}, EntryMode::FingerSegment, false, true, true},
         {"Right hand", "Right hand prop", {"WeaponRight"}, EntryMode::Single, true},
-
-        // Heels (pivot of the front of the foot: turning one lifts / lowers the toes around the heel); close-up gizmos.
-        {"Left leg", "Left heel", {"LeftHeel"}, EntryMode::Single, false, false, false, true},
-        {"Right leg", "Right heel", {"RightHeel"}, EntryMode::Single, false, false, false, true},
     };
     return catalog;
 }

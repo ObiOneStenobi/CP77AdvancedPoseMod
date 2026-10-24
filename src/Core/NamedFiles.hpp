@@ -72,6 +72,51 @@ inline std::string FolderOf(const std::string& aName)
     return slash == std::string::npos ? std::string() : aName.substr(0, slash + 1);
 }
 
+// Renames a file; it stays in its folder and only its own name changes (a folder typed in front of the new name is
+// the file's own one). Returns the new name, made unique with " 2", " 3"... if taken, or "" on failure.
+inline std::string Rename(const std::filesystem::path& aDirectory, const std::string& aOldName,
+                          const std::string& aNewName)
+{
+    const std::string folder = FolderOf(aOldName);
+    const bool typedFolder = !folder.empty() && aNewName.rfind(folder, 0) == 0;
+    std::string base = SanitizeNew(typedFolder ? aNewName.substr(folder.size()) : aNewName);
+    while (!base.empty() && base.front() == ' ')
+    {
+        base.erase(base.begin());
+    }
+    std::filesystem::path source;
+    std::filesystem::path target;
+    std::error_code ec;
+    if (base.empty() || !Resolve(aDirectory, aOldName, source) || !std::filesystem::exists(source, ec))
+    {
+        return {};
+    }
+    std::string name = folder + base;
+    if (name == aOldName)
+    {
+        return name;
+    }
+    for (int number = 2; Resolve(aDirectory, name, target) && std::filesystem::exists(target, ec); ++number)
+    {
+        // Same name in another case on a case-insensitive disk: renaming onto itself is fine.
+        if (std::filesystem::equivalent(source, target, ec))
+        {
+            break;
+        }
+        if (number > 999)
+        {
+            return {};
+        }
+        name = folder + base + " " + std::to_string(number);
+    }
+    if (!Resolve(aDirectory, name, target))
+    {
+        return {};
+    }
+    std::filesystem::rename(source, target, ec);
+    return ec ? std::string() : name;
+}
+
 // Every .json file of the library and its subfolders (a few levels deep): the library's own files first, then
 // the subfolders, each sorted without regard to case.
 inline std::vector<std::string> List(const std::filesystem::path& aDirectory, int aMaxDepth = 4)

@@ -147,7 +147,8 @@ bool GetTranslation(const std::string& aBone, std::array<float, 3>& aOut);
 void SetIkChain(IkChain aChain, const IkChainSettings& aSettings);
 IkChainSettings GetIkChain(IkChain aChain);
 void ResetBone(const std::string& aBone);
-void ResetAll();
+// Clears the pose edits, IK and base pose, and the face weights unless aKeepFace (the Body reset).
+void ResetAll(bool aKeepFace = false);
 // Starts a new Photo Mode session: clears the pose, face, held items and undo history, and disables the custom pose.
 void ClearSession();
 size_t Count();

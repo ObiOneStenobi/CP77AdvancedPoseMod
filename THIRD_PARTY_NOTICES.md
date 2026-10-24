@@ -2,7 +2,7 @@
 
 ## Lucide icons
 
-The panel icons (`scripts/AdvancedPoseMod/Icons.reds`: undo-2, redo-2, eraser, trash-2, flip-vertical-2, x, circle-help, rotate-ccw, chevron-down, chevron-up, lock, lock-open, magnet, folder-open) are
+The panel icons (`scripts/AdvancedPoseMod/Icons.reds`: undo-2, redo-2, eraser, trash-2, flip-vertical-2, x, circle-help, rotate-ccw, chevron-down, chevron-up, lock, lock-open, magnet, folder-open, mouse-pointer-2, move, rotate-3d, globe, box) are
 rasterized from Lucide (https://lucide.dev), lucide-static 1.54.0, under the ISC license:
 
 ```

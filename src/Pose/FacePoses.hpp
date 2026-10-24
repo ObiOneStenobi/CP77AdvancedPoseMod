@@ -40,4 +40,6 @@ bool Save(const std::string& aName);
 std::string SaveNew();
 bool Load(const std::string& aName);
 bool Delete(const std::string& aName);
+// Renames a saved expression; returns the new name (made unique), or "" on failure.
+std::string Rename(const std::string& aOldName, const std::string& aNewName);
 } // namespace APM::Pose::FacePoses

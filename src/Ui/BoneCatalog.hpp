@@ -25,7 +25,6 @@ struct CatalogEntry
     bool allowsTranslation = false;
     bool detail = false;      // close-up gizmo only, not listed in the panel (FingerSegment entries are always detail)
     bool markerAtMiddle = false; // gizmo drawn halfway along the bone (palm bones start right next to the wrist)
-    bool closeUp = false;        // listed in the panel, but its gizmo only shows close up (like the fingers)
 };
 
 const std::vector<CatalogEntry>& GetBoneCatalog();
