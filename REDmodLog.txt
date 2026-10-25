@@ -1,0 +1,16 @@
+Copyright (c) 2022-26 CD Projekt Red. All Rights Reserved.
+Created in collaboration with CD Projekt Vancouver and Yigsoft LLC
+
+"C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\tools\redmod\bin\redMod.exe" deploy "-root=C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077"
+No root specified, using default root path.
+Core: App instance InitializeCore in 0.00 ms
+Continuing without global backend resource depot.
+Core: App instance InitializeResources in 0.00 ms
+Invalid root path found: C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\tools\redmod\bin\! This might cause errors while running commands.
+
+
+[DEPLOY] Stage 1/5 - Initialization
+No mods found, no deployment is needed!
+
+
+Commandlet deploy has succeeded.

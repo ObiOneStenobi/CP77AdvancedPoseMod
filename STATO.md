@@ -265,7 +265,24 @@ Aggiornato: 2026-10-25
   rimette in un passo; checkpoint script prima di scegli/svuota/ripristina oggetto).
 - Salvataggio posa: se la mano tiene l'oggetto della posa di Photo Mode (prop 0), si salva quello
   (SavePoseWithItems imposta il prop, salva, lo rimette a 0). "Pistol Trumpet.json" (9/10) non ha "props": va
-  risalvata. DLL ricompilate (2.5 e 2.31), da provare in gioco su 2.31.
+  risalvata. DLL ricompilate (2.5 e 2.31); provato in gioco su 2.31: funziona.
+- 25/10: gioco aggiornato alla 2.5 con RED4ext 1.31.0, Codeware 1.21.0, ArchiveXL 1.28.0, TweakXL 1.12.0,
+  redscript 0.5.32, CET 1.38.0. DLL 1.4.0 (dist) e script copiati nel gioco; check_scripts sul bundle 2.5: 0 errori
+  (anche dentro Codeware). Da fare: primo avvio, lettura log, test in gioco (lista sotto) e veicoli.
+- Primo avvio 2.5: crash su ACU (acu_rs.dll non aggiornato, disattivato). Poi errori script: r6\cache\modded era
+  della 2.31 (30/08). Il deploy REDmod 2.5 fallisce alla compilazione script con gli script di CDPR stessi
+  (tools\redmod\scripts\mods\codeware: "ISerializable must derive from something") appena una mod REDmod ha script
+  (FastTravelFromAnywhereToAnyMapPin). Deploy riuscito con -modlist (ordine Vortex, senza quella mod, file senza
+  BOM): modded ora 2.5. AdvancedPoseMod 1.4.0 sulla 2.5: hook, layout, AnimGraph, viso, API ok nel log.
+- More Occluders disattivata (occluderType sparito nella 2.5): script ok. Crash al caricamento del salvataggio
+  (Cyberpunk2077+0x20be897, thread redDispatcher, array con base sporca) anche SENZA AdvancedPoseMod e senza
+  tweakdb_ep1.str vecchio (copia in scratchpad della sessione): causa in altre mod. Sospetti: mod che modificano
+  settori del mondo (ArchiveXL: Kabuki Diner, Charter Hill Removals, sector count diversi nella 2.5).
+- Profilo Vortex "2.5 APM" (solo RED4ext 1.31, Codeware 1.21, TweakXL 1.12, CET 1.38, redscript 0.5.32): il
+  salvataggio si carica, AdvancedPoseMod 1.4.0 FUNZIONA sulla 2.5 (log senza errori/avvisi, script ok, Photo Mode,
+  rig 71/181/56/344 ossa, viso 93/93 pose e solver, sguardo). Non salvare in quel profilo. Il profilo completo
+  resta per la 2.31 (ramo beta, mod 2.31, DLL dist231, deploy REDmod).
+- Prossimo: test completo sulla 2.5 (lista sotto), poi veicoli (RESEARCH.md); release 1.4.0 su Nexus.
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
