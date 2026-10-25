@@ -259,6 +259,13 @@ Aggiornato: 2026-10-25
   coverFade e behindFade (da lontano nessuna attenuazione). Raggio di copertura = 3 cm proiettati alla profondità
   del più vicino (minimo 24 px), cerchio; ordine di disegno con metà raggio. Soglie 0,5-3 cm e 40 cm invariate.
 - Valori da tarare in gioco (1,0/1,5 m, 3 cm). Le mod richieste per la 2.5 sono uscite: poi aggiornare e provare.
+- Prova utente 2.31: funziona; dita della stessa mano troppo nascoste -> raggio 2 cm, attenuazione 1 -> 4 cm.
+- Lista viso: 13 righe per pagina (Lips in 2 pagine invece di 3).
+- Oggetti in mano nella cronologia (C++: EditState propRight/propLeft, ResetAll li azzera -> Reset Body + annulla li
+  rimette in un passo; checkpoint script prima di scegli/svuota/ripristina oggetto).
+- Salvataggio posa: se la mano tiene l'oggetto della posa di Photo Mode (prop 0), si salva quello
+  (SavePoseWithItems imposta il prop, salva, lo rimette a 0). "Pistol Trumpet.json" (9/10) non ha "props": va
+  risalvata. DLL ricompilate (2.5 e 2.31), da provare in gioco su 2.31.
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.

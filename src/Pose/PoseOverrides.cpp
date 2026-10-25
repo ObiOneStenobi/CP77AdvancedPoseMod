@@ -34,6 +34,8 @@ struct EditState
     std::shared_ptr<const APM::Pose::BasePose> base;
     APM::Pose::FaceWeights faceWeights = APM::Pose::UnsetFaceWeights();
     std::string faceName;
+    uint64_t propRight = 0;
+    uint64_t propLeft = 0;
 };
 constexpr size_t MaxHistory = 100;
 
@@ -143,7 +145,8 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked(const CharacterState& aState)
 {
-    return {aState.bones, aState.ik, aState.base, aState.faceWeights, aState.faceName};
+    return {aState.bones, aState.ik, aState.base, aState.faceWeights, aState.faceName, aState.propRight.load(),
+            aState.propLeft.load()};
 }
 
 EditState CurrentStateLocked()
@@ -154,7 +157,8 @@ EditState CurrentStateLocked()
 bool SameAsCurrentLocked(const EditState& aState, const CharacterState& aCurrent)
 {
     return aState.base == aCurrent.base && aState.faceWeights == aCurrent.faceWeights &&
-           aState.faceName == aCurrent.faceName && SameIk(aState.ik, aCurrent.ik) && SameBones(aState.bones, aCurrent.bones);
+           aState.faceName == aCurrent.faceName && aState.propRight == aCurrent.propRight &&
+           aState.propLeft == aCurrent.propLeft && SameIk(aState.ik, aCurrent.ik) && SameBones(aState.bones, aCurrent.bones);
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
@@ -169,6 +173,8 @@ void RestoreLocked(EditState&& aState)
     S().base = std::move(aState.base);
     S().faceWeights = aState.faceWeights;
     S().faceName = std::move(aState.faceName);
+    S().propRight = aState.propRight;
+    S().propLeft = aState.propLeft;
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
@@ -388,6 +394,8 @@ void ResetAll(bool aKeepFace)
     S().bones.clear();
     S().ik = {};
     S().base.reset();
+    S().propRight = 0; // the hands hold the items of the Photo Mode pose again
+    S().propLeft = 0;
     if (!aKeepFace)
     {
         S().faceWeights = UnsetFaceWeights();

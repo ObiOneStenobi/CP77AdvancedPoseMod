@@ -175,7 +175,7 @@ public class APM_ValueRow extends IScriptable {
     public let buttons: array<ref<APM_Button>>; // dec, inc, zero
 }
 
-public func APM_FaceRowsPerPage() -> Int32 { return 12; }
+public func APM_FaceRowsPerPage() -> Int32 { return 13; }
 
 // --- Gizmo marker --------------------------------------------------------------------------------------------------
 
@@ -2447,6 +2447,7 @@ public class APM_PoseEditor extends IScriptable {
 
     private func ChooseItem(index: Int32) {
         let id = this.m_itemIds[index];
+        APM_HistoryCheckpoint();
         APM_SetHandProp(this.m_propRight, TDBID.ToNumber(id));
         ArrayRemove(this.m_recentItems, id);
         ArrayInsert(this.m_recentItems, 0, id);
@@ -2461,10 +2462,12 @@ public class APM_PoseEditor extends IScriptable {
         let right = Equals(StrAfterFirst(arg, ":"), "r");
         let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
         if Equals(action, "clear") {
+            APM_HistoryCheckpoint();
             APM_SetHandProp(right, hasPose ? 1ul : 0ul);
             return;
         }
         if Equals(action, "restore") {
+            APM_HistoryCheckpoint();
             APM_SetHandProp(right, 0ul);
             return;
         }
@@ -2481,6 +2484,21 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
         }
+    }
+
+    // A hand that keeps the Photo Mode pose's own item saves that item, so the pose loads with it on any pose.
+    private func SavePoseWithItems(name: String) {
+        let right = APM_GetHandProp(true);
+        let left = APM_GetHandProp(false);
+        if right == 0ul && this.m_hasPoseItemRight {
+            APM_SetHandProp(true, TDBID.ToNumber(ItemID.GetTDBID(this.m_poseItemRight)));
+        }
+        if left == 0ul && this.m_hasPoseItemLeft {
+            APM_SetHandProp(false, TDBID.ToNumber(ItemID.GetTDBID(this.m_poseItemLeft)));
+        }
+        APM_SavePose(name);
+        APM_SetHandProp(true, right);
+        APM_SetHandProp(false, left);
     }
 
     private func ItemName(record: Uint64) -> String {
@@ -3350,8 +3368,8 @@ public class APM_PoseEditor extends IScriptable {
 
     // Markers that cover each other on screen (e.g. the fingers of two hands one above the other): the nearer one is
     // drawn on top, so it is the one the cursor picks. Fading only up close (nearest marker under 1 m, none from
-    // 1.5 m, the eye look marker left out), where many markers crowd: markers within 3 cm on screen (at least 24 px)
-    // of a nearer one turn much fainter, with their lines: full under 0.5 cm behind it, faintest from 3 cm. All stay
+    // 1.5 m, the eye look marker left out), where many markers crowd: markers within 2 cm on screen (at least 24 px)
+    // of a nearer one turn much fainter, with their lines: full under 1 cm behind it, faintest from 4 cm. All stay
     // selectable. Besides, every marker fades with its depth behind the nearest one shown: full at the same depth,
     // faintest from 40 cm behind (the far side of the body).
     private func ResolveMarkerOverlaps(camera: ref<CameraSystem>, s: Float) {
@@ -3377,7 +3395,7 @@ public class APM_PoseEditor extends IScriptable {
             fov = 60.0;
         }
         let perMeter = APM_ScreenHeight() / (2.0 * MaxF(nearest, 0.05) * TanF(Deg2Rad(fov) * 0.5));
-        let coverReach = MaxF(24.0 * s, 0.03 * perMeter);
+        let coverReach = MaxF(24.0 * s, 0.02 * perMeter);
         let reach = 0.5 * coverReach;
         i = 0;
         while i < ArraySize(shown) {
@@ -3399,7 +3417,7 @@ public class APM_PoseEditor extends IScriptable {
                 let dy = a.screenY - b.screenY;
                 let apart = dx * dx + dy * dy;
                 if closeness > 0.0 && apart < coverReach * coverReach {
-                    let fade = closeness * ClampF((farther.depth - nearer.depth - 0.005) / 0.025, 0.0, 1.0);
+                    let fade = closeness * ClampF((farther.depth - nearer.depth - 0.01) / 0.03, 0.0, 1.0);
                     farther.coverFade = MaxF(farther.coverFade, fade);
                 }
                 if apart < reach * reach {
@@ -4712,9 +4730,7 @@ public class APM_PoseEditor extends IScriptable {
                 if this.m_faceMode {
                     APM_FaceReset();
                 } else {
-                    APM_ResetBody(); // pose, IK and base pose
-                    APM_SetHandProp(true, 0ul); // the hands hold the items of the Photo Mode pose again
-                    APM_SetHandProp(false, 0ul);
+                    APM_ResetBody(); // pose, IK, base pose and items in hand (one undo step)
                 }
             } else {
                 keepResetConfirm = true;
@@ -4751,7 +4767,7 @@ public class APM_PoseEditor extends IScriptable {
                         APM_SaveHandPose(this.m_selectedPose, overwriteHand == 2);
                     }
                 } else {
-                    APM_SavePose(this.m_selectedPose);
+                    this.SavePoseWithItems(this.m_selectedPose);
                 }
             }
         } else if Equals(id, "rename") {

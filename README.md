@@ -108,7 +108,7 @@ closer.
 - Click a marker to select that body part in the panel.
 - Markers that cover each other on screen (e.g. the fingers of two hands one over the other): the nearest is drawn on
   top and takes the click. Up close (camera within about a meter of the markers, e.g. while posing the hands) the
-  ones behind turn fainter, the more the farther behind (from 0.5 to 3 cm), and every marker fades with its depth
+  ones behind turn fainter, the more the farther behind (from 1 to 4 cm), and every marker fades with its depth
   behind the nearest one (faintest 40 cm behind); they stay selectable. From farther away (the whole pose) no marker
   fades.
 - **Gizmo mode** (tools row: pointer = **Direct**, arrows = **Move**, rings = **Rotate**; **Ctrl+1 / 2 / 3**, axes **Ctrl+4**): Direct drags the markers (as described below); Rotate puts on the selected part
@@ -166,7 +166,7 @@ closer.
   added by other mods follow like the neutral one. Added characters use their own expression (NPC page).
 - **Saved poses folder**: the folder icon on the Poses section opens the folder of the saved poses, to share the
   files (in full screen the game is minimized).
-- **Face** (Body / Face selector): the game's own face poses (brows, eyelids, nose, cheeks, lips, jaw, ears, tongue; 12
+- **Face** (Body / Face selector): the game's own face poses (brows, eyelids, nose, cheeks, lips, jaw, ears, tongue; 13
   rows per page, L+R moves both sides, the left / right rows are bipolar sliders). The rows show the Photo Mode
   expression; moving one sets that pose, and the game's facial solver applies it with its corrective poses and each
   head's own shapes (as CDPR's animations do). The dot marks the zones changed from Photo Mode; a row's reset button
@@ -186,7 +186,9 @@ closer.
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
   "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
-  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset** (Body) gives back the pose's own ones.
+  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose, the
+  Photo Mode pose's own ones too (so the pose loads with them on any Photo Mode pose); **Reset** (Body) gives back the
+  pose's own ones. Choosing, emptying or resetting items can be undone.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
