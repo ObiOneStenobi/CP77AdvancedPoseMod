@@ -167,11 +167,14 @@ closer.
 - **Saved poses folder**: the folder icon on the Poses section opens the folder of the saved poses, to share the
   files (in full screen the game is minimized).
 - **Face** (Body / Face selector): the game's own face poses (brows, eyelids, nose, cheeks, lips, jaw, ears, tongue; 12
-  rows per page, L+R moves both sides, the left / right rows are bipolar sliders). Their weights go into the game's
-  facial solver, which adds its corrective poses and each head's own shapes (as CDPR's animations do), on top of the
-  Photo Mode expression. **From Photo Mode** copies the expression shown into the rows, to edit it (it then replaces
-  the Photo Mode expression; Reset gives it back). Expressions are saved in the list below (`expressions\*.json`).
-  `[Face] GameSolver=0` in config.ini adds the poses to the bones instead (no correctives).
+  rows per page, L+R moves both sides, the left / right rows are bipolar sliders). The rows show the Photo Mode
+  expression; moving one sets that pose, and the game's facial solver applies it with its corrective poses and each
+  head's own shapes (as CDPR's animations do). The dot marks the zones changed from Photo Mode; **Reset zone** and
+  **Reset face** give the Photo Mode values back, and choosing another expression in the Photo Mode menu starts from
+  it (undo keeps the edits). Values above 100 come from expressions of other mods: they stay until the row is moved
+  (then at most 100). Expressions are saved whole in the list below (`expressions\*.json`). `[Face] GameSolver=0`
+  in config.ini adds the poses to the bones instead (no correctives). **Reset body** (Body section) resets the pose
+  and leaves the face.
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.
@@ -209,8 +212,9 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
   skeletons and stay unsupported. Their eyelids follow edited eyes like the neutral expression.
 - The eyelids follow edited eyes with the share measured for each of the 15 base game expressions; expressions added
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
-- Face poses on characters whose face the game's solver does not pose (or with `GameSolver=0`): added to the bones,
-  without correctives; "From Photo Mode" and the lips together / tighten and jaw close / clench rows do nothing there.
+- Face poses on characters whose face the game's solver does not pose (or with `GameSolver=0`), and poses a
+  character's face rig has no track for: added to the bones (male head for male characters), without correctives; the
+  rows then start at 0 and the lips together / tighten and jaw close / clench rows do nothing there.
 - No automatic feet on the ground: place the feet with IK.
 - Built for game version 2.5; on another version the game still starts, but the mod stays off and the panel reports
   an unsupported version until the mod is updated. `config.ini` `[Compatibility] AllowUnknownGameVersion=1` tries it

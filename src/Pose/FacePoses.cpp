@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -30,7 +31,9 @@ using APM::Math::Vec3;
 using APM::Pose::MaxFacePoses;
 
 constexpr const char* ExpressionFormat = "AdvancedPoseMod.Expression";
-constexpr int ExpressionVersion = 2; // 2: pose weights (1 held the face bones, no longer read)
+// 3: the whole face (value of every pose); 2 held weights added to the Photo Mode expression, 1 the face bones (neither
+// read any more).
+constexpr int ExpressionVersion = 3;
 
 struct PoseInfo
 {
@@ -91,13 +94,23 @@ struct TrackMap
 std::shared_mutex g_trackMapMutex;
 std::unordered_map<uint64_t, std::shared_ptr<const TrackMap>> g_trackMaps;
 
-// Faces the solver took the weights for (animated component -> time of the last frame, ms): Apply leaves them alone.
-// And the Photo Mode expression of each character as pose weights (last frame seen by the solver).
+// Faces the solver took the values for (animated component -> time of the last frame, ms): Apply only adds the poses
+// their rig has no track for. And the Photo Mode expression of each character as the panel shows it (see GameValue):
+// read again when captureAt (ms, 0 = no) has passed.
 std::mutex g_solverMutex;
 std::unordered_map<uintptr_t, uint64_t> g_solverFaces;
-std::array<APM::Pose::FaceWeights, APM::Pose::Characters::Count> g_gameExpressions{};
-std::array<bool, APM::Pose::Characters::Count> g_gameExpressionKnown{};
+struct GameExpression
+{
+    APM::Pose::FaceWeights values{};
+    bool known = false;
+    uint64_t captureAt = 0;
+    int32_t menuIndex = 0; // expression chosen in the menu (Photo Mode starts and adds characters with the first one)
+};
+std::array<GameExpression, APM::Pose::Characters::Count> g_gameExpressions{};
+std::array<std::atomic<bool>, APM::Pose::Characters::Count> g_characterMale{};
 constexpr uint64_t SolverFaceTimeout = 1000;
+constexpr uint64_t ExpressionSettleMs = 500; // after a change in the menu, before the new expression is read
+constexpr float MaxLoadedValue = 4.f;        // values of a saved expression (other mods' expressions go above 1)
 
 uint64_t NowMs()
 {
@@ -232,7 +245,9 @@ std::unique_ptr<Head> ReadHead(const std::filesystem::path& aPath, std::vector<P
 
 const Head* HeadFor(const APM::Pose::Target& aTarget)
 {
-    if (aTarget.characterType == 2 && g_data.male)
+    const bool male = aTarget.characterType == 2 ||
+                      (aTarget.photoModeSlot < APM::Pose::Characters::Count && g_characterMale[aTarget.photoModeSlot]);
+    if (male && g_data.male)
     {
         return g_data.male.get();
     }
@@ -282,6 +297,7 @@ std::shared_ptr<const TrackMap> TrackMapFor(uint64_t aRig, const RED4ext::CName*
     auto map = std::make_shared<TrackMap>();
     map->trackCount = aCount;
     size_t missing = 0;
+    std::string missingNames;
     for (const auto& pose : g_data.poses)
     {
         const uint64_t hash = RED4ext::CName(pose.name.c_str()).hash;
@@ -294,13 +310,25 @@ std::shared_ptr<const TrackMap> TrackMapFor(uint64_t aRig, const RED4ext::CName*
             }
         }
         map->tracks.push_back(track);
-        missing += track < 0 ? 1 : 0;
+        if (track < 0)
+        {
+            ++missing;
+            missingNames += " " + pose.name;
+        }
     }
-    APM::Log::Info("Face poses: face rig with %u tracks, %zu of %zu poses found", aCount, g_data.poses.size() - missing,
-                   g_data.poses.size());
+    APM::Log::Info("Face poses: face rig %016llx with %u tracks, %zu of %zu poses found%s%s",
+                   static_cast<unsigned long long>(aRig), aCount, g_data.poses.size() - missing, g_data.poses.size(),
+                   missing > 0 ? " (on the bones:" : "", missing > 0 ? (missingNames + ")").c_str() : "");
     std::unique_lock lock(g_trackMapMutex);
     g_trackMaps[aRig] = map;
     return map;
+}
+
+std::shared_ptr<const TrackMap> FindTrackMap(uint64_t aRig)
+{
+    std::shared_lock lock(g_trackMapMutex);
+    const auto it = g_trackMaps.find(aRig);
+    return it != g_trackMaps.end() ? it->second : nullptr;
 }
 } // namespace
 
@@ -397,68 +425,131 @@ void ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const R
     const size_t poseCount = std::min({g_data.poses.size(), MaxFacePoses, map->tracks.size()});
     {
         std::scoped_lock lock(g_solverMutex);
-        g_solverFaces[aTarget.animatedComponent] = NowMs();
+        const uint64_t now = NowMs();
+        g_solverFaces[aTarget.animatedComponent] = now;
         if (aTarget.photoModeSlot < Characters::Count)
         {
             auto& expression = g_gameExpressions[aTarget.photoModeSlot];
-            for (size_t p = 0; p < poseCount; ++p)
+            if (!expression.known || (expression.captureAt != 0 && now >= expression.captureAt))
             {
-                const int32_t track = map->tracks[p];
-                expression[p] = track >= 0 && std::isfinite(aTracks[track]) ? std::clamp(aTracks[track], 0.f, 1.f) : 0.f;
+                // Read once more a moment after the first time (the expression may still be blending in).
+                expression.captureAt = expression.known ? 0 : now + ExpressionSettleMs;
+                for (size_t p = 0; p < poseCount; ++p)
+                {
+                    const int32_t track = map->tracks[p];
+                    expression.values[p] =
+                        track >= 0 && std::isfinite(aTracks[track]) ? std::max(aTracks[track], 0.f) : 0.f;
+                }
+                expression.known = true;
             }
-            g_gameExpressionKnown[aTarget.photoModeSlot] = true;
         }
     }
-    if (!aApply || (!aPose.faceReplace && !AnyFaceWeight(aPose.faceWeights)))
+    if (!aApply || !AnyFaceWeight(aPose.faceWeights))
     {
         return;
     }
     for (size_t p = 0; p < poseCount; ++p)
     {
         const int32_t track = map->tracks[p];
-        if (track < 0)
+        if (track >= 0 && aPose.faceWeights[p] >= 0.f)
         {
-            continue;
+            aTracks[track] = aPose.faceWeights[p];
         }
-        const float weight = std::clamp(aPose.faceWeights[p], 0.f, 1.f);
-        const float game = std::isfinite(aTracks[track]) ? aTracks[track] : 0.f;
-        aTracks[track] = aPose.faceReplace ? weight : std::clamp(game + weight, 0.f, 1.f);
     }
 }
 
-bool CopyGameExpression()
+float GameValue(size_t aPose)
 {
     const uint32_t character = Characters::Selected();
-    FaceWeights weights{};
-    {
-        std::scoped_lock lock(g_solverMutex);
-        if (character >= Characters::Count || !g_gameExpressionKnown[character])
-        {
-            return false;
-        }
-        weights = g_gameExpressions[character];
-    }
-    PoseOverrides::SetFaceWeights(weights, "", true);
-    Log::Info("Expression: Photo Mode expression of character %u copied", character);
-    return true;
-}
-
-float ResetWeight(size_t aPose)
-{
-    const uint32_t character = Characters::Selected();
-    if (aPose >= MaxFacePoses || character >= Characters::Count || !PoseOverrides::IsFaceReplacing())
+    if (aPose >= MaxFacePoses || character >= Characters::Count)
     {
         return 0.f;
     }
     std::scoped_lock lock(g_solverMutex);
-    return g_gameExpressionKnown[character] ? g_gameExpressions[character][aPose] : 0.f;
+    const auto& expression = g_gameExpressions[character];
+    return expression.known ? expression.values[aPose] : 0.f;
+}
+
+float ShownValue(size_t aPose)
+{
+    const float value = PoseOverrides::GetFaceWeight(aPose);
+    return value >= 0.f ? value : GameValue(aPose);
+}
+
+bool IsEdited(size_t aPose)
+{
+    const float value = PoseOverrides::GetFaceWeight(aPose);
+    return value >= 0.f && std::abs(value - GameValue(aPose)) > 0.005f;
+}
+
+void OnExpressionChanged(uint32_t aCharacter, int32_t aExpression)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return;
+    }
+    {
+        std::scoped_lock lock(g_solverMutex);
+        auto& expression = g_gameExpressions[aCharacter];
+        if (expression.menuIndex == aExpression)
+        {
+            return;
+        }
+        expression.menuIndex = aExpression;
+        if (expression.known)
+        {
+            expression.captureAt = NowMs() + ExpressionSettleMs;
+        }
+    }
+    if (PoseOverrides::ResetFaceOf(aCharacter))
+    {
+        Log::Info("Expression: character %u changed expression in the menu, face edits reset", aCharacter);
+    }
+}
+
+void ResetCharacter(uint32_t aCharacter)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_solverMutex);
+    g_gameExpressions[aCharacter] = {};
+    g_characterMale[aCharacter] = false;
+}
+
+void ResetSession()
+{
+    std::scoped_lock lock(g_solverMutex);
+    for (auto& expression : g_gameExpressions)
+    {
+        expression = {};
+    }
+}
+
+void SetCharacterMale(uint32_t aCharacter, bool aMale)
+{
+    if (aCharacter < Characters::Count)
+    {
+        g_characterMale[aCharacter] = aMale;
+    }
 }
 
 void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, const OverrideSnapshot& aPose)
 {
-    if (!AnyFaceWeight(aPose.faceWeights) || !IsAvailable() || IsSolverFace(aTarget.animatedComponent))
+    if (!AnyFaceWeight(aPose.faceWeights) || !IsAvailable())
     {
         return;
+    }
+    // A face the solver poses gets here only the poses its rig has no track for.
+    std::shared_ptr<const TrackMap> solverTracks;
+    if (IsSolverFace(aTarget.animatedComponent))
+    {
+        solverTracks = FindTrackMap(aTarget.rig);
+        if (!solverTracks)
+        {
+            return;
+        }
     }
     const Head* head = HeadFor(aTarget);
     if (!head)
@@ -471,7 +562,8 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
     {
         const float weight = std::clamp(aPose.faceWeights[p], 0.f, 1.f);
         const auto& inbetweens = head->poses[p];
-        if (weight <= 0.f || inbetweens.empty())
+        if (weight <= 0.f || inbetweens.empty() ||
+            (solverTracks && (p >= solverTracks->tracks.size() || solverTracks->tracks[p] >= 0)))
         {
             continue;
         }
@@ -532,16 +624,12 @@ bool Save(const std::string& aName)
     root["format"] = ExpressionFormat;
     root["version"] = ExpressionVersion;
     auto& weights = root["weights"] = nlohmann::json::object();
-    if (PoseOverrides::IsFaceReplacing())
-    {
-        root["replace"] = true; // replaces the Photo Mode expression instead of adding to it
-    }
-    const auto current = PoseOverrides::GetFaceWeights();
     for (size_t i = 0; i < Count(); ++i)
     {
-        if (current[i] > 0.f)
+        const float value = std::round(ShownValue(i) * 1000.f) / 1000.f;
+        if (value > 0.f)
         {
-            weights[g_data.poses[i].name] = std::round(current[i] * 1000.f) / 1000.f;
+            weights[g_data.poses[i].name] = value;
         }
     }
     std::error_code ec;
@@ -585,12 +673,11 @@ bool Load(const std::string& aName)
         Log::Warn("LoadExpression: file not found: %s", NamedFiles::ToUtf8(path).c_str());
         return false;
     }
+    // The whole face: poses missing from the file are 0.
     FaceWeights weights{};
-    bool replace = false;
     try
     {
         const auto root = nlohmann::json::parse(in);
-        replace = root.value("replace", false);
         if (root.value("format", "") != ExpressionFormat || root.value("version", 0) < ExpressionVersion ||
             !root.contains("weights"))
         {
@@ -605,7 +692,7 @@ bool Load(const std::string& aName)
                 Log::Verbose("LoadExpression: %s: unknown pose %s", aName.c_str(), name.c_str());
                 continue;
             }
-            weights[pose] = std::clamp(value.get<float>(), 0.f, 1.f);
+            weights[pose] = std::clamp(value.get<float>(), 0.f, MaxLoadedValue);
         }
     }
     catch (const std::exception& e)
@@ -613,7 +700,7 @@ bool Load(const std::string& aName)
         Log::Error("LoadExpression: %s: %s", aName.c_str(), e.what());
         return false;
     }
-    PoseOverrides::SetFaceWeights(weights, aName, replace);
+    PoseOverrides::SetFaceWeights(weights, aName);
     Log::Info("Expression loaded: %s", aName.c_str());
     return true;
 }

@@ -25,6 +25,11 @@ void ResetSession();
 bool ReadEyes(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount,
               std::array<Math::Quat, 2>& aOut);
 
+// [Probe] FaceTracks: logs the eyes as the game posed them (after the facial solver), when they turn, with the gaze
+// tracks (eye_*_dir_*) the probe logs before the solver.
+void SetProbe(bool aEnabled);
+void ProbeEyes(const Target& aTarget, const std::array<Math::Quat, 2>& aGameEyes);
+
 // After our edits of the face rig: moves the eyelids for the eyes' change since ReadEyes.
 void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
            const std::array<Math::Quat, 2>& aGameEyes);

@@ -7,6 +7,7 @@
 #include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
+#include "Pose/EyelidFollow.hpp"
 #include "Pose/FacePoses.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
@@ -1025,6 +1026,7 @@ bool Install()
     // The game's facial solver: the expression editor's weights go into its face tracks.
     const auto config = Config::Get();
     g_faceProbe = config.probeFaceTracks;
+    APM::Pose::EyelidFollow::SetProbe(config.probeFaceTracks);
     if (config.faceGameSolver || config.probeFaceTracks)
     {
         const uintptr_t sermoVtable = ResolveNodeVtable("animAnimNode_Sermo");

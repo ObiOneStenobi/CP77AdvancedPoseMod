@@ -641,7 +641,7 @@ float GetValue(uint32_t aAttribute)
     default:
         if (aAttribute >= Attr::FacePose && aAttribute < Attr::FacePose + Pose::FacePoses::Count())
         {
-            return Pose::PoseOverrides::GetFaceWeight(aAttribute - Attr::FacePose) * 100.f;
+            return Pose::FacePoses::ShownValue(aAttribute - Attr::FacePose) * 100.f;
         }
         return 0.f; // action selectors always rest on "-"
     }
@@ -795,7 +795,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         {
             const size_t pose = aAttribute - Attr::FacePose;
             const float weight = std::clamp(aValue / 100.f, 0.f, 1.f);
-            if (!Same(weight, Pose::PoseOverrides::GetFaceWeight(pose)))
+            if (!Same(weight, Pose::FacePoses::ShownValue(pose)))
             {
                 Pose::PoseOverrides::SetFaceWeight(pose, weight);
                 const int32_t mirror = Pose::FacePoses::Mirror(pose);

@@ -4,6 +4,7 @@
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
 #include "Pose/EyelidFollow.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/LookAtCamera.hpp"
 #include "Ui/PhotoModeUi.hpp"
 
@@ -40,6 +41,7 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     {
         APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
         APM::Pose::EyelidFollow::SetExpression(0, static_cast<int32_t>(aValue + 0.5f));
+        APM::Pose::FacePoses::OnExpressionChanged(0, static_cast<int32_t>(aValue + 0.5f));
     }
     else if (aAttribute == 56)
     {
@@ -49,6 +51,8 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
         if (npc >= 0 && npc < 3)
         {
             APM::Pose::EyelidFollow::SetExpression(static_cast<uint32_t>(npc) + 1, static_cast<int32_t>(aValue + 0.5f));
+            APM::Pose::FacePoses::OnExpressionChanged(static_cast<uint32_t>(npc) + 1,
+                                                      static_cast<int32_t>(aValue + 0.5f));
         }
     }
     else

@@ -292,6 +292,15 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
   `lips_together_up/dn` and `lips_tighten_up/dn` (empty main poses: correctives only). Other tracks: `neck_*`,
   `head_neck_*` (head and neck), `eye_*_dir_*` (gaze), `sculp_*`, `*_sticky_cutScene`, and controls such as
   `faceEnvelope`, `upperFace`, `lowerFace`, `lipSync*Envelope`, `jaliJaw`, `jaliLips`, `<pose>AnimOverrideWeight`.
-- 1.4.0 adds the weights to the tracks (clamped 0-1) or, after "From Photo Mode", replaces the catalog poses' tracks
-  with them; the bone deltas of the JSON files stay as the fallback.
+- 1.4.0: the panel shows the Photo Mode expression read from the tracks (read when the face is first seen, again
+  0.5 s later and 0.5 s after the expression changes in the menu, then kept: an animated expression does not move the
+  sliders). A moved row sets that pose's track (replacing it); unset poses keep the game's value. Saved expressions
+  hold every pose (format 3). Values above 1 (other mods' expressions) are shown as they are and kept until set; the
+  control tracks (`faceEnvelope`, `jaliJaw`, `*AnimOverrideWeight`, some at 2.00 in mod expressions) are not
+  touched. Poses a rig has no track for go on the bones (pwa / pma head by the character's gender:
+  `gamePuppet.GetResolvedGenderName` for added characters); the bone deltas also stay the fallback without the solver.
+- Gaze tracks: `eye_*_dir_{up,dn,in,out}` are non-zero in Photo Mode (log 24/10: dn 0.04, up up to 0.19, in / out up
+  to 0.04). To measure (probe 25/10): what they do to the eye and eyelid bones after the solver
+  (`FaceProbe: character N eyes after the solver` with `FaceTrack=eye_l_dir_dn`, `FaceTrackWeight=0.5` / `1`), and
+  whether Look at camera moves the eyes through them or after the solver.
 

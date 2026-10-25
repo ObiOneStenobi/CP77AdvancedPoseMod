@@ -10,6 +10,7 @@
 #include "Game/AnimGraphHook.hpp"
 #include "Game/EngineLayout.hpp"
 #include "Pose/EyelidFollow.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/PoseOverrides.hpp"
@@ -502,6 +503,28 @@ bool IsHumanCharacter(const std::vector<APM::Pose::Target>& aTargets, uint64_t a
     return false;
 }
 
+// The game's gender of an added character (gamePuppet.GetResolvedGenderName: "Male" / "Female"), once when it appears:
+// the face of a male one falls back on the male head's poses.
+bool IsMalePuppet(uint64_t aPuppet)
+{
+    using namespace APM;
+    const auto entity = EngineLayout::LockAlive(aPuppet);
+    auto* cls = entity ? entity->GetType() : nullptr;
+    auto* func = cls ? cls->GetFunction("GetResolvedGenderName") : nullptr;
+    if (!func)
+    {
+        Log::Verbose("PhotoMode: no gender for %s", cls ? CNameToString(cls->GetName()).c_str() : "?");
+        return false;
+    }
+    RED4ext::CName gender;
+    if (!RED4ext::ExecuteFunction(entity.instance, func, &gender))
+    {
+        return false;
+    }
+    Log::Info("PhotoMode: added character gender %s", CNameToString(gender).c_str());
+    return gender == RED4ext::CName("Male");
+}
+
 // Puppet of each character last time (0 = none): a new puppet in a slot is a new character, whose pose starts empty.
 std::array<uint64_t, APM::Pose::Characters::Count> g_characterPuppets{};
 
@@ -578,6 +601,8 @@ void RefreshTargets(void* aSystem)
             Pose::PoseOverrides::ClearCharacter(c);
             Pose::LookAtCamera::ResetCharacter(c);
             Pose::EyelidFollow::ResetCharacter(c);
+            Pose::FacePoses::ResetCharacter(c);
+            Pose::FacePoses::SetCharacterMale(c, puppets[c] && IsMalePuppet(puppets[c]));
             Pose::PoseProcessor::ResetCharacter(c);
             Log::Info("PhotoMode: character %u %s", c, puppets[c] ? "added (human, can be posed)" : "removed");
             if (!puppets[c] && Pose::Characters::Selected() == c)
@@ -619,6 +644,7 @@ bool Detour_Activate(void* aSystem)
     APM::Pose::PoseOverrides::ClearSession();
     APM::Ui::PhotoModeUi::ResetSession();
     APM::Pose::EyelidFollow::ResetSession();
+    APM::Pose::FacePoses::ResetSession();
     APM::Pose::PoseProcessor::ResetCharacter(0); // V's per-session state (added characters reset when they appear)
     APM::Pose::JointLimits::ResetCache();
     const bool result = g_origActivate(aSystem);

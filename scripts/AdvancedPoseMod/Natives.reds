@@ -116,8 +116,8 @@ public native func APM_GizmoAimPart(part: Int32, modelTarget: Vector4) -> Bool
 // The active camera in V's model space (position, view direction, up), every frame: full poses turn towards it when
 // Photo Mode's "Look at camera" is on.
 public native func APM_SetCameraModel(character: Int32, position: Vector4, forward: Vector4, up: Vector4)
-// Face: the game's face poses (UI attributes 7800 + pose: weight 0-100, added to the Photo Mode expression), saved
-// expressions. Zones: "brows", "eyelids", "nose", "cheeks", "lips", "jaw", "ears", "tongue"; side "l", "r" or "".
+// Face: the game's face poses (UI attributes 7800 + pose: 0-100, the Photo Mode expression's value until set; above 100
+// for some expressions of other mods), saved expressions (the whole face). Zones: "brows", "eyelids", "nose", "cheeks", "lips", "jaw", "ears", "tongue"; side "l", "r" or "".
 public native func APM_FaceAvailable() -> Bool
 public native func APM_FacePoseCount() -> Int32
 public native func APM_FacePoseName(pose: Int32) -> String
@@ -128,13 +128,10 @@ public native func APM_FacePoseMirror(pose: Int32) -> Int32
 // L+R linked: a left / right pose's weight also goes to its mirror (on by default)
 public native func APM_FaceSetLinked(linked: Bool)
 public native func APM_FaceIsLinked() -> Bool
+// Set and different from the Photo Mode value
 public native func APM_FaceIsEdited(pose: Int32) -> Bool
+// Resets give the Photo Mode values back
 public native func APM_FaceResetPose(pose: Int32)
-// The Photo Mode expression the selected character shows becomes its edited expression, replacing it (false if unknown:
-// its face was not seen through the game's facial solver)
-public native func APM_FaceCopyGameExpression() -> Bool
-// True while the face weights replace the Photo Mode expression (copied from it) instead of adding to it
-public native func APM_FaceIsReplacing() -> Bool
 public native func APM_FaceResetZone(zone: String)
 public native func APM_FaceReset()
 public native func APM_FaceGetLoadedName() -> String

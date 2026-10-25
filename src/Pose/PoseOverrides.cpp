@@ -32,9 +32,8 @@ struct EditState
     std::vector<APM::Pose::BoneOverride> bones;
     std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
     std::shared_ptr<const APM::Pose::BasePose> base;
-    APM::Pose::FaceWeights faceWeights{};
+    APM::Pose::FaceWeights faceWeights = APM::Pose::UnsetFaceWeights();
     std::string faceName;
-    bool faceReplace = false;
 };
 constexpr size_t MaxHistory = 100;
 
@@ -45,9 +44,8 @@ struct CharacterState
     std::vector<APM::Pose::BoneOverride> bones;
     std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount> ik{};
     std::shared_ptr<const APM::Pose::BasePose> base;
-    APM::Pose::FaceWeights faceWeights{};
+    APM::Pose::FaceWeights faceWeights = APM::Pose::UnsetFaceWeights();
     std::string faceName; // saved expression loaded last (shown by the panel)
-    bool faceReplace = false;
     std::vector<EditState> undo;
     std::vector<EditState> redo;
     std::atomic<uint64_t> propRight{0};
@@ -76,7 +74,6 @@ void PublishLocked(CharacterState& aState)
     snapshot->ik = aState.ik;
     snapshot->base = aState.base;
     snapshot->faceWeights = aState.faceWeights;
-    snapshot->faceReplace = aState.faceReplace;
     for (const auto& bone : aState.bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -99,9 +96,8 @@ void ClearLocked(CharacterState& aState)
     aState.bones.clear();
     aState.ik = {};
     aState.base.reset();
-    aState.faceWeights = {};
+    aState.faceWeights = APM::Pose::UnsetFaceWeights();
     aState.faceName.clear();
-    aState.faceReplace = false;
     aState.undo.clear();
     aState.redo.clear();
     aState.propRight = 0;
@@ -145,14 +141,25 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 }
 
 // Must be called with g_mutex held.
+EditState CurrentStateLocked(const CharacterState& aState)
+{
+    return {aState.bones, aState.ik, aState.base, aState.faceWeights, aState.faceName};
+}
+
 EditState CurrentStateLocked()
 {
-    return {S().bones, S().ik, S().base, S().faceWeights, S().faceName, S().faceReplace};
+    return CurrentStateLocked(S());
+}
+
+bool SameAsCurrentLocked(const EditState& aState, const CharacterState& aCurrent)
+{
+    return aState.base == aCurrent.base && aState.faceWeights == aCurrent.faceWeights &&
+           aState.faceName == aCurrent.faceName && SameIk(aState.ik, aCurrent.ik) && SameBones(aState.bones, aCurrent.bones);
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
 {
-    return aState.base == S().base && aState.faceWeights == S().faceWeights && aState.faceName == S().faceName && aState.faceReplace == S().faceReplace && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
+    return SameAsCurrentLocked(aState, S());
 }
 
 void RestoreLocked(EditState&& aState)
@@ -162,22 +169,26 @@ void RestoreLocked(EditState&& aState)
     S().base = std::move(aState.base);
     S().faceWeights = aState.faceWeights;
     S().faceName = std::move(aState.faceName);
-    S().faceReplace = aState.faceReplace;
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
-void CheckpointLocked()
+void CheckpointLocked(CharacterState& aState)
 {
-    if (!S().undo.empty() && SameAsCurrentLocked(S().undo.back()))
+    if (!aState.undo.empty() && SameAsCurrentLocked(aState.undo.back(), aState))
     {
         return;
     }
-    S().undo.push_back(CurrentStateLocked());
-    if (S().undo.size() > MaxHistory)
+    aState.undo.push_back(CurrentStateLocked(aState));
+    if (aState.undo.size() > MaxHistory)
     {
-        S().undo.erase(S().undo.begin());
+        aState.undo.erase(aState.undo.begin());
     }
-    S().redo.clear();
+    aState.redo.clear();
+}
+
+void CheckpointLocked()
+{
+    CheckpointLocked(S());
 }
 
 // Must be called with g_mutex held.
@@ -379,9 +390,8 @@ void ResetAll(bool aKeepFace)
     S().base.reset();
     if (!aKeepFace)
     {
-        S().faceWeights = {};
+        S().faceWeights = UnsetFaceWeights();
         S().faceName.clear();
-        S().faceReplace = false;
     }
     PublishLocked();
 }
@@ -715,7 +725,7 @@ void SetFaceWeight(size_t aPose, float aWeight)
         return;
     }
     std::scoped_lock lock(g_mutex);
-    S().faceWeights[aPose] = std::clamp(aWeight, 0.f, 1.f);
+    S().faceWeights[aPose] = aWeight < 0.f ? FaceUnset : std::min(aWeight, 1.f);
     PublishLocked();
     S().enabled = true;
 }
@@ -723,7 +733,7 @@ void SetFaceWeight(size_t aPose, float aWeight)
 float GetFaceWeight(size_t aPose)
 {
     std::scoped_lock lock(g_mutex);
-    return aPose < MaxFacePoses ? S().faceWeights[aPose] : 0.f;
+    return aPose < MaxFacePoses ? S().faceWeights[aPose] : FaceUnset;
 }
 
 FaceWeights GetFaceWeights()
@@ -732,13 +742,12 @@ FaceWeights GetFaceWeights()
     return S().faceWeights;
 }
 
-void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName, bool aReplace)
+void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName)
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
     S().faceWeights = aWeights;
     S().faceName = aName;
-    S().faceReplace = aReplace;
     PublishLocked();
     S().enabled = true;
 }
@@ -749,20 +758,32 @@ std::string GetFaceName()
     return S().faceName;
 }
 
-bool IsFaceReplacing()
-{
-    std::scoped_lock lock(g_mutex);
-    return S().faceReplace;
-}
-
 void ResetFace()
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    S().faceWeights = {};
+    S().faceWeights = UnsetFaceWeights();
     S().faceName.clear();
-    S().faceReplace = false;
     PublishLocked();
+}
+
+bool ResetFaceOf(uint32_t aCharacter)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return false;
+    }
+    std::scoped_lock lock(g_mutex);
+    auto& state = g_states[aCharacter];
+    if (!AnyFaceWeight(state.faceWeights) && state.faceName.empty())
+    {
+        return false;
+    }
+    CheckpointLocked(state);
+    state.faceWeights = UnsetFaceWeights();
+    state.faceName.clear();
+    PublishLocked(state);
+    return true;
 }
 
 void SetHandProp(bool aRightHand, uint64_t aRecord)

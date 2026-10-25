@@ -1,6 +1,6 @@
 # STATO – AdvancedPoseMod 1.4.0 (in corso)
 
-Aggiornato: 2026-10-24
+Aggiornato: 2026-10-25
 
 ## Obiettivo 1.4.0
 1. Supporto gioco 2.5 (3.0.88.46235) oltre alla 2.31 (3.0.80.51928).
@@ -207,27 +207,39 @@ Aggiornato: 2026-10-24
   (PoseOverrides faceReplace, in undo, salvato come "replace" nel JSON); i reset in quel modo ridanno i valori di
   Photo Mode (FacePoses::ResetWeight). Nel config del gioco FaceTracks=1 solo per il log (peso 0).
 
-## Feedback test fase 2 (25/10) - da fare nella prossima sessione (decisioni prese)
+## Feedback test fase 2 (25/10)
 - Crash all'uscita dal gioco (25/10 00:11, 5 s dopo l'uscita da Photo Mode): Cyberpunk2077.exe+0x2F0892, lettura a 0,
-  nessuna funzione della mod nello stack (dump analizzato con uno script minidump nello scratchpad). Se ricapita:
-  provare [Face] GameSolver=0.
-- Espressioni delle mod: alcune portano a 2.00 tutte le tracce di controllo (faceEnvelope, upperFace, lowerFace,
-  lipSync*Envelope, jaliJaw, jaliLips, *AnimOverrideWeight) -> il risolutore esagera. Correzione: limitarle a 1 prima
-  del risolutore (sempre, anche senza modifiche al viso).
-- Reset Body/Face: NON nella riga Body/Face né in Tools; dentro le sezioni: "Reset face" nell'intestazione della
-  sezione Face, "Reset body" nell'intestazione della prima sezione del corpo. Riga Body/Face di nuovo a due pulsanti.
-- Niente pulsante "From Photo Mode": gli slider mostrano sempre l'espressione attuale (Photo Mode + modifiche); muovere
-  uno slider fissa il valore di quella posa; pallino = diverso da Photo Mode; Reset zone / Reset = valori di Photo
-  Mode; cambiando espressione nel menu (attributo 28 per V, 56 per l'NPC scelto con 68) le modifiche si azzerano (con
-  undo) e gli slider mostrano la nuova; espressione salvata = viso intero (valori assoluti). Riserva sulle ossa:
-  somma come oggi.
-- Palpebre che non seguono lo sguardo (es. Paura + espressione salvata): soluzione scelta = direzione degli occhi nelle
-  tracce eye_*_dir_* (il gioco muove occhi e palpebre); prima verificarla con la sonda; riserva: EyelidFollow con i
-  valori neutri quando la zona palpebre è modificata.
-- Pagine delle righe del viso: restano sotto le righe, ma il numero di pagina più visibile (grande, non grigio).
-- Close lips (jaw open) resta (la usa il gioco).
-- Johnny Silverhand: espressioni "non benissimo" col risolutore; chiedere all'utente cosa vede (debole / sbagliato /
-  assente).
+  nessuna funzione della mod nello stack. Se ricapita: provare [Face] GameSolver=0.
+
+## Fatto il 25/10 (build 2.5 e 2.31 ok, script ok, dist, dist231 e gioco aggiornati: DLL 2.31 + script)
+- Viso assoluto: FaceWeights con FaceUnset (-1) = posa non toccata (tolto faceReplace, CopyGameExpression, ResetWeight,
+  APM_FaceCopyGameExpression / APM_FaceIsReplacing e il pulsante "From Photo Mode"). Risolutore: posa fissata = valore
+  nella traccia, le altre restano del gioco. Riserva ossa: somma come prima. Slider = FacePoses::ShownValue (fissata,
+  altrimenti GameValue = espressione di Photo Mode letta dalle tracce al primo frame, di nuovo 0,5 s dopo e 0,5 s dopo
+  il cambio nel menu, poi ferma). Pallino = IsEdited (fissata e diversa). Reset zone / Reset face = FaceUnset.
+  Valori sopra 1 delle mod mostrati (es. 150) finché non si tocca la riga (poi max 100); tracce di controllo NON
+  toccate (deciso: niente limite e niente riga Intensità).
+- Cambio espressione nel menu (28 per V, 56 per l'NPC scelto con 68): FacePoses::OnExpressionChanged (indice iniziale 0)
+  -> PoseOverrides::ResetFaceOf (checkpoint nella cronologia di quel personaggio) e rilettura dell'espressione.
+- Espressioni salvate formato 3: tutte le pose (valori assoluti, max 4 al caricamento); la 2 non si carica più.
+- Pose senza traccia nel rig: sulle ossa anche quando il risolutore prende il viso (log "Face poses: face rig ... (on
+  the bones: ...)"). Testa per le ossa: pma per V maschile e per gli NPC con GetResolvedGenderName = Male
+  (PhotoModeTracker::IsMalePuppet, log "added character gender"), altrimenti pwa.
+- UI: riga Body/Face a due pulsanti larghi; "Reset body" nell'intestazione nuova della sezione APM_Part (titolo Body,
+  sezione 196 alta); "Reset face" nell'intestazione Face al posto di From Photo Mode; numero di pagina 22 px accento.
+- Sonda occhi: con [Probe] FaceTracks=1 log "FaceProbe: character N eyes after the solver" (gradi, quando cambiano
+  di 0,5°, max 2 al secondo), insieme alle tracce non nulle (eye_*_dir_*) già loggate.
+
+## Da provare in gioco (2.31)
+- Palpebre / sguardo, fase A: config.ini del gioco [Probe] FaceTracks=1, FaceTrack=eye_l_dir_dn, FaceTrackWeight=0.5
+  (poi 1, poi eye_l_dir_up / in / out); occhi dritti, Guarda la camera spenta; poi Guarda la camera sugli occhi muovendo
+  la camera. Mandare il log: decide la fase B (direzione nelle tracce eye_*_dir_* oppure riserva EyelidFollow neutra
+  con zona palpebre modificata).
+- Johnny: con FaceTracks=1 il log dice quali pose del suo rig vanno sulle ossa e il genere letto; verificare se gli
+  slider che "non facevano niente" ora si muovono.
+- Viso: slider = espressione attuale, pallino, reset, cambio espressione nel menu (V e NPC) con undo, espressioni
+  salvate intere, valori >100 delle mod.
+- Verificare con Debug Log=1 se l'attributo 56 arriva anche selezionando un NPC (non solo cambiando espressione).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,

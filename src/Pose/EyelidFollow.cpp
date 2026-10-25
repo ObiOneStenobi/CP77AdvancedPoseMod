@@ -1,11 +1,14 @@
 #include "Pose/EyelidFollow.hpp"
 
+#include "Core/Log.hpp"
 #include "Math/Vec3.hpp"
 
 #include <RED4ext/CName.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 #include <vector>
@@ -140,6 +143,57 @@ bool ReadEyes(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_
         aOut[e] = Rotation(aBones[rig.eyes[e]]);
     }
     return true;
+}
+
+std::atomic<bool> g_probe{false};
+struct EyeProbe
+{
+    std::array<Vec3, 2> last{};
+    uint64_t tick = 0;
+};
+std::mutex g_probeMutex;
+std::array<EyeProbe, 4> g_eyeProbes{};
+
+void SetProbe(bool aEnabled)
+{
+    g_probe = aEnabled;
+}
+
+void ProbeEyes(const Target& aTarget, const std::array<Math::Quat, 2>& aGameEyes)
+{
+    if (!g_probe.load(std::memory_order_relaxed) || aTarget.photoModeSlot >= g_eyeProbes.size())
+    {
+        return;
+    }
+    const RigBones rig = Resolve(aTarget);
+    std::array<Vec3, 2> turn{};
+    for (int e = 0; e < 2; ++e)
+    {
+        const int32_t eye = rig.eyes[e];
+        if (eye < 0 || static_cast<size_t>(eye) >= aTarget.refRotationsLS.size())
+        {
+            return;
+        }
+        turn[e] = TurnDegrees(aGameEyes[e], aTarget.refRotationsLS[eye]);
+    }
+    const uint64_t now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                   std::chrono::steady_clock::now().time_since_epoch())
+                                                   .count());
+    std::scoped_lock lock(g_probeMutex);
+    auto& probe = g_eyeProbes[aTarget.photoModeSlot];
+    float moved = 0.f;
+    for (int e = 0; e < 2; ++e)
+    {
+        moved = std::max({moved, std::fabs(turn[e].x - probe.last[e].x), std::fabs(turn[e].z - probe.last[e].z)});
+    }
+    if (moved < 0.5f || now - probe.tick < 500)
+    {
+        return;
+    }
+    probe.last = turn;
+    probe.tick = now;
+    Log::Info("FaceProbe: character %u eyes after the solver (degrees, + up / + side): left up %.1f side %.1f, right up "
+              "%.1f side %.1f", aTarget.photoModeSlot, turn[0].z, turn[0].x, turn[1].z, turn[1].x);
 }
 
 void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,

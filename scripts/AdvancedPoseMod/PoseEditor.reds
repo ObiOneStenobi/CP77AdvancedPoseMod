@@ -717,16 +717,18 @@ public class APM_PoseEditor extends IScriptable {
         // Body / Face: the panel shows the body sections below, or the face section
         let modeRow = this.CreateSection(n"APM_Mode");
         this.m_sectionMode = modeRow;
-        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 246.0, 32.0);
+        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 302.0, 32.0);
         this.TipL(bodyMode, "APM-Tip-ModeBody", "Pose the body: parts, IK, poses, items");
-        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 266.0, 4.0, 246.0, 32.0);
-        this.TipL(faceMode, "APM-Tip-ModeFace", "Expression editor: the game's face poses added to the Photo Mode expression");
-        this.CreateButton(modeRow, "modereset", this.L("APM-Button-Reset", "Reset"), 520.0, 4.0, 104.0, 32.0); // tooltip in RefreshFace
+        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 322.0, 4.0, 302.0, 32.0);
+        this.TipL(faceMode, "APM-Tip-ModeFace", "Expression editor: the Photo Mode expression, pose by pose");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
         this.m_sectionPart = partSection;
         this.AddSeparator(partSection);
+        this.CreateText(partSection, this.L("APM-Title-Body", "Body"), 16.0, 6.0, 200.0, 28.0, 16, APM_ColorAccent());
+        let bodyReset = this.CreateSmallButton(partSection, "body:reset", this.L("APM-Button-ResetBody", "Reset body"), 472.0, 6.0, 152.0, 28.0);
+        this.TipL(bodyReset, "APM-Tip-BodyReset", "Reset the body: parts, IK and pose (the face stays)");
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
         while i < count {
@@ -739,7 +741,7 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < ArraySize(this.m_groupNames) {
             let x = 16.0 + Cast<Float>(i % 4) * 152.0;
-            let y = 10.0 + Cast<Float>(i / 4) * 36.0;
+            let y = 46.0 + Cast<Float>(i / 4) * 36.0;
             let groupButton = this.CreateButton(partSection, "group:" + IntToString(i), this.LGroup(this.m_groupNames[i]), x, y, 146.0, 32.0);
             this.AddDot(groupButton);
             ArrayPush(this.m_groupButtons, groupButton);
@@ -748,7 +750,7 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < 6 {
             let x = 16.0 + Cast<Float>(i % 3) * 203.0;
-            let y = 86.0 + Cast<Float>(i / 3) * 36.0;
+            let y = 122.0 + Cast<Float>(i / 3) * 36.0;
             let partButton = this.CreateButton(partSection, "part:" + IntToString(i), "", x, y, 197.0, 32.0);
             this.AddDot(partButton);
             ArrayPush(this.m_partButtons, partButton);
@@ -869,15 +871,15 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, this.L("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
         this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, this.L("APM-Tip-ItemClearLeft", "Empty the left hand"));
 
-        // Face (the panel's Face mode): the game's face poses added to the Photo Mode expression, one zone tab at a time,
-        // and the saved expressions. Rows and the buttons below them are placed by LayoutFace().
+        // Face (the panel's Face mode): the Photo Mode expression as the game's face poses, one zone tab at a time (a row
+        // moved sets that pose; Reset gives the Photo Mode value back), and the saved expressions. Rows and the buttons below them are placed by LayoutFace().
         let face = this.CreateSection(n"APM_Face");
         this.m_sectionFace = face;
         this.AddSeparator(face);
         this.CreateText(face, this.L("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
         this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 290.0, 26.0, 13, APM_ColorDimText());
-        let copyButton = this.CreateSmallButton(face, "face:copy", this.L("APM-Button-FaceCopy", "From Photo Mode"), 380.0, 6.0, 152.0, 28.0);
-        this.TipL(copyButton, "APM-Tip-FaceCopy", "Edit the Photo Mode expression: its poses go into the rows and replace it (Reset gives it back)");
+        let faceReset = this.CreateSmallButton(face, "face:reset", this.L("APM-Button-ResetFace", "Reset face"), 380.0, 6.0, 152.0, 28.0);
+        this.TipL(faceReset, "APM-Tip-FaceReset", "Reset the face: the Photo Mode expression as it is");
         let linkedButton = this.CreateSmallButton(face, "face:linked", this.L("APM-Button-FaceLinked", "L+R"), 538.0, 6.0, 86.0, 28.0);
         this.TipL(linkedButton, "APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         let faceBody = new inkCanvas();
@@ -915,7 +917,7 @@ public class APM_PoseEditor extends IScriptable {
 
         // Below the rows: reset of the zone shown, pages of its rows (the saved expressions are in the pose list)
         this.AddFaceFooter(this.CreateButton(faceBody, "facezone:reset", this.L("APM-Button-ResetZone", "Reset zone"), 16.0, 0.0, 200.0, 30.0), 0.0);
-        this.m_facePageText = this.CreateText(faceBody, "", 330.0, 0.0, 110.0, 30.0, 14, APM_ColorDimText());
+        this.m_facePageText = this.CreateText(faceBody, "", 330.0, -2.0, 110.0, 34.0, 22, APM_ColorAccent());
         this.AddFaceFooter(this.CreateButton(faceBody, "facepage:prev", "<", 446.0, 0.0, 86.0, 30.0), 0.0);
         this.AddFaceFooter(this.CreateButton(faceBody, "facepage:next", ">", 538.0, 0.0, 86.0, 30.0), 0.0);
 
@@ -938,7 +940,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
         y = this.PlaceSection(this.m_sectionMode, y, 40.0, true);
         let body = !this.m_faceMode;
-        y = this.PlaceSection(this.m_sectionPart, y, 160.0, body);
+        y = this.PlaceSection(this.m_sectionPart, y, 196.0, body);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body);
         y = this.PlaceSection(this.m_sectionMove, y, 144.0, body && APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
@@ -1588,7 +1590,7 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let paged = pages > 1;
-        this.m_facePageText.SetMargin(330.0 * s, y * s, 0.0, 0.0);
+        this.m_facePageText.SetMargin(330.0 * s, (y - 2.0) * s, 0.0, 0.0);
         this.m_facePageText.SetText(IntToString(this.m_faceRowPage + 1) + "/" + IntToString(pages));
         this.m_facePageText.SetVisible(paged);
         let prev = this.FindButton("facepage:prev");
@@ -1620,16 +1622,8 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func RefreshFace() {
-        let loaded = APM_FaceGetLoadedName();
-        let info = APM_FaceIsReplacing() ? APM_Text("APM-Label-EditedExpression", "- edited Photo Mode expression") : APM_Text("APM-Label-PhotoModeExpression", "- Photo Mode expression");
-        this.m_faceInfo.SetText(StrLen(loaded) > 0 ? "- " + loaded : info);
-        this.SetButton("face:copy", APM_FaceIsReplacing(), true);
         this.SetButton("mode:body", !this.m_faceMode, true);
         this.SetButton("mode:face", this.m_faceMode, true);
-        let modeReset = this.FindButton("modereset");
-        if IsDefined(modeReset) {
-            modeReset.tooltip = this.m_faceMode ? APM_Text("APM-Tip-FaceReset", "Reset the face: no poses added, the Photo Mode expression") : APM_Text("APM-Tip-BodyReset", "Reset the body: parts, IK and pose (the face stays)");
-        }
         this.SetButton("face:linked", this.m_faceLinked, true);
         let edited: array<Bool>;
         let z = 0;
@@ -1658,16 +1652,21 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
+        let anyEdited = false;
         z = 0;
         while z < ArraySize(this.m_faceZones) {
             let tab = this.FindButton("facezone:" + this.m_faceZones[z]);
             if IsDefined(tab) {
                 tab.isSelected = z == this.m_faceZone;
                 tab.UpdateLook();
-                this.SetDot(tab, edited[z]); // a zone with poses added
+                this.SetDot(tab, edited[z]); // a zone with poses changed from Photo Mode
             }
+            anyEdited = anyEdited || edited[z];
             z += 1;
         }
+        let loaded = APM_FaceGetLoadedName();
+        let info = anyEdited ? APM_Text("APM-Label-EditedExpression", "- edited Photo Mode expression") : APM_Text("APM-Label-PhotoModeExpression", "- Photo Mode expression");
+        this.m_faceInfo.SetText(StrLen(loaded) > 0 ? "- " + loaded : info);
     }
 
     // --- State -----------------------------------------------------------------------------------------------------
@@ -4636,12 +4635,10 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_posePage = 0;
                 this.ReloadPoses();
             }
-        } else if Equals(id, "modereset") {
-            if this.m_faceMode {
-                APM_FaceReset();
-            } else {
-                APM_ResetBody();
-            }
+        } else if Equals(id, "body:reset") {
+            APM_ResetBody();
+        } else if Equals(id, "face:reset") {
+            APM_FaceReset();
         } else if Equals(id, "face:linked") {
             this.m_faceRowPage = 0;
             this.m_faceLinked = !this.m_faceLinked;
@@ -4653,10 +4650,6 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(prefix, "lib") {
             if NotEquals(Equals(arg, "hands"), this.m_handLibrary) {
                 this.ShowLibrary(Equals(arg, "hands"));
-            }
-        } else if Equals(id, "face:copy") {
-            if !APM_FaceCopyGameExpression() {
-                this.SetStatus(APM_Text("APM-Msg-FaceCopyUnavailable", "The Photo Mode expression cannot be read for this character"));
             }
         } else if Equals(id, "facezone:reset") {
             APM_HistoryCheckpoint();

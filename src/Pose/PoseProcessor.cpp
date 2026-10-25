@@ -858,6 +858,10 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     if (face)
     {
         LogEyesOnce(aTarget, aBones, aCount);
+        if (eyes)
+        {
+            APM::Pose::EyelidFollow::ProbeEyes(aTarget, gameEyes);
+        }
         APM::Pose::FacePoses::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
