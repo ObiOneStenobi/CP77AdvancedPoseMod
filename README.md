@@ -73,7 +73,7 @@ Open Photo Mode and click **Pose editor** (top left).
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
-- **Poses**: unlimited library (`poses\*.json`), five per page, after the built-in **T pose** and **A pose** (they can
+- **Poses**: unlimited library (`poses\*.json`), five per page, after the built-in **T pose** and **A pose** (lock: they can
   only be loaded). **Save new** saves the pose and lets you type its
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
   **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
@@ -81,7 +81,7 @@ Open Photo Mode and click **Pose editor** (top left).
   Poses in subfolders of `poses` are listed too, as `Folder/Name` (pose packs can ship in their own folder, so they
   never overwrite each other); the mod saves its own poses in `poses` itself, and renaming keeps a pose in its folder.
   Saved expressions (`expressions`) are read from subfolders the same way.
-- **Hand poses** (**Hands** tab of the Poses section, or **Saved...** in a hand's preset row): a second library,
+- **Hand poses** (**Hands** tab of the Poses section): a second library,
   `hands\*.json`, with the palm and fingers of one hand, after the built-in presets (Open, Relaxed, Fist, Point, Grip). Open the tab of a hand (or of its arm), then **Save new**, **Overwrite** or **Load** work on that hand;
   one file poses either hand (the rig is mirrored). Rename, delete, pages and subfolders work as for the poses.
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
@@ -111,7 +111,7 @@ closer.
   top and takes the click. Up close the ones behind turn fainter, the more the farther behind (from 1 to 5 cm);
   they stay selectable. Besides, every marker fades with its depth behind the nearest one (faintest half a meter
   behind), so the far side of the body reads as farther.
-- **Gizmo mode** (tools row: pointer = **Direct**, arrows = **Move**, rings = **Rotate**): Direct drags the markers (as described below); Rotate puts on the selected part
+- **Gizmo mode** (tools row: pointer = **Direct**, arrows = **Move**, rings = **Rotate**; **Ctrl+1 / 2 / 3**, axes **Ctrl+4**): Direct drags the markers (as described below); Rotate puts on the selected part
   three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
   that turns it as seen from the camera; drag a ring to turn the part around that axis. Move shows arrows that move the hips, held
   items and hands / feet (IK); dragging their center (the selected part's marker) moves it freely, as in Direct. The
@@ -148,7 +148,7 @@ closer.
 - **Eyes**: the Head tab has one **Eyes** part; its **Both / Left / Right** switch picks one look marker for both eyes
   or one marker per eye.
 - The hips marker is violet: it is V's root and moves the whole body.
-- **Hand presets** (in the Left hand / Right hand tabs, and under the hand part of an arm tab): Open, Relaxed, Fist, Point, Grip set all the fingers of that
+- **Hand presets** (first entries of the **Hands** list; with a hand tab, or an arm tab, open): Open, Relaxed, Fist, Point, Grip set all the fingers of that
   hand at once (undo and Mirror work as usual); then refine with the finger markers.
 - Photo Mode's **Look at camera** has priority over our eye edits: while it is on they wait, and come back when it
   is turned off (head and chest edits stay, the game turns them on top). With a full pose loaded (T / A pose, saved
@@ -165,7 +165,13 @@ closer.
   allows: expressions that hold the eyelids (squint, wide eyes, wink, closed eyes) keep them almost still. Expressions
   added by other mods follow like the neutral one. Added characters use their own expression (NPC page).
 - **Saved poses folder**: the folder icon on the Poses section opens the folder of the saved poses, to share the
-  files (in full screen the game is minimized). Face controls and saved expressions are planned for a later version.
+  files (in full screen the game is minimized).
+- **Face** (Body / Face selector): the game's own face poses (brows, eyelids, nose, cheeks, lips, jaw, ears, tongue; 12
+  rows per page, L+R moves both sides, the left / right rows are bipolar sliders). Their weights go into the game's
+  facial solver, which adds its corrective poses and each head's own shapes (as CDPR's animations do), on top of the
+  Photo Mode expression. **From Photo Mode** copies the expression shown into the rows, to edit it (it then replaces
+  the Photo Mode expression; Reset gives it back). Expressions are saved in the list below (`expressions\*.json`).
+  `[Face] GameSolver=0` in config.ini adds the poses to the bones instead (no correctives).
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.
@@ -203,7 +209,8 @@ Pose files are written to `<game>\red4ext\plugins\AdvancedPoseMod\poses\<name>.j
   skeletons and stay unsupported. Their eyelids follow edited eyes like the neutral expression.
 - The eyelids follow edited eyes with the share measured for each of the 15 base game expressions; expressions added
   by other mods follow like the neutral one (a closed-eye mod expression may open slightly when the eyes turn).
-- No face controls or saved expressions yet; the face keeps the Photo Mode expression.
+- Face poses on characters whose face the game's solver does not pose (or with `GameSolver=0`): added to the bones,
+  without correctives; "From Photo Mode" and the lips together / tighten and jaw close / clench rows do nothing there.
 - No automatic feet on the ground: place the feet with IK.
 - Built for game version 2.5; on another version the game still starts, but the mod stays off and the panel reports
   an unsupported version until the mod is updated. `config.ini` `[Compatibility] AllowUnknownGameVersion=1` tries it

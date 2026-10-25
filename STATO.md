@@ -174,19 +174,60 @@ Aggiornato: 2026-10-24
   sola parte (APM_ResetBody = PoseOverrides::ResetAll(true), APM_FaceReset). Tolti gomma e cartella dall'header Face.
 - Libreria unica (sezione Pose): Body mode -> schede Corpo | Mani; Face mode -> espressioni (stessa vista, sotto la
   sezione viso). Voci interne in testa ("::t", "::a", "::preset:N": solo Carica): T/A pose e preset mani; tolti i
-  pulsanti T/A/Hands dall'header. Riga preset della scheda mano: preset più stretti + "Saved..." (apre Mani).
+  pulsanti T/A/Hands dall'header. Tolta la riga dei preset nella scheda mano (i preset sono solo nella lista Mani).
   APM_FaceRename (NamedFiles::Rename condiviso con le pose mani). Tolto il vecchio selettore espressioni.
-- Viso: pallino (AddDot/SetDot) su schede zona e valori delle righe al posto del testo blu; 12 righe per pagina
+- Viso: pallino (AddDot/SetDot) sulle schede zona al posto del testo blu (righe senza segno, come nel corpo); 12 righe per pagina
   (APM_FaceRowsPerPage, < n/N > accanto a Reset zone).
 - Gizmo: pulsanti icona nella riga Tools (mouse-pointer-2 / move / rotate-3d, box/globe per gli assi, Lucide 1.54.0
   rasterizzate dal browser: stroke 2, 8x8 campioni, opacità per eccesso a quarti = identiche alle esistenti);
   header: titolo largo 286, Pose/Gizmos spostati. Info: tre righe brevi per i gizmo.
-- Move: clic+trascina sul marker della parte selezionata = spostamento libero come Direct (m_centerDrag).
+- Voci interne della lista con il lucchetto (AddLock, m_poseLocks) al posto di "(built-in)".
+- Tasti rapidi (hook di TextEntry, come Ctrl+Z/Y): Ctrl+1/2/3 = Direct/Move/Rotate, Ctrl+4 = assi (PollHotkey 3-6).
+- Move: clic+trascina sul marker della parte selezionata = spostamento libero come Direct (m_centerDrag); il marker
+  dello sguardo si trascina sempre.
 - Rotazione ad anello oltre il limite: RotatePart applica solo la frazione dentro i limiti (bisezione, 10 passi).
-- Marker: opacità in base alla profondità dietro il più vicino (0-50 cm -> 100-45%), oltre all'attenuazione per
-  sovrapposizione.
+- Marker e loro linee: opacità in base alla profondità dietro il più vicino (0-40 cm -> 100-30%, DepthFade), oltre
+  all'attenuazione per sovrapposizione.
 - Talloni tolti (catalogo, JointLimits Heel, closeUp, APM_GizmoIsPartCloseUp, marker CloseUp). Nota: il tipo CloseUp
   valeva 3 come EyeLook, per questo il rombo non si vedeva.
+
+## Sonda risolutore facciale (24/10, fase 1, da provare sulla 2.31)
+- config.ini [Probe] FaceTracks=1 (letto all'avvio): aggancio a animAnimNode_Sermo::Sample (vtable via RTTI, slot
+  0x128); durante la chiamata il nodo di input (+0x58) usa una copia della sua vtable con Sample = FaceInput_Sample,
+  che logga le tracce float non nulle (nomi da animRig.trackNames, EngineLayout RigView.trackNames) e aggiunge
+  FaceTrackWeight alla traccia FaceTrack (ricaricati a ogni apertura di Photo Mode). Log "FaceProbe:".
+- Nel gioco: FaceTracks=1, FaceTrack=jaw_mid_open, FaceTrackWeight=0.5. Nei dist: FaceTracks=0.
+- Fase 1 OK (log 24/10): tracce con i nomi delle pose, le espressioni di Photo Mode sono valori delle tracce, bocca
+  aperta in modo naturale con jaw_mid_open +0.5. Dettagli in RESEARCH.md "Face poses".
+- Fase 2 FATTA (24/10, build 2.31/2.5 ok, script ok, nel gioco): hook Sermo sempre attivo ([Face] GameSolver=1,
+  riconoscimento: "48 8B 49 58" nei primi 64 byte); FacePoses::ApplyTracks (mappa posa -> traccia per rig, somma
+  limitata 0-1 o sostituzione) e FacePoses::Apply (ossa) saltato per le facce passate dal risolutore nell'ultimo
+  secondo; pose solo-traccia aggiunte al catalogo (lips_together_up/dn, lips_tighten_up/dn, jaw_mid_close/clench) con
+  righe nuove; "From Photo Mode" (APM_FaceCopyGameExpression): copia l'espressione letta dalle tracce e la sostituisce
+  (PoseOverrides faceReplace, in undo, salvato come "replace" nel JSON); i reset in quel modo ridanno i valori di
+  Photo Mode (FacePoses::ResetWeight). Nel config del gioco FaceTracks=1 solo per il log (peso 0).
+
+## Feedback test fase 2 (25/10) - da fare nella prossima sessione (decisioni prese)
+- Crash all'uscita dal gioco (25/10 00:11, 5 s dopo l'uscita da Photo Mode): Cyberpunk2077.exe+0x2F0892, lettura a 0,
+  nessuna funzione della mod nello stack (dump analizzato con uno script minidump nello scratchpad). Se ricapita:
+  provare [Face] GameSolver=0.
+- Espressioni delle mod: alcune portano a 2.00 tutte le tracce di controllo (faceEnvelope, upperFace, lowerFace,
+  lipSync*Envelope, jaliJaw, jaliLips, *AnimOverrideWeight) -> il risolutore esagera. Correzione: limitarle a 1 prima
+  del risolutore (sempre, anche senza modifiche al viso).
+- Reset Body/Face: NON nella riga Body/Face né in Tools; dentro le sezioni: "Reset face" nell'intestazione della
+  sezione Face, "Reset body" nell'intestazione della prima sezione del corpo. Riga Body/Face di nuovo a due pulsanti.
+- Niente pulsante "From Photo Mode": gli slider mostrano sempre l'espressione attuale (Photo Mode + modifiche); muovere
+  uno slider fissa il valore di quella posa; pallino = diverso da Photo Mode; Reset zone / Reset = valori di Photo
+  Mode; cambiando espressione nel menu (attributo 28 per V, 56 per l'NPC scelto con 68) le modifiche si azzerano (con
+  undo) e gli slider mostrano la nuova; espressione salvata = viso intero (valori assoluti). Riserva sulle ossa:
+  somma come oggi.
+- Palpebre che non seguono lo sguardo (es. Paura + espressione salvata): soluzione scelta = direzione degli occhi nelle
+  tracce eye_*_dir_* (il gioco muove occhi e palpebre); prima verificarla con la sonda; riserva: EyelidFollow con i
+  valori neutri quando la zona palpebre è modificata.
+- Pagine delle righe del viso: restano sotto le righe, ma il numero di pagina più visibile (grande, non grigio).
+- Close lips (jaw open) resta (la usa il gioco).
+- Johnny Silverhand: espressioni "non benissimo" col risolutore; chiedere all'utente cosa vede (debole / sbagliato /
+  assente).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,

@@ -4,8 +4,10 @@
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
+#include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Math/Quat.hpp"
+#include "Pose/FacePoses.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PoseProcessor.hpp"
@@ -24,6 +26,7 @@
 #include <cstring>
 #include <cstdio>
 #include <malloc.h>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -700,13 +703,270 @@ void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
                   reinterpret_cast<uintptr_t>(_AddressOfReturnAddress()));
 }
 
-uintptr_t ResolveOutputNodeVtable()
+// ---------------------------------------------------------------------------------------------------------------------
+// Face tracks ([Face] GameSolver=1, see docs/RESEARCH.md "Face poses"). animAnimNode_Sermo is the game's facial
+// solver: it samples its input (the face_rig pose with one float track per face pose, set by the Photo Mode expression)
+// and turns the tracks into bones, correctives included. While it runs, its input node (+0x58, as for
+// animAnimNode_Output) gets a copy of its vtable whose Sample is FaceInput_Sample: after the input wrote the tracks and
+// before the solver reads them, the expression editor's weights go in (Pose/FacePoses). With [Probe] FaceTracks=1 the
+// tracks are also logged and one is raised from the config.
+// ---------------------------------------------------------------------------------------------------------------------
+constexpr uintptr_t NodeInput = 0x58;      // input node of a one-pose-input node
+constexpr uintptr_t PoseTrackCount = 0x28; // uint32
+constexpr uintptr_t PoseTracks = 0x38;     // float*
+constexpr uint32_t MaxTracks = 4096;
+constexpr size_t FakeVtableSlots = 96;     // entries copied (Sample is slot 37)
+
+void* g_addrSermoSample = nullptr;
+Sample_t g_origSermoSample = nullptr;
+
+struct FakeVtable
+{
+    uintptr_t original = 0;
+    Sample_t originalSample = nullptr;
+    std::array<uintptr_t, FakeVtableSlots> slots{};
+};
+std::mutex g_fakeVtablesMutex;
+std::unordered_map<uintptr_t, std::unique_ptr<FakeVtable>> g_fakeVtables;   // by original vtable
+std::unordered_map<uintptr_t, FakeVtable*> g_fakeVtablesByCopy;            // by copy (slots.data())
+
+thread_local Sample_t t_faceInputSample = nullptr; // original Sample of the input node being sampled for Sermo
+thread_local void* t_faceInputNode = nullptr;
+
+std::atomic<bool> g_sermoFirstLogged{false};
+std::atomic<bool> g_faceProbe{false}; // [Probe] FaceTracks
+std::atomic<uint64_t> g_sermoCalls{0};
+
+struct FaceTrackLog
+{
+    std::string last;   // non-zero tracks last logged
+    uint64_t tick = 0;
+    bool headerLogged = false;
+    int32_t probeTrack = -2; // index of the config track in this rig (-1 missing, -2 not looked up)
+    uint64_t probeTrackHash = 0;
+};
+std::mutex g_faceTrackLogMutex;
+std::unordered_map<uintptr_t, FaceTrackLog> g_faceTrackLogs; // by animated component
+
+void FaceInput_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut);
+
+// Vtable copy of an input node class, made once per class.
+const FakeVtable* GetFakeVtable(uintptr_t aVtable)
+{
+    std::scoped_lock lock(g_fakeVtablesMutex);
+    if (const auto copy = g_fakeVtablesByCopy.find(aVtable); copy != g_fakeVtablesByCopy.end())
+    {
+        return copy->second; // another thread is sampling the same node right now
+    }
+    if (const auto it = g_fakeVtables.find(aVtable); it != g_fakeVtables.end())
+    {
+        return it->second.get();
+    }
+    if (!APM::SafeMemory::IsInGameImage(aVtable))
+    {
+        return nullptr;
+    }
+    auto fake = std::make_unique<FakeVtable>();
+    if (!APM::SafeMemory::ReadBytes(aVtable, fake->slots.data(), sizeof(uintptr_t) * FakeVtableSlots))
+    {
+        return nullptr;
+    }
+    fake->original = aVtable;
+    fake->originalSample = reinterpret_cast<Sample_t>(fake->slots[SampleVtableSlot]);
+    if (!APM::SafeMemory::IsInGameImage(reinterpret_cast<uintptr_t>(fake->originalSample)))
+    {
+        return nullptr;
+    }
+    fake->slots[SampleVtableSlot] = reinterpret_cast<uintptr_t>(&FaceInput_Sample);
+    const auto base = APM::SafeMemory::GetGameImageBase();
+    APM::Log::Info("Face: solver input vtable=+0x%llX Sample=+0x%llX", static_cast<unsigned long long>(aVtable - base),
+                   static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(fake->originalSample) - base));
+    auto* raw = fake.get();
+    g_fakeVtablesByCopy[reinterpret_cast<uintptr_t>(raw->slots.data())] = raw;
+    g_fakeVtables[aVtable] = std::move(fake);
+    return raw;
+}
+
+// The face tracks of a posed character, as the solver is about to read them.
+void OnFaceTracks(void* aContext, SampleOutput* aOut)
+{
+    const uint32_t path = g_contextPath.load(std::memory_order_acquire);
+    if (!aOut || !aOut->pose || path == PathUnknown)
+    {
+        return;
+    }
+    const uintptr_t targetPointer = ResolveTargetFromContext(reinterpret_cast<uintptr_t>(aContext), path);
+    if (!APM::Pose::TargetRegistry::ContainsPointer(targetPointer))
+    {
+        return;
+    }
+    uint32_t trackCount = 0;
+    uint64_t tracksAddress = 0;
+    if (!APM::SafeMemory::ReadU32(aOut->pose + PoseTrackCount, trackCount) ||
+        !APM::SafeMemory::ReadU64(aOut->pose + PoseTracks, tracksAddress) || trackCount == 0 || trackCount > MaxTracks ||
+        !APM::SafeMemory::LooksLikePointer(tracksAddress))
+    {
+        return;
+    }
+    auto* tracks = reinterpret_cast<float*>(tracksAddress);
+    const bool probe = g_faceProbe.load(std::memory_order_relaxed);
+
+    APM::Pose::TargetRegistry::VisitTarget(targetPointer, [&](const APM::Pose::Target& aTarget) {
+        APM::EngineLayout::RigView rig;
+        const bool hasRig = APM::EngineLayout::ViewRig(aTarget.rig, rig);
+        const uint32_t named = hasRig ? std::min(rig.trackCount, trackCount) : 0;
+        if (named > 0)
+        {
+            const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
+            APM::Pose::FacePoses::ApplyTracks(aTarget, tracks, trackCount, rig.trackNames, named, *snapshot,
+                                              APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot));
+        }
+        if (!probe)
+        {
+            return;
+        }
+        const auto config = APM::Config::Get();
+        const auto name = [&](uint32_t aIndex) -> std::string {
+            const char* text = aIndex < named ? rig.trackNames[aIndex].ToString() : nullptr;
+            return text ? std::string(text) : "#" + std::to_string(aIndex);
+        };
+
+        std::scoped_lock lock(g_faceTrackLogMutex);
+        auto& log = g_faceTrackLogs[aTarget.animatedComponent];
+        if (!log.headerLogged)
+        {
+            log.headerLogged = true;
+            APM::Log::Info("FaceProbe: character %u %s: %u tracks in the pose, %u in the rig", aTarget.photoModeSlot,
+                           aTarget.debugName.c_str(), trackCount, hasRig ? rig.trackCount : 0);
+        }
+
+        // The config track, raised before the solver reads it.
+        const uint64_t wantedHash = config.probeFaceTrack.empty() ? 0 : RED4ext::CName(config.probeFaceTrack.c_str()).hash;
+        if (log.probeTrackHash != wantedHash)
+        {
+            log.probeTrackHash = wantedHash;
+            log.probeTrack = -2;
+        }
+        if (wantedHash != 0 && log.probeTrack == -2)
+        {
+            log.probeTrack = -1;
+            for (uint32_t i = 0; i < named; ++i)
+            {
+                if (rig.trackNames[i].hash == wantedHash)
+                {
+                    log.probeTrack = static_cast<int32_t>(i);
+                }
+            }
+            APM::Log::Info("FaceProbe: %s: track '%s' %s", aTarget.debugName.c_str(), config.probeFaceTrack.c_str(),
+                           log.probeTrack >= 0 ? ("is #" + std::to_string(log.probeTrack)).c_str() : "not found");
+        }
+        if (log.probeTrack >= 0 && config.probeFaceTrackWeight != 0.f)
+        {
+            float& value = tracks[log.probeTrack];
+            value = std::clamp(value + config.probeFaceTrackWeight, -1.f, 1.f);
+        }
+
+        // Non-zero tracks, logged when they change (at most twice a second).
+        std::string text;
+        uint32_t nonZero = 0;
+        for (uint32_t i = 0; i < trackCount; ++i)
+        {
+            const float value = tracks[i];
+            if (!std::isfinite(value) || std::abs(value) < 0.01f)
+            {
+                continue;
+            }
+            ++nonZero;
+            if (nonZero <= 60)
+            {
+                char number[16]{};
+                std::snprintf(number, sizeof(number), "%.2f", value);
+                text += " " + name(i) + "=" + number;
+            }
+        }
+        const uint64_t now = GetTickCount64();
+        if (text != log.last && now - log.tick >= 500)
+        {
+            log.last = text;
+            log.tick = now;
+            APM::Log::Info("FaceProbe: character %u %s: %u non-zero:%s%s", aTarget.photoModeSlot,
+                           aTarget.debugName.c_str(), nonZero, text.c_str(), nonZero > 60 ? " ..." : "");
+        }
+    });
+}
+
+void FaceInput_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
+{
+    Sample_t original = t_faceInputSample;
+    const bool forSermo = original && aNode == t_faceInputNode;
+    if (!original || !forSermo)
+    {
+        // Sampled outside the solver while another thread had the copy in place: the class's own Sample.
+        uint64_t vtable = 0;
+        original = nullptr;
+        if (APM::SafeMemory::ReadU64(reinterpret_cast<uintptr_t>(aNode), vtable))
+        {
+            if (const auto* fake = GetFakeVtable(vtable))
+            {
+                original = fake->originalSample;
+            }
+        }
+        if (!original)
+        {
+            return;
+        }
+        original(aNode, aContext, a3, aOut);
+        return;
+    }
+    t_faceInputSample = nullptr; // nested samples of other nodes are not ours
+    original(aNode, aContext, a3, aOut);
+    OnFaceTracks(aContext, aOut);
+}
+
+void Detour_SermoSample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
+{
+    uint64_t input = 0;
+    uint64_t vtable = 0;
+    if (!APM::PhotoModeTracker::IsActive() || g_contextPath.load(std::memory_order_relaxed) == PathUnknown ||
+        !APM::SafeMemory::ReadU64(reinterpret_cast<uintptr_t>(aNode) + NodeInput, input) ||
+        !APM::SafeMemory::LooksLikePointer(input) || !APM::SafeMemory::ReadU64(input, vtable))
+    {
+        g_origSermoSample(aNode, aContext, a3, aOut);
+        return;
+    }
+    const auto* fake = GetFakeVtable(vtable);
+    if (!fake)
+    {
+        g_origSermoSample(aNode, aContext, a3, aOut);
+        return;
+    }
+    if (!g_sermoFirstLogged.exchange(true))
+    {
+        APM::Log::Info("Face: first solver sample (node %p, input %p)", aNode, reinterpret_cast<void*>(input));
+    }
+    g_sermoCalls.fetch_add(1, std::memory_order_relaxed);
+
+    auto* object = reinterpret_cast<volatile LONG64*>(input);
+    const auto copy = static_cast<LONG64>(reinterpret_cast<uintptr_t>(fake->slots.data()));
+    const auto original = static_cast<LONG64>(fake->original);
+    const Sample_t previousSample = t_faceInputSample;
+    void* const previousNode = t_faceInputNode;
+    t_faceInputSample = fake->originalSample;
+    t_faceInputNode = reinterpret_cast<void*>(input);
+    InterlockedExchange64(object, copy);
+    g_origSermoSample(aNode, aContext, a3, aOut);
+    InterlockedCompareExchange64(object, original, copy);
+    t_faceInputSample = previousSample;
+    t_faceInputNode = previousNode;
+}
+
+uintptr_t ResolveNodeVtable(const char* aClass)
 {
     auto* rtti = RED4ext::CRTTISystem::Get();
-    auto* cls = rtti ? rtti->GetClass("animAnimNode_Output") : nullptr;
+    auto* cls = rtti ? rtti->GetClass(aClass) : nullptr;
     if (!cls)
     {
-        APM::Log::Error("AnimGraph: animAnimNode_Output class not found");
+        APM::Log::Error("AnimGraph: %s class not found", aClass);
         return 0;
     }
 
@@ -732,7 +992,7 @@ namespace APM::AnimGraphHook
 {
 bool Install()
 {
-    const uintptr_t vtable = ResolveOutputNodeVtable();
+    const uintptr_t vtable = ResolveNodeVtable("animAnimNode_Output");
     if (!vtable || !SafeMemory::IsInGameImage(vtable))
     {
         Log::Error("AnimGraph: invalid animAnimNode_Output vtable (%p)", reinterpret_cast<void*>(vtable));
@@ -761,11 +1021,49 @@ bool Install()
     }
 
     Log::Info("AnimGraph: Sample() hook installed");
+
+    // The game's facial solver: the expression editor's weights go into its face tracks.
+    const auto config = Config::Get();
+    g_faceProbe = config.probeFaceTracks;
+    if (config.faceGameSolver || config.probeFaceTracks)
+    {
+        const uintptr_t sermoVtable = ResolveNodeVtable("animAnimNode_Sermo");
+        const uintptr_t sermoSample =
+            SafeMemory::IsInGameImage(sermoVtable) ? reinterpret_cast<uintptr_t*>(sermoVtable)[SampleVtableSlot] : 0;
+        // Expected start: the input node from +0x58 (mov rcx, [rcx+58h] after the register saves).
+        constexpr std::array<uint8_t, 4> InputLoad = {0x48, 0x8B, 0x49, 0x58};
+        bool loadsInput = false;
+        for (size_t i = 0; SafeMemory::IsInGameImage(sermoSample) && i + InputLoad.size() <= 64 && !loadsInput; ++i)
+        {
+            loadsInput = std::memcmp(reinterpret_cast<const void*>(sermoSample + i), InputLoad.data(), InputLoad.size()) == 0;
+        }
+        if (SafeMemory::IsInGameImage(sermoSample) && loadsInput)
+        {
+            Log::Info("Face: animAnimNode_Sermo vtable=+0x%llX Sample=+0x%llX", static_cast<unsigned long long>(sermoVtable - base),
+                      static_cast<unsigned long long>(sermoSample - base));
+            g_addrSermoSample = reinterpret_cast<void*>(sermoSample);
+            if (!AttachHook(g_addrSermoSample, &Detour_SermoSample, &g_origSermoSample))
+            {
+                Log::Error("Face: failed to attach the solver hook (face poses on the bones, no correctives)");
+                g_addrSermoSample = nullptr;
+            }
+        }
+        else
+        {
+            Log::Warn("Face: facial solver not recognized (face poses on the bones, no correctives); bytes:%s",
+                      SafeMemory::IsInGameImage(sermoSample) ? HexDump(sermoSample, 64).c_str() : " none");
+        }
+    }
     return true;
 }
 
 void Uninstall()
 {
+    if (g_addrSermoSample)
+    {
+        DetachHook(g_addrSermoSample);
+        g_addrSermoSample = nullptr;
+    }
     if (g_addrSample)
     {
         DetachHook(g_addrSample);
@@ -780,6 +1078,10 @@ void OnPhotoModeActivated()
 
     g_poseInfoLogged = false;
     g_countMismatchLogged = false;
+    {
+        std::scoped_lock lock(g_faceTrackLogMutex);
+        g_faceTrackLogs.clear(); // log every character's tracks again
+    }
     {
         std::scoped_lock lock(g_sampleNotesMutex);
         g_sampleNotes.clear();

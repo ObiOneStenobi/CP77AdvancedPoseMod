@@ -73,8 +73,9 @@ struct BasePose
     std::vector<BasePoseBone> bones;
 };
 
-// Face (Pose/FacePoses): the weight (0-1) of each face pose, by pose index, added to the Photo Mode expression. Kept
-// apart from the body: saved in their own library, untouched by body poses and "reset all".
+// Face (Pose/FacePoses): the weight (0-1) of each face pose, by pose index, added to the Photo Mode expression (or,
+// with faceReplace, replacing its weights of those poses). Kept apart from the body: saved in their own library,
+// untouched by body poses.
 constexpr size_t MaxFacePoses = 128;
 using FaceWeights = std::array<float, MaxFacePoses>;
 
@@ -96,10 +97,11 @@ struct OverrideSnapshot
     std::array<IkChainSettings, IkChainCount> ik{};
     std::shared_ptr<const BasePose> base;
     FaceWeights faceWeights{};
+    bool faceReplace = false; // the weights replace the Photo Mode expression's (copied from it) instead of adding
 
     bool IsEmpty() const
     {
-        if (!bones.empty() || base || AnyFaceWeight(faceWeights))
+        if (!bones.empty() || base || faceReplace || AnyFaceWeight(faceWeights))
         {
             return false;
         }
@@ -166,10 +168,12 @@ bool SetNeutralPose(bool aArmsDown);
 void SetFaceWeight(size_t aPose, float aWeight);
 float GetFaceWeight(size_t aPose);
 FaceWeights GetFaceWeights();
-// Replaces every weight (a loaded expression, a zone reset) and the name of the expression loaded ("" for none).
-void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName);
+// Replaces every weight (a loaded expression, a zone reset), the name of the expression loaded ("" for none) and
+// whether the weights replace the Photo Mode expression's.
+void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName, bool aReplace);
 std::string GetFaceName();
-// Weights and loaded expression name cleared.
+bool IsFaceReplacing();
+// Weights, loaded expression name and replace mode cleared.
 void ResetFace();
 
 // Items held in the hands (TweakDB record ids as numbers, 0 = none); saved with poses.

@@ -21,7 +21,8 @@ void End();
 State GetState();
 std::string GetText();
 
-// Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) pressed in the game window since the last call: 1 undo, 2 redo, 0 none.
+// Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) pressed in the game window since the last call: 1 undo, 2 redo; Ctrl+1 / 2 / 3:
+// 3 / 4 / 5 gizmo Direct / Move / Rotate, Ctrl+4: 6 gizmo axes; 0 none.
 // The first call hooks the game window.
 int32_t ConsumeHotkey();
 

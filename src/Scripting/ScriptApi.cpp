@@ -24,6 +24,7 @@
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <new>
 #include <string>
@@ -738,7 +739,8 @@ void FaceIsEdited(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     int32_t pose = 0;
     RED4ext::GetParameter(aFrame, &pose);
     aFrame->code++;
-    Return(aOut, pose >= 0 && APM::Pose::PoseOverrides::GetFaceWeight(static_cast<size_t>(pose)) != 0.f);
+    Return(aOut, pose >= 0 && std::abs(APM::Pose::PoseOverrides::GetFaceWeight(static_cast<size_t>(pose)) -
+                                       APM::Pose::FacePoses::ResetWeight(static_cast<size_t>(pose))) > 0.005f);
 }
 
 void FaceResetPose(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -750,11 +752,11 @@ void FaceResetPose(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     {
         return;
     }
-    APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(pose), 0.f);
+    APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(pose), APM::Pose::FacePoses::ResetWeight(pose));
     const int32_t mirror = APM::Pose::FacePoses::Mirror(static_cast<size_t>(pose));
     if (APM::Ui::PhotoModeUi::IsFaceLinked() && mirror >= 0)
     {
-        APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(mirror), 0.f);
+        APM::Pose::PoseOverrides::SetFaceWeight(static_cast<size_t>(mirror), APM::Pose::FacePoses::ResetWeight(mirror));
     }
 }
 
@@ -768,10 +770,24 @@ void FaceResetZone(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     {
         if (std::strcmp(APM::Pose::FacePoses::Zone(i), zone.c_str()) == 0)
         {
-            weights[i] = 0.f;
+            weights[i] = APM::Pose::FacePoses::ResetWeight(i);
         }
     }
-    APM::Pose::PoseOverrides::SetFaceWeights(weights, APM::Pose::PoseOverrides::GetFaceName());
+    APM::Pose::PoseOverrides::SetFaceWeights(weights, APM::Pose::PoseOverrides::GetFaceName(),
+                                            APM::Pose::PoseOverrides::IsFaceReplacing());
+}
+
+// The Photo Mode expression the selected character shows becomes its edited expression (replacing it).
+void FaceCopyGameExpression(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Pose::FacePoses::CopyGameExpression());
+}
+
+void FaceIsReplacing(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Pose::PoseOverrides::IsFaceReplacing());
 }
 
 void FaceReset(IScriptable*, CStackFrame* aFrame, void*, int64_t)
@@ -1557,6 +1573,8 @@ void Register()
     ::Register("APM_FacePoseMirror", &FacePoseMirror, "Int32", {{"Int32", "pose"}});
     ::Register("APM_FaceSetLinked", &FaceSetLinked, nullptr, {{"Bool", "linked"}});
     ::Register("APM_FaceIsLinked", &FaceIsLinked, "Bool", {});
+    ::Register("APM_FaceCopyGameExpression", &FaceCopyGameExpression, "Bool", {});
+    ::Register("APM_FaceIsReplacing", &FaceIsReplacing, "Bool", {});
     ::Register("APM_FaceIsEdited", &FaceIsEdited, "Bool", {{"Int32", "pose"}});
     ::Register("APM_FaceResetPose", &FaceResetPose, nullptr, {{"Int32", "pose"}});
     ::Register("APM_FaceResetZone", &FaceResetZone, nullptr, {{"String", "zone"}});

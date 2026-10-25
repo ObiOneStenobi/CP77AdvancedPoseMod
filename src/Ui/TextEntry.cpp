@@ -161,7 +161,7 @@ LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM 
             return 0;
         }
     }
-    // Undo / redo shortcuts (the keys still reach the game: Photo Mode does not use them).
+    // Undo / redo and gizmo mode shortcuts (the keys still reach the game: Photo Mode does not use them).
     if (aMessage == WM_KEYDOWN && !IsTyping() && (aLParam & (1 << 30)) == 0 && (GetKeyState(VK_CONTROL) & 0x8000))
     {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -172,6 +172,10 @@ LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM 
         else if (aWParam == 'Y')
         {
             g_hotkey = 2;
+        }
+        else if (aWParam >= '1' && aWParam <= '4')
+        {
+            g_hotkey = 3 + static_cast<int32_t>(aWParam - '1'); // 3 Direct, 4 Move, 5 Rotate, 6 Local / Global
         }
     }
     if (IsTyping() || !g_keysDown.empty())

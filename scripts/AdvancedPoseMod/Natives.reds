@@ -91,7 +91,8 @@ public native func APM_Undo() -> Bool
 public native func APM_Redo() -> Bool
 public native func APM_CanUndo() -> Bool
 public native func APM_CanRedo() -> Bool
-// Ctrl+Z / Ctrl+Y since the last call: 1 undo, 2 redo, 0 none
+// Ctrl+Z / Ctrl+Y since the last call: 1 undo, 2 redo; Ctrl+1 / 2 / 3: 3 / 4 / 5 gizmo Direct / Move / Rotate; Ctrl+4: 6 gizmo
+// axes; 0 none
 public native func APM_PollHotkey() -> Int32
 // Alt key held: free (trackball) rotation while dragging a gizmo
 public native func APM_IsAltDown() -> Bool
@@ -129,6 +130,11 @@ public native func APM_FaceSetLinked(linked: Bool)
 public native func APM_FaceIsLinked() -> Bool
 public native func APM_FaceIsEdited(pose: Int32) -> Bool
 public native func APM_FaceResetPose(pose: Int32)
+// The Photo Mode expression the selected character shows becomes its edited expression, replacing it (false if unknown:
+// its face was not seen through the game's facial solver)
+public native func APM_FaceCopyGameExpression() -> Bool
+// True while the face weights replace the Photo Mode expression (copied from it) instead of adding to it
+public native func APM_FaceIsReplacing() -> Bool
 public native func APM_FaceResetZone(zone: String)
 public native func APM_FaceReset()
 public native func APM_FaceGetLoadedName() -> String

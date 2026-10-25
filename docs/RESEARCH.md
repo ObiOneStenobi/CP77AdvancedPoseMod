@@ -282,8 +282,16 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
   single-pose correctives (`lips_together_dn__Corr`, `blink__Corr`...) are empty too.
 - 1.4.0 adds the main poses as local deltas on the face_rig bones after the graph (`tools/face_poses.py` ->
   `face/pwa.json`, `pma.json`; `tools/face_preview.py` for a preview). No correctives that way.
-- To verify (hypothesis): write the pose weights into the face_rig float tracks before the game's facial solver reads
-  them (pose buffer `+0x28` track count, `+0x38` float tracks). At `Output::Sample` the face is probably already solved:
-  the solver node of the face graph must be found (RTTI) and hooked before it samples. If it works, the game applies
-  main poses, inbetweens and correctives with each head's own data, NPCs included, and `FacePoses::Apply` is replaced.
+- **Verified (24/10, game 2.31): the weights go into the face_rig float tracks before the game's facial solver.**
+  The solver is `animAnimNode_Sermo` (one-pose input; 2.31 vtable `+0x2CEA628`, Sample `+0x5A94F0`, loads its input
+  node from `+0x58`). While it samples, its input node gets a copy of its vtable whose Sample (slot `0x128`) wraps the
+  original: after the input wrote the pose, the tracks (pose `+0x28` count, `+0x38` floats; 415 in the pose, 414 in
+  the rig's `trackNames`) are edited. `jaw_mid_open` +0.5 opened the mouth naturally, correctives included.
+- The tracks carry the main poses by name (`eye_l_brows_lower`, `lips_l_corner_up`, `jaw_mid_open`...); the Photo Mode
+  expressions are values of these tracks (an angry one: `eye_l_brows_lower=0.78`, `nose_r_snear=0.54`...), including
+  `lips_together_up/dn` and `lips_tighten_up/dn` (empty main poses: correctives only). Other tracks: `neck_*`,
+  `head_neck_*` (head and neck), `eye_*_dir_*` (gaze), `sculp_*`, `*_sticky_cutScene`, and controls such as
+  `faceEnvelope`, `upperFace`, `lowerFace`, `lipSync*Envelope`, `jaliJaw`, `jaliLips`, `<pose>AnimOverrideWeight`.
+- 1.4.0 adds the weights to the tracks (clamped 0-1) or, after "From Photo Mode", replaces the catalog poses' tracks
+  with them; the bone deltas of the JSON files stay as the fallback.
 

@@ -34,6 +34,7 @@ struct EditState
     std::shared_ptr<const APM::Pose::BasePose> base;
     APM::Pose::FaceWeights faceWeights{};
     std::string faceName;
+    bool faceReplace = false;
 };
 constexpr size_t MaxHistory = 100;
 
@@ -46,6 +47,7 @@ struct CharacterState
     std::shared_ptr<const APM::Pose::BasePose> base;
     APM::Pose::FaceWeights faceWeights{};
     std::string faceName; // saved expression loaded last (shown by the panel)
+    bool faceReplace = false;
     std::vector<EditState> undo;
     std::vector<EditState> redo;
     std::atomic<uint64_t> propRight{0};
@@ -74,6 +76,7 @@ void PublishLocked(CharacterState& aState)
     snapshot->ik = aState.ik;
     snapshot->base = aState.base;
     snapshot->faceWeights = aState.faceWeights;
+    snapshot->faceReplace = aState.faceReplace;
     for (const auto& bone : aState.bones)
     {
         if (bone.hasRotation || bone.hasTranslation)
@@ -98,6 +101,7 @@ void ClearLocked(CharacterState& aState)
     aState.base.reset();
     aState.faceWeights = {};
     aState.faceName.clear();
+    aState.faceReplace = false;
     aState.undo.clear();
     aState.redo.clear();
     aState.propRight = 0;
@@ -143,12 +147,12 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked()
 {
-    return {S().bones, S().ik, S().base, S().faceWeights, S().faceName};
+    return {S().bones, S().ik, S().base, S().faceWeights, S().faceName, S().faceReplace};
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
 {
-    return aState.base == S().base && aState.faceWeights == S().faceWeights && aState.faceName == S().faceName && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
+    return aState.base == S().base && aState.faceWeights == S().faceWeights && aState.faceName == S().faceName && aState.faceReplace == S().faceReplace && SameIk(aState.ik, S().ik) && SameBones(aState.bones, S().bones);
 }
 
 void RestoreLocked(EditState&& aState)
@@ -158,6 +162,7 @@ void RestoreLocked(EditState&& aState)
     S().base = std::move(aState.base);
     S().faceWeights = aState.faceWeights;
     S().faceName = std::move(aState.faceName);
+    S().faceReplace = aState.faceReplace;
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
@@ -376,6 +381,7 @@ void ResetAll(bool aKeepFace)
     {
         S().faceWeights = {};
         S().faceName.clear();
+        S().faceReplace = false;
     }
     PublishLocked();
 }
@@ -726,12 +732,13 @@ FaceWeights GetFaceWeights()
     return S().faceWeights;
 }
 
-void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName)
+void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName, bool aReplace)
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
     S().faceWeights = aWeights;
     S().faceName = aName;
+    S().faceReplace = aReplace;
     PublishLocked();
     S().enabled = true;
 }
@@ -742,12 +749,19 @@ std::string GetFaceName()
     return S().faceName;
 }
 
+bool IsFaceReplacing()
+{
+    std::scoped_lock lock(g_mutex);
+    return S().faceReplace;
+}
+
 void ResetFace()
 {
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
     S().faceWeights = {};
     S().faceName.clear();
+    S().faceReplace = false;
     PublishLocked();
 }
 

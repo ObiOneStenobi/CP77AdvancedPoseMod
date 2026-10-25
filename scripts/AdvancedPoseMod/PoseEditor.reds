@@ -197,7 +197,8 @@ public class APM_Marker extends IScriptable {
     public let screenX: Float; // last position on the ink canvas
     public let screenY: Float;
     public let depth: Float;    // distance from the camera while shown
-    public let behindFade: Float; // 0..1: behind the nearest markers, or covered by a nearer one up close (drawn fainter)
+    public let behindFade: Float; // 0..1: depth behind the nearest marker shown (drawn fainter)
+    public let coverFade: Float;  // 0..1: covered on screen by a nearer marker (drawn much fainter)
 }
 
 // Classic gizmo (rotation rings / move arrows on the selected part): one hit square of a ring or an arrow.
@@ -305,8 +306,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_groupButtons: array<ref<APM_Button>>;
     private let m_partButtons: array<ref<APM_Button>>;
     private let m_partIndices: array<Int32>;
-    private let m_handPresets: wref<inkCanvas>; // preset row under the parts of a hand tab (and of the arm tab's hand) // body part index shown by each part button (-1 = unused)
     private let m_poseButtons: array<ref<APM_Button>>;
+    private let m_poseLocks: array<wref<inkCanvas>>; // lock on a list entry: built-in, load only
     private let m_poseNames: array<String>;
     private let m_posePage: Int32;
     private let m_selectedPose: String;
@@ -609,6 +610,12 @@ public class APM_PoseEditor extends IScriptable {
             } else if hotkey == 2 {
                 APM_Redo();
                 this.Refresh();
+            } else if hotkey >= 3 && hotkey <= 5 {
+                this.SetClassicMode(hotkey == 3 ? APM_ClassicOff() : (hotkey == 4 ? APM_ClassicMove() : APM_ClassicRotate()));
+                this.Refresh();
+            } else if hotkey == 6 {
+                this.ToggleClassicAxes();
+                this.Refresh();
             }
         }
         if !this.m_isOpen {
@@ -700,11 +707,11 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(tools, "autoik", "magnet", 204.0, 4.0, this.L("APM-Tip-AutoIk", "Auto IK: dragging a hand / foot moves it with IK and pins it (Shift rotates it). Off: dragging rotates it, and IK is used only on limbs pinned in the IK row"));
         // Gizmo mode (as the tool bars of 3D programs): Direct (drag the markers), Move (arrows), Rotate (rings); then
         // the axes of the arrows / rings: Local (cube) or Global (globe).
-        this.CreateIconButton(tools, "classic:0", "mouse-pointer-2", 268.0, 4.0, this.L("APM-Tip-GizmoDirect", "Direct: drag the markers (rotate, move with IK, Shift / Ctrl / Alt for the other ways)"));
-        this.CreateIconButton(tools, "classic:2", "move", 312.0, 4.0, this.L("APM-Tip-GizmoMove", "Move: arrows on the selected part (hips, items, hands / feet with IK); drag its center to move it freely. Markers only select"));
-        this.CreateIconButton(tools, "classic:1", "rotate-3d", 356.0, 4.0, this.L("APM-Tip-GizmoRotate", "Rotate: rings on the selected part. Markers only select"));
-        this.CreateIconButton(tools, "axes:local", "box", 412.0, 4.0, this.L("APM-Tip-AxesLocal", "Axes: Local, the part's own (they turn with it). Click for Global"));
-        this.CreateIconButton(tools, "axes:global", "globe", 412.0, 4.0, this.L("APM-Tip-AxesGlobal", "Axes: Global, the character's (fixed). Click for Local"));
+        this.CreateIconButton(tools, "classic:0", "mouse-pointer-2", 268.0, 4.0, this.L("APM-Tip-GizmoDirect", "Direct (Ctrl+1): drag the markers (rotate, move with IK, Shift / Ctrl / Alt for the other ways)"));
+        this.CreateIconButton(tools, "classic:2", "move", 312.0, 4.0, this.L("APM-Tip-GizmoMove", "Move (Ctrl+2): arrows on the selected part (hips, items, hands / feet with IK); drag its center to move it freely. Markers only select"));
+        this.CreateIconButton(tools, "classic:1", "rotate-3d", 356.0, 4.0, this.L("APM-Tip-GizmoRotate", "Rotate (Ctrl+3): rings on the selected part. Markers only select"));
+        this.CreateIconButton(tools, "axes:local", "box", 412.0, 4.0, this.L("APM-Tip-AxesLocal", "Axes (Ctrl+4): Local, the part's own (they turn with it). Click for Global"));
+        this.CreateIconButton(tools, "axes:global", "globe", 412.0, 4.0, this.L("APM-Tip-AxesGlobal", "Axes (Ctrl+4): Global, the character's (fixed). Click for Local"));
         this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice): pose, expression and items in hand"));
 
         // Body / Face: the panel shows the body sections below, or the face section
@@ -748,27 +755,6 @@ public class APM_PoseEditor extends IScriptable {
             ArrayPush(this.m_partIndices, -1);
             i += 1;
         }
-        // Hand presets (hand tabs only)
-        let presetRow = new inkCanvas();
-        presetRow.SetName(n"APM_HandPresets");
-        presetRow.SetAnchor(inkEAnchor.TopLeft);
-        presetRow.SetMargin(0.0, 160.0 * APM_UiScale(), 0.0, 0.0);
-        presetRow.SetSize(APM_PanelWidth() * APM_UiScale(), 36.0 * APM_UiScale());
-        presetRow.Reparent(partSection);
-        this.m_handPresets = presetRow;
-        this.CreateText(presetRow, this.L("APM-Label-Preset", "Preset"), 16.0, 0.0, 90.0, 30.0, 15, APM_ColorDimText());
-        let presetNames: array<String> = [this.L("APM-Preset-Open", "Open"), this.L("APM-Preset-Relaxed", "Relaxed"), this.L("APM-Preset-Fist", "Fist"), this.L("APM-Preset-Point", "Point"), this.L("APM-Preset-Grip", "Grip")];
-        let presetTipKeys: array<String> = ["APM-Tip-PresetOpen", "APM-Tip-PresetRelaxed", "APM-Tip-PresetFist", "APM-Tip-PresetPoint", "APM-Tip-PresetGrip"];
-        let presetTipTexts: array<String> = ["Straight fingers", "Slightly curled, at rest", "Closed fist", "Index finger pointing", "Fingers around a handle"];
-        let p = 0;
-        while p < 5 {
-            let presetButton = this.CreateSmallButton(presetRow, "preset:" + IntToString(p), presetNames[p], 108.0 + Cast<Float>(p) * 86.0, 0.0, 82.0, 30.0);
-            this.TipL(presetButton, presetTipKeys[p], presetTipTexts[p]);
-            p += 1;
-        }
-        let savedButton = this.CreateSmallButton(presetRow, "preset:saved", this.L("APM-Button-HandPosesSaved", "Saved..."), 538.0, 0.0, 86.0, 30.0);
-        this.TipL(savedButton, "APM-Tip-HandPosesSaved", "Show the hand poses in the pose list (presets and saved ones)");
-
         // Rotation of the selected part
         let rotation = this.CreateSection(n"APM_Rotation");
         this.m_sectionRotation = rotation;
@@ -858,6 +844,7 @@ public class APM_PoseEditor extends IScriptable {
             let poseButton = this.CreateButton(posesBody, "pose:" + IntToString(i), "", 16.0, Cast<Float>(i) * 34.0, 420.0, 30.0);
             poseButton.label.SetLetterCase(textLetterCase.OriginalCase);
             ArrayPush(this.m_poseButtons, poseButton);
+            ArrayPush(this.m_poseLocks, this.AddLock(poseButton));
             i += 1;
         }
         this.CreateButton(posesBody, "savenew", this.L("APM-Button-SaveNew", "Save new"), 446.0, 0.0, 178.0, 30.0);
@@ -888,7 +875,9 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionFace = face;
         this.AddSeparator(face);
         this.CreateText(face, this.L("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
-        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 300.0, 26.0, 13, APM_ColorDimText());
+        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 290.0, 26.0, 13, APM_ColorDimText());
+        let copyButton = this.CreateSmallButton(face, "face:copy", this.L("APM-Button-FaceCopy", "From Photo Mode"), 380.0, 6.0, 152.0, 28.0);
+        this.TipL(copyButton, "APM-Tip-FaceCopy", "Edit the Photo Mode expression: its poses go into the rows and replace it (Reset gives it back)");
         let linkedButton = this.CreateSmallButton(face, "face:linked", this.L("APM-Button-FaceLinked", "L+R"), 538.0, 6.0, 86.0, 28.0);
         this.TipL(linkedButton, "APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         let faceBody = new inkCanvas();
@@ -949,9 +938,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
         y = this.PlaceSection(this.m_sectionMode, y, 40.0, true);
         let body = !this.m_faceMode;
-        let handTab = this.PresetHand() > 0;
-        this.m_handPresets.SetVisible(handTab);
-        y = this.PlaceSection(this.m_sectionPart, y, handTab ? 196.0 : 160.0, body);
+        y = this.PlaceSection(this.m_sectionPart, y, 160.0, body);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body);
         y = this.PlaceSection(this.m_sectionMove, y, 144.0, body && APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
@@ -1110,9 +1097,8 @@ public class APM_PoseEditor extends IScriptable {
         y = this.AddHelpLine(help, this.L("APM-Help-KeyRightClick", "Right-click a marker"), this.L("APM-Help-RightClick", "reset that part"), y);
         y = this.AddHelpLine(help, this.L("APM-Help-KeyUndoRedo", "Ctrl + Z  /  Ctrl + Y"), this.L("APM-Help-UndoRedo", "undo / redo"), y);
         // Gizmo buttons of the tools row
-        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoDirect", "Pointer (tools)"), this.L("APM-Help-GizmoDirect", "Direct: drag the markers"), y);
-        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoMoveRotate", "Arrows / rings (tools)"), this.L("APM-Help-GizmoMoveRotate", "Move / Rotate the selected part"), y);
-        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoAxes", "Cube / globe (tools)"), this.L("APM-Help-GizmoAxes", "axes: the part's own / the character's"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoModes", "Ctrl + 1 / 2 / 3"), this.L("APM-Help-GizmoModes", "gizmo: Direct / Move / Rotate"), y);
+        y = this.AddHelpLine(help, this.L("APM-Help-KeyGizmoAxes", "Ctrl + 4"), this.L("APM-Help-GizmoAxes", "axes: the part's own / the character's"), y);
         help.SetSize(width * s, (y + 16.0) * s);
     }
 
@@ -1516,7 +1502,6 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateRow(parent, 7800u + Cast<Uint32>(pose), text, 0.0, negative >= 0 ? -100.0 : 0.0, 100.0, 5.0, 0.3, "");
         let row = this.m_rows[ArraySize(this.m_rows) - 1];
         row.pairAttribute = negative >= 0 ? 7800u + Cast<Uint32>(negative) : 0u;
-        this.AddDot(row.value); // changed rows, as the body parts
         ArrayPush(this.m_faceRows, row);
         ArrayPush(this.m_faceRowZones, APM_FacePoseZone(pose));
         ArrayPush(this.m_faceRowSides, side);
@@ -1636,7 +1621,9 @@ public class APM_PoseEditor extends IScriptable {
 
     private func RefreshFace() {
         let loaded = APM_FaceGetLoadedName();
-        this.m_faceInfo.SetText(StrLen(loaded) > 0 ? "- " + loaded : APM_Text("APM-Label-PhotoModeExpression", "- Photo Mode expression"));
+        let info = APM_FaceIsReplacing() ? APM_Text("APM-Label-EditedExpression", "- edited Photo Mode expression") : APM_Text("APM-Label-PhotoModeExpression", "- Photo Mode expression");
+        this.m_faceInfo.SetText(StrLen(loaded) > 0 ? "- " + loaded : info);
+        this.SetButton("face:copy", APM_FaceIsReplacing(), true);
         this.SetButton("mode:body", !this.m_faceMode, true);
         this.SetButton("mode:face", this.m_faceMode, true);
         let modeReset = this.FindButton("modereset");
@@ -1668,7 +1655,6 @@ public class APM_PoseEditor extends IScriptable {
                 let side = this.m_faceRowSides[i];
                 let suffix = this.m_faceLinked || StrLen(side) == 0 ? "" : (Equals(side, "l") ? " L" : " R");
                 row.label.SetText(APM_Text(this.m_faceRowKeys[i], this.m_faceRowTexts[i]) + suffix);
-                this.SetDot(row.value, isEdited);
             }
             i += 1;
         }
@@ -2100,7 +2086,7 @@ public class APM_PoseEditor extends IScriptable {
             let texts: array<String> = ["Open", "Relaxed", "Fist", "Point", "Grip"];
             text = APM_Text(keys[preset], texts[preset]);
         }
-        return text + "  (" + APM_Text("APM-Label-BuiltIn", "built-in") + ")";
+        return text;
     }
 
     private func LoadBuiltIn(name: String) {
@@ -2795,6 +2781,34 @@ public class APM_PoseEditor extends IScriptable {
         button.dot = dot;
     }
 
+    // Small lock at the right end of a list entry (shown for the built-in entries, which can only be loaded).
+    private func AddLock(button: ref<APM_Button>) -> wref<inkCanvas> {
+        let s = APM_UiScale();
+        let size = 18.0;
+        let lock = new inkCanvas();
+        lock.SetAnchor(inkEAnchor.TopLeft);
+        lock.SetMargin((button.w - size - 10.0) * s, (button.h - size) * 0.5 * s, 0.0, 0.0);
+        lock.SetSize(size * s, size * s);
+        lock.SetInteractive(false);
+        lock.SetVisible(false);
+        lock.Reparent(button.root);
+        let cell = size / 24.0;
+        let spans = APM_IconSpans("lock");
+        let i = 0;
+        while i + 3 < ArraySize(spans) {
+            let rect = new inkRectangle();
+            rect.SetAnchor(inkEAnchor.TopLeft);
+            rect.SetMargin(spans[i] * cell * s, spans[i + 1] * cell * s, 0.0, 0.0);
+            rect.SetSize(spans[i + 2] * cell * s, cell * s);
+            rect.SetOpacity(spans[i + 3]);
+            rect.SetInteractive(false);
+            rect.Reparent(lock);
+            ArrayPush(button.icon, rect); // tinted with the button
+            i += 4;
+        }
+        return lock;
+    }
+
     private func SetDot(button: ref<APM_Button>, on: Bool) {
         if !IsDefined(button) || !IsDefined(button.dot) {
             return;
@@ -2994,6 +3008,7 @@ public class APM_PoseEditor extends IScriptable {
             let index = first + i;
             if index < ArraySize(this.m_poseNames) {
                 button.root.SetVisible(true);
+                this.m_poseLocks[i].SetVisible(this.IsBuiltIn(this.m_poseNames[index]));
                 let isRenamed = this.m_renaming && Equals(this.m_poseNames[index], this.m_renameFrom);
                 button.label.SetText(isRenamed ? APM_TextEntryGetText() + "_" : this.EntryText(this.m_poseNames[index]));
                 button.isSelected = Equals(this.m_poseNames[index], this.m_selectedPose);
@@ -3302,7 +3317,7 @@ public class APM_PoseEditor extends IScriptable {
                 }
                 let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
                 if !isSelected && !marker.isHovered {
-                    opacity *= 1.0 - 0.55 * marker.behindFade; // farther back (last frame's overlap pass)
+                    opacity *= this.DepthFade(marker); // farther back (last frame's overlap pass)
                 }
                 marker.root.SetOpacity(opacity);
                 if mode == APM_DragTwist() {
@@ -3331,19 +3346,20 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Markers that cover each other on screen (e.g. the fingers of two hands one above the other): the nearer one is
-    // drawn on top, so it is the one the cursor picks. Up close (camera within the fingers' distance of the nearer
-    // one) the farther ones also turn fainter, more the farther behind they are: full under 1 cm, faintest from 5 cm.
-    // From afar nothing fades (the markers bunch up on screen there). All stay selectable.
-    // Besides, every marker fades with its depth behind the nearest one shown: full at the same depth, faintest from
-    // half a meter behind (the far side of the body).
+    // drawn on top, so it is the one the cursor picks. Markers near another one on screen (within 24 px) that is
+    // nearer the camera turn much fainter, with their lines: full under 0.5 cm behind it, faintest from 3 cm. All stay
+    // selectable. Besides, every marker fades with its depth behind the nearest one shown: full at the same depth,
+    // faintest from 40 cm behind (the far side of the body).
     private func ResolveMarkerOverlaps(s: Float) {
         let reach = 12.0 * s;
+        let coverReach = 24.0 * s;
         let shown: array<ref<APM_Marker>>;
         let nearest = -1.0;
         let i = 0;
         while i < ArraySize(this.m_markers) {
             let marker = this.m_markers[i];
             marker.behindFade = 0.0;
+            marker.coverFade = 0.0;
             if marker.root.IsVisible() {
                 ArrayPush(shown, marker);
                 if nearest < 0.0 || marker.depth < nearest {
@@ -3354,7 +3370,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         i = 0;
         while i < ArraySize(shown) {
-            shown[i].behindFade = ClampF((shown[i].depth - nearest) / 0.5, 0.0, 1.0);
+            shown[i].behindFade = ClampF((shown[i].depth - nearest) / 0.4, 0.0, 1.0);
             i += 1;
         }
         let front: array<ref<APM_Marker>>;
@@ -3364,13 +3380,13 @@ public class APM_PoseEditor extends IScriptable {
             let j = i + 1;
             while j < ArraySize(shown) {
                 let b = shown[j];
+                let nearer = a.depth <= b.depth ? a : b;
+                let farther = a.depth <= b.depth ? b : a;
+                if AbsF(a.screenX - b.screenX) < coverReach && AbsF(a.screenY - b.screenY) < coverReach {
+                    let fade = ClampF((farther.depth - nearer.depth - 0.005) / 0.025, 0.0, 1.0);
+                    farther.coverFade = MaxF(farther.coverFade, fade);
+                }
                 if AbsF(a.screenX - b.screenX) < reach && AbsF(a.screenY - b.screenY) < reach {
-                    let nearer = a.depth <= b.depth ? a : b;
-                    let farther = a.depth <= b.depth ? b : a;
-                    if nearer.depth < this.FingerDistance() {
-                        let fade = ClampF((farther.depth - nearer.depth - 0.01) / 0.04, 0.0, 1.0);
-                        farther.behindFade = MaxF(farther.behindFade, fade);
-                    }
                     if !ArrayContains(front, nearer) {
                         ArrayPush(front, nearer);
                     }
@@ -3816,7 +3832,7 @@ public class APM_PoseEditor extends IScriptable {
         let s = APM_UiScale();
         let mode = IsDefined(this.m_dragMarker) ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
         let text = APM_PartShortText(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + this.ModeName(mode);
-        let isCenter = this.m_classicMode == APM_ClassicMove() && marker.part == Cast<Int32>(APM_UiGetValue(7701u)) && (marker.canMove || marker.chain >= 0);
+        let isCenter = this.m_classicMode == APM_ClassicMove() && (marker.kind == APM_MarkerKindEyeLook() || (marker.part == Cast<Int32>(APM_UiGetValue(7701u)) && (marker.canMove || marker.chain >= 0)));
         if isCenter {
             text = APM_PartShortText(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + APM_Text("APM-Hint-ClassicCenter", "drag to move freely (or the arrows)");
         } else if this.m_classicMode != APM_ClassicOff() {
@@ -3875,10 +3891,16 @@ public class APM_PoseEditor extends IScriptable {
     // eyes, from each eye to the point they look at. Returns the on-screen angle of the bone (degrees).
     // Lines of a marker, from world points (they stay visible when one end is off screen). Returns the bone's
     // angle on screen, for the twist bar.
+    // Opacity factor of a marker and its lines from how far behind the nearest markers it is (see ResolveMarkerOverlaps).
+    private func DepthFade(marker: ref<APM_Marker>) -> Float {
+        return (1.0 - 0.7 * marker.behindFade) * (1.0 - 0.85 * marker.coverFade);
+    }
+
     private func UpdateMarkerLines(camera: ref<CameraSystem>, toWorld: Matrix, marker: ref<APM_Marker>, world: Vector4, color: HDRColor, strong: Bool) -> Float {
         let s = APM_UiScale();
         let thickness = (strong ? 2.5 : 1.5) * s;
-        let opacity = strong ? 0.9 : 0.45;
+        let fade = strong ? 1.0 : this.DepthFade(marker);
+        let opacity = strong ? 0.9 : 0.45 * fade;
         if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
             this.DrawWorldLine(camera, marker.line, APM_PartWorldPosition(toWorld, marker.part), world, color, thickness, opacity);
             return 0.0;
@@ -3898,7 +3920,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         let parentModel = APM_GizmoGetPartParent(marker.part);
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35);
+        this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35 * fade);
 
         let tipModel = APM_GizmoGetPartTip(marker.part);
         if tipModel.W < 0.5 {
@@ -4118,8 +4140,27 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // What dragging a marker does, from the marker and the keys held when the drag starts.
+    // Gizmo mode: APM_ClassicOff (Direct) / Rotate / Move (tools row, Ctrl+1 / 3 / 2); shows the gizmos.
+    private func SetClassicMode(mode: Int32) {
+        this.m_classicMode = mode;
+        APM_PrefSet("ClassicGizmo", Cast<Float>(this.m_classicMode));
+        if !this.m_gizmosOn {
+            this.m_gizmosOn = true;
+            APM_PrefSet("Gizmos", 1.0);
+        }
+    }
+
+    // Axes of the arrows / rings: the part's own or the model's (tools row, Ctrl+4).
+    private func ToggleClassicAxes() {
+        this.m_classicModelAxes = !this.m_classicModelAxes;
+        APM_PrefSet("ClassicGizmoModelAxes", this.m_classicModelAxes ? 1.0 : 0.0);
+    }
+
     private func DragModeFor(marker: ref<APM_Marker>, shift: Bool, control: Bool) -> Int32 {
         if this.m_centerDrag && marker == this.m_dragMarker {
+            if marker.kind == APM_MarkerKindEyeLook() {
+                return APM_DragEyeLook();
+            }
             return marker.canMove ? APM_DragMove() : APM_DragIkMove();
         }
         if marker.kind == APM_MarkerKindEyeLook() {
@@ -4543,15 +4584,9 @@ public class APM_PoseEditor extends IScriptable {
         if Equals(id, "enabled") {
             APM_UiSetValue(7700u, APM_UiGetValue(7700u) > 0.5 ? 0.0 : 1.0);
         } else if Equals(prefix, "axes") {
-            this.m_classicModelAxes = !this.m_classicModelAxes;
-            APM_PrefSet("ClassicGizmoModelAxes", this.m_classicModelAxes ? 1.0 : 0.0);
+            this.ToggleClassicAxes();
         } else if Equals(prefix, "classic") {
-            this.m_classicMode = StringToInt(arg); // APM_ClassicOff (Direct) / Rotate / Move
-            APM_PrefSet("ClassicGizmo", Cast<Float>(this.m_classicMode));
-            if !this.m_gizmosOn {
-                this.m_gizmosOn = true;
-                APM_PrefSet("Gizmos", 1.0);
-            }
+            this.SetClassicMode(StringToInt(arg));
         } else if Equals(id, "gizmos") {
             this.m_gizmosOn = !this.m_gizmosOn;
             APM_PrefSet("Gizmos", this.m_gizmosOn ? 1.0 : 0.0);
@@ -4619,6 +4654,10 @@ public class APM_PoseEditor extends IScriptable {
             if NotEquals(Equals(arg, "hands"), this.m_handLibrary) {
                 this.ShowLibrary(Equals(arg, "hands"));
             }
+        } else if Equals(id, "face:copy") {
+            if !APM_FaceCopyGameExpression() {
+                this.SetStatus(APM_Text("APM-Msg-FaceCopyUnavailable", "The Photo Mode expression cannot be read for this character"));
+            }
         } else if Equals(id, "facezone:reset") {
             APM_HistoryCheckpoint();
             APM_FaceResetZone(this.m_faceZones[this.m_faceZone]);
@@ -4640,14 +4679,6 @@ public class APM_PoseEditor extends IScriptable {
             APM_Undo();
         } else if Equals(id, "redo") {
             APM_Redo();
-        } else if Equals(id, "preset:saved") {
-            this.ShowLibrary(true);
-        } else if Equals(prefix, "preset") {
-            let presetHand = this.PresetHand();
-            if presetHand > 0 {
-                APM_HistoryCheckpoint();
-                APM_ApplyHandPreset(presetHand == 2, StringToInt(arg));
-            }
         } else if Equals(prefix, "eyes") {
             let which = StringToInt(arg);
             let eyeTarget = which == 1 ? this.m_leftEyePart : (which == 2 ? this.m_rightEyePart : this.PartIndex("Eyes (both)"));
@@ -5249,8 +5280,9 @@ public class APM_PoseEditor extends IScriptable {
         let wasSelected = Cast<Int32>(APM_UiGetValue(7701u)) == marker.part;
         APM_UiSetValue(7701u, Cast<Float>(marker.part));
         let locked = APM_GizmoIsPartLocked(marker.part);
-        // Move arrows on: their center, the selected part's marker, moves the part freely as in Direct.
-        this.m_centerDrag = !locked && wasSelected && this.m_classicMode == APM_ClassicMove() && (marker.canMove || marker.chain >= 0);
+        // Move arrows on: their center, the selected part's marker, moves the part freely as in Direct; the eyes' look
+        // marker (no arrows) always moves.
+        this.m_centerDrag = !locked && this.m_classicMode == APM_ClassicMove() && (marker.kind == APM_MarkerKindEyeLook() || (wasSelected && (marker.canMove || marker.chain >= 0)));
         if locked || (this.m_classicMode != APM_ClassicOff() && !this.m_centerDrag) {
             // Locked by Photo Mode's "Look at camera", or the classic gizmo is on: selected (its values and its
             // rings / arrows show), not dragged.

@@ -38,6 +38,8 @@ struct RigView
     const int16_t* parents = nullptr;                 // may be null
     const RED4ext::QsTransform* referencePose = nullptr; // local space, may be null
     uint64_t hash = 0;
+    uint32_t trackCount = 0;
+    const RED4ext::CName* trackNames = nullptr; // float tracks (face rig: one per face pose)
 };
 bool ViewRig(uintptr_t aRig, RigView& aOut);
 

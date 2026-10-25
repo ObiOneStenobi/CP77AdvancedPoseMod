@@ -17,6 +17,7 @@ constexpr uint32_t SdkComponentName = 0x40;
 constexpr uint32_t SdkAnimatedRig = 0x138;
 constexpr uint32_t SdkRigBoneNames = 0x50;
 constexpr uint32_t SdkRigTags = 0x120;
+constexpr uint32_t SdkRigTrackNames = 0xE8;
 // Native rig fields, relative to boneNames (parentIndices and referencePoseLS sit right before it and share its
 // size; the hash sits right before the tags).
 constexpr int32_t RigParentsFromBoneNames = -0x10;
@@ -29,6 +30,7 @@ uint32_t g_componentName = SdkComponentName;
 uint32_t g_animatedRig = SdkAnimatedRig;
 uint32_t g_rigBoneNames = SdkRigBoneNames;
 uint32_t g_rigTags = SdkRigTags;
+uint32_t g_rigTrackNames = SdkRigTrackNames;
 std::atomic<uint32_t> g_entityComponents{SdkEntityComponents};
 std::atomic<bool> g_componentsChecked{false};
 
@@ -105,6 +107,7 @@ void Resolve()
     g_animatedRig = PropertyOffset("entAnimatedComponent", "rig", SdkAnimatedRig);
     g_rigBoneNames = PropertyOffset("animRig", "boneNames", SdkRigBoneNames);
     g_rigTags = PropertyOffset("animRig", "tags", SdkRigTags);
+    g_rigTrackNames = PropertyOffset("animRig", "trackNames", SdkRigTrackNames);
     Log::Info("Layout: component name +0x%X, rig +0x%X; rig bones +0x%X, tags +0x%X", g_componentName, g_animatedRig,
               g_rigBoneNames, g_rigTags);
 }
@@ -196,6 +199,14 @@ bool ViewRig(uintptr_t aRig, RigView& aOut)
     aOut.referencePose =
         SafeMemory::LooksLikePointer(reference) ? reinterpret_cast<const RED4ext::QsTransform*>(reference) : nullptr;
     aOut.hash = hash;
+    uint64_t tracks = 0;
+    uint32_t trackCount = 0;
+    if (SafeMemory::ReadU64(aRig + g_rigTrackNames, tracks) && SafeMemory::ReadU32(aRig + g_rigTrackNames + 0x0C, trackCount) &&
+        trackCount > 0 && trackCount <= 4096 && SafeMemory::LooksLikePointer(tracks))
+    {
+        aOut.trackCount = trackCount;
+        aOut.trackNames = reinterpret_cast<const RED4ext::CName*>(tracks);
+    }
     return true;
 }
 
