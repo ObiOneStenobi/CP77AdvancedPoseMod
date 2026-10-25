@@ -60,9 +60,8 @@ Open Photo Mode and click **Pose editor** (top left).
 **X** hides the panel. These settings are remembered in `panel.ini`.
   Below them icon buttons (rest the mouse on any button for a moment to see a tooltip above it): **Undo**, **Redo**,
   **Mirror**, **Joint limits**, **Auto IK**, the gizmo mode (**Direct** / **Move** / **Rotate** and the axes, see
-  Gizmos), and at the far right **Reset all** (click twice: pose, expression and items in hand back to the Photo Mode
-  ones). **?** opens the info window (marker legend and shortcuts). Under them **Body / Face** picks what the panel
-  edits; **Reset** next to them resets only that part (the body keeps the face, the face keeps the body).
+  Gizmos), and at the far right **Reset** (click twice: the part shown, Body or Face, back to the Photo Mode one).
+  **?** opens the info window (marker legend and shortcuts). Under them **Body / Face** picks what the panel edits.
 - **Reset** (next to the selected part's name) undoes every edit of that part; a pinned hand / foot goes back to where
   the pose puts it (the pin stays). **Right-click a marker** does the same for its part. A small blue dot marks the
   edited parts and the tabs that hold them (a loaded pose or T / A pose alone does not count). Choosing an IK limb also selects that hand / foot above. The IK limb buttons get an orange frame,
@@ -95,7 +94,7 @@ Open Photo Mode and click **Pose editor** (top left).
   expressions work only on some characters (e.g. Wakako): that is the game, the same happens without this mod.
 - A saved pose stores the **whole visible pose** (every body bone, edits and IK included), not just the edits:
   loading it replaces the Photo Mode pose underneath, whatever pose is selected there, and new edits go on top of
-  it. The face keeps its Photo Mode expression. **Reset all** goes back to the Photo Mode pose. Poses saved by
+  it. The face keeps its Photo Mode expression. **Reset** (Body) goes back to the Photo Mode pose. Poses saved by
   versions before 0.8.1 contain only edits and are still applied on top of the current Photo Mode pose.
 
 ### Gizmos
@@ -169,12 +168,15 @@ closer.
 - **Face** (Body / Face selector): the game's own face poses (brows, eyelids, nose, cheeks, lips, jaw, ears, tongue; 12
   rows per page, L+R moves both sides, the left / right rows are bipolar sliders). The rows show the Photo Mode
   expression; moving one sets that pose, and the game's facial solver applies it with its corrective poses and each
-  head's own shapes (as CDPR's animations do). The dot marks the zones changed from Photo Mode; **Reset zone** and
-  **Reset face** give the Photo Mode values back, and choosing another expression in the Photo Mode menu starts from
-  it (undo keeps the edits). Values above 100 come from expressions of other mods: they stay until the row is moved
-  (then at most 100). Expressions are saved whole in the list below (`expressions\*.json`). `[Face] GameSolver=0`
-  in config.ini adds the poses to the bones instead (no correctives). **Reset body** (Body section) resets the pose
-  and leaves the face.
+  head's own shapes (as CDPR's animations do). The dot marks the zones changed from Photo Mode; a row's reset button
+  gives its Photo Mode value back, and choosing another expression in the Photo Mode menu starts from it (Ctrl+Z gives
+  the edited face back). Values above 100 come from expressions of other mods: they stay until the row is moved (then
+  at most 100). Expressions are saved whole in the list below (`expressions\*.json`). Turned eyes go to the game's
+  gaze, so the eyelids follow them as in its animations. Faces that ignore the game's solver (e.g. Johnny Silverhand)
+  are recognised when a row is moved and posed on the bones. `[Face] GameSolver=0` in config.ini adds the poses to the
+  bones instead (no correctives).
+- **Reset** (trash icon in the tools row, click twice): resets the part shown, Body (pose, IK, items in hand; the face
+  stays) or Face (the Photo Mode expression).
 - **Joint limits** (lock icon, on by default): rotations stay within natural ranges (knees and elbows bend one way
   only, the spine, neck, wrists, palm and fingers within human ranges; a hand / foot pinned with IK still bends only as
   far as a wrist / ankle can). Dragging a value stops at the limit. Click the lock to turn them off for full control.
@@ -183,7 +185,7 @@ closer.
   come first. An item put there by the Photo Mode pose itself (e.g. the gun of an *Action* pose) shows as
   "(pose)". **X** empties the hand; the **arrow** gives the pose's own item back. Weapons go in the right hand only (the game poses both hands around them); shards, braindances, quest and
   misc items are not listed. Move
-  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset all** gives back the pose's own ones.
+  or rotate the item with the green hand prop marker. Items (and where they are held) are saved with the pose; **Reset** (Body) gives back the pose's own ones.
 - While dragging a hand / foot (IK), the eyes' marker or Shift+dragging the hips / a held item, the **mouse wheel**
   moves it nearer or farther (the Photo Mode camera ignores the wheel meanwhile).
 - **Undo / Redo** (also **Ctrl+Z** / **Ctrl+Y**): every drag, button or value change is one step (up to 100).
@@ -193,7 +195,7 @@ closer.
   side a mirror copy of that whole limb (arm, hand or leg, IK pin included), following it step by step. Eyes are not
   mirrored.
 - **T pose / A pose** (first entries of the pose list): replaces the Photo Mode pose with a neutral one to build a pose from scratch (face and eyes
-  keep their edits); **Reset all** goes back.
+  keep their edits); **Reset** (Body) goes back.
 - Moving a whole finger keeps the extra bend of its segments.
 
 Developers: `cet/` holds a debug window for Cyber Engine Tweaks with raw bone access (not part of the release

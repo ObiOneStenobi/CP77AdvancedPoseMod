@@ -341,7 +341,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_faceRowSides: array<String>;    // "l", "r" (a side of a left / right pose) or ""
     private let m_faceRowKeys: array<String>;     // label: translation key and English text
     private let m_faceRowTexts: array<String>;
-    private let m_faceFooter: array<ref<APM_Button>>; // "Reset zone" and the page buttons, below the rows
+    private let m_faceFooter: array<ref<APM_Button>>; // the page buttons, below the rows
     private let m_faceFooterOffsets: array<Float>;
     private let m_facePageText: wref<inkText>;
     private let m_faceRowPage: Int32;             // page of the zone's rows shown (APM_FaceRowsPerPage rows each)
@@ -712,7 +712,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(tools, "classic:1", "rotate-3d", 356.0, 4.0, this.L("APM-Tip-GizmoRotate", "Rotate (Ctrl+3): rings on the selected part. Markers only select"));
         this.CreateIconButton(tools, "axes:local", "box", 412.0, 4.0, this.L("APM-Tip-AxesLocal", "Axes (Ctrl+4): Local, the part's own (they turn with it). Click for Global"));
         this.CreateIconButton(tools, "axes:global", "globe", 412.0, 4.0, this.L("APM-Tip-AxesGlobal", "Axes (Ctrl+4): Global, the character's (fixed). Click for Local"));
-        this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, this.L("APM-Tip-ResetAll", "Reset everything (click twice): pose, expression and items in hand"));
+        this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, ""); // tooltip in Refresh: Body or Face
 
         // Body / Face: the panel shows the body sections below, or the face section
         let modeRow = this.CreateSection(n"APM_Mode");
@@ -726,9 +726,6 @@ public class APM_PoseEditor extends IScriptable {
         let partSection = this.CreateSection(n"APM_Part");
         this.m_sectionPart = partSection;
         this.AddSeparator(partSection);
-        this.CreateText(partSection, this.L("APM-Title-Body", "Body"), 16.0, 6.0, 200.0, 28.0, 16, APM_ColorAccent());
-        let bodyReset = this.CreateSmallButton(partSection, "body:reset", this.L("APM-Button-ResetBody", "Reset body"), 472.0, 6.0, 152.0, 28.0);
-        this.TipL(bodyReset, "APM-Tip-BodyReset", "Reset the body: parts, IK and pose (the face stays)");
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
         while i < count {
@@ -741,7 +738,7 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < ArraySize(this.m_groupNames) {
             let x = 16.0 + Cast<Float>(i % 4) * 152.0;
-            let y = 46.0 + Cast<Float>(i / 4) * 36.0;
+            let y = 10.0 + Cast<Float>(i / 4) * 36.0;
             let groupButton = this.CreateButton(partSection, "group:" + IntToString(i), this.LGroup(this.m_groupNames[i]), x, y, 146.0, 32.0);
             this.AddDot(groupButton);
             ArrayPush(this.m_groupButtons, groupButton);
@@ -750,7 +747,7 @@ public class APM_PoseEditor extends IScriptable {
         i = 0;
         while i < 6 {
             let x = 16.0 + Cast<Float>(i % 3) * 203.0;
-            let y = 122.0 + Cast<Float>(i / 3) * 36.0;
+            let y = 86.0 + Cast<Float>(i / 3) * 36.0;
             let partButton = this.CreateButton(partSection, "part:" + IntToString(i), "", x, y, 197.0, 32.0);
             this.AddDot(partButton);
             ArrayPush(this.m_partButtons, partButton);
@@ -877,9 +874,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionFace = face;
         this.AddSeparator(face);
         this.CreateText(face, this.L("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
-        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 290.0, 26.0, 13, APM_ColorDimText());
-        let faceReset = this.CreateSmallButton(face, "face:reset", this.L("APM-Button-ResetFace", "Reset face"), 380.0, 6.0, 152.0, 28.0);
-        this.TipL(faceReset, "APM-Tip-FaceReset", "Reset the face: the Photo Mode expression as it is");
+        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 448.0, 26.0, 13, APM_ColorDimText());
         let linkedButton = this.CreateSmallButton(face, "face:linked", this.L("APM-Button-FaceLinked", "L+R"), 538.0, 6.0, 86.0, 28.0);
         this.TipL(linkedButton, "APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         let faceBody = new inkCanvas();
@@ -915,10 +910,10 @@ public class APM_PoseEditor extends IScriptable {
             r += 1;
         }
 
-        // Below the rows: reset of the zone shown, pages of its rows (the saved expressions are in the pose list)
-        this.AddFaceFooter(this.CreateButton(faceBody, "facezone:reset", this.L("APM-Button-ResetZone", "Reset zone"), 16.0, 0.0, 200.0, 30.0), 0.0);
-        this.m_facePageText = this.CreateText(faceBody, "", 330.0, -2.0, 110.0, 34.0, 22, APM_ColorAccent());
-        this.AddFaceFooter(this.CreateButton(faceBody, "facepage:prev", "<", 446.0, 0.0, 86.0, 30.0), 0.0);
+        // Below the rows: pages of the zone's rows, < n/N > (the saved expressions are in the pose list)
+        this.AddFaceFooter(this.CreateButton(faceBody, "facepage:prev", "<", 16.0, 0.0, 86.0, 30.0), 0.0);
+        this.m_facePageText = this.CreateText(faceBody, "", 270.0, -2.0, 100.0, 34.0, 22, APM_ColorAccent());
+        this.m_facePageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
         this.AddFaceFooter(this.CreateButton(faceBody, "facepage:next", ">", 538.0, 0.0, 86.0, 30.0), 0.0);
 
         this.BuildPicker();
@@ -940,7 +935,7 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
         y = this.PlaceSection(this.m_sectionMode, y, 40.0, true);
         let body = !this.m_faceMode;
-        y = this.PlaceSection(this.m_sectionPart, y, 196.0, body);
+        y = this.PlaceSection(this.m_sectionPart, y, 160.0, body);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body);
         y = this.PlaceSection(this.m_sectionMove, y, 144.0, body && APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
@@ -1462,7 +1457,7 @@ public class APM_PoseEditor extends IScriptable {
         return button;
     }
 
-    private func CreateRow(parent: wref<inkCompoundWidget>, attribute: Uint32, text: String, y: Float, minValue: Float, maxValue: Float, step: Float, dragScale: Float, unit: String) {
+    private func CreateRow(parent: wref<inkCompoundWidget>, attribute: Uint32, text: String, y: Float, minValue: Float, maxValue: Float, step: Float, dragScale: Float, unit: String, opt resetIcon: Bool) {
         let row = new APM_ValueRow();
         row.attribute = attribute;
         row.minValue = minValue;
@@ -1480,7 +1475,12 @@ public class APM_PoseEditor extends IScriptable {
         let right = this.CreateText(row.value.root, ">", 178.0, 0.0, 20.0, 32.0, 17, APM_ColorDimText());
         right.SetInteractive(false);
         ArrayPush(row.buttons, this.CreateButton(parent, "inc:" + key, "+", 518.0, y, 48.0, 32.0));
-        ArrayPush(row.buttons, this.CreateButton(parent, "zero:" + key, "0", 572.0, y, 52.0, 32.0));
+        if resetIcon {
+            // Face rows: back to the Photo Mode value (not 0)
+            ArrayPush(row.buttons, this.CreateIconButton(parent, "facerowreset:" + key, "rotate-ccw", 578.0, y, APM_Text("APM-Tip-FaceRowReset", "Back to the value of the Photo Mode expression"), 32.0));
+        } else {
+            ArrayPush(row.buttons, this.CreateButton(parent, "zero:" + key, "0", 572.0, y, 52.0, 32.0));
+        }
         ArrayPush(this.m_rows, row);
     }
 
@@ -1501,7 +1501,7 @@ public class APM_PoseEditor extends IScriptable {
 
     // One face row: 0..100 (a pose's weight), or -100..100 when it has a negative pose. Placed by LayoutFace().
     private func AddFaceRow(parent: wref<inkCompoundWidget>, pose: Int32, negative: Int32, side: String, key: String, english: String, text: String) {
-        this.CreateRow(parent, 7800u + Cast<Uint32>(pose), text, 0.0, negative >= 0 ? -100.0 : 0.0, 100.0, 5.0, 0.3, "");
+        this.CreateRow(parent, 7800u + Cast<Uint32>(pose), text, 0.0, negative >= 0 ? -100.0 : 0.0, 100.0, 5.0, 0.3, "", true);
         let row = this.m_rows[ArraySize(this.m_rows) - 1];
         row.pairAttribute = negative >= 0 ? 7800u + Cast<Uint32>(negative) : 0u;
         ArrayPush(this.m_faceRows, row);
@@ -1590,7 +1590,7 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let paged = pages > 1;
-        this.m_facePageText.SetMargin(330.0 * s, (y - 2.0) * s, 0.0, 0.0);
+        this.m_facePageText.SetMargin(270.0 * s, (y - 2.0) * s, 0.0, 0.0);
         this.m_facePageText.SetText(IntToString(this.m_faceRowPage + 1) + "/" + IntToString(pages));
         this.m_facePageText.SetVisible(paged);
         let prev = this.FindButton("facepage:prev");
@@ -1996,7 +1996,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_messageTimer -= timeDelta;
             if this.m_messageTimer <= 0.0 {
                 this.HideTip();
-                // "Click again" for Reset all / Delete lasts as long as its message.
+                // "Click again" for Reset / Delete lasts as long as its message.
                 if this.m_confirmResetAll || this.m_confirmDelete {
                     this.m_confirmResetAll = false;
                     this.m_confirmDelete = false;
@@ -2975,7 +2975,11 @@ public class APM_PoseEditor extends IScriptable {
         }
         let resetAllButton = this.FindButton("resetall");
         if IsDefined(resetAllButton) {
-            resetAllButton.tooltip = this.m_confirmResetAll ? APM_Text("APM-Tip-ResetAllConfirm", "Click again to reset everything") : APM_Text("APM-Tip-ResetAll", "Reset everything (click twice): pose, expression and items in hand");
+            if this.m_faceMode {
+                resetAllButton.tooltip = this.m_confirmResetAll ? APM_Text("APM-Tip-ResetFaceConfirm", "Click again to reset the face") : APM_Text("APM-Tip-ResetFace", "Reset the face (click twice): the Photo Mode expression");
+            } else {
+                resetAllButton.tooltip = this.m_confirmResetAll ? APM_Text("APM-Tip-ResetBodyConfirm", "Click again to reset the body") : APM_Text("APM-Tip-ResetBody", "Reset the body (click twice): pose and items in hand (the face stays)");
+            }
             resetAllButton.isMarked = this.m_confirmResetAll;
             resetAllButton.UpdateLook();
             if this.m_confirmResetAll {
@@ -4635,10 +4639,6 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_posePage = 0;
                 this.ReloadPoses();
             }
-        } else if Equals(id, "body:reset") {
-            APM_ResetBody();
-        } else if Equals(id, "face:reset") {
-            APM_FaceReset();
         } else if Equals(id, "face:linked") {
             this.m_faceRowPage = 0;
             this.m_faceLinked = !this.m_faceLinked;
@@ -4651,9 +4651,15 @@ public class APM_PoseEditor extends IScriptable {
             if NotEquals(Equals(arg, "hands"), this.m_handLibrary) {
                 this.ShowLibrary(Equals(arg, "hands"));
             }
-        } else if Equals(id, "facezone:reset") {
+        } else if Equals(prefix, "facerowreset") {
             APM_HistoryCheckpoint();
-            APM_FaceResetZone(this.m_faceZones[this.m_faceZone]);
+            let resetRow = this.FindRow(Cast<Uint32>(StringToInt(arg)));
+            if IsDefined(resetRow) {
+                APM_FaceResetPose(Cast<Int32>(resetRow.attribute) - 7800);
+                if resetRow.pairAttribute != 0u {
+                    APM_FaceResetPose(Cast<Int32>(resetRow.pairAttribute) - 7800);
+                }
+            }
         } else if Equals(prefix, "facezone") {
             let zone = 0;
             while zone < ArraySize(this.m_faceZones) {
@@ -4688,13 +4694,18 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "partreset") {
             this.ResetPart(Cast<Int32>(APM_UiGetValue(7701u)));
         } else if Equals(id, "resetall") {
+            // The part shown: Face resets the expression, Body the pose and the items in hand.
             if this.m_confirmResetAll {
-                APM_UiSetValue(7722u, 1.0); // pose, IK, base pose and face
-                APM_SetHandProp(true, 0ul); // the hands hold the items of the Photo Mode pose again
-                APM_SetHandProp(false, 0ul);
+                if this.m_faceMode {
+                    APM_FaceReset();
+                } else {
+                    APM_ResetBody(); // pose, IK and base pose
+                    APM_SetHandProp(true, 0ul); // the hands hold the items of the Photo Mode pose again
+                    APM_SetHandProp(false, 0ul);
+                }
             } else {
                 keepResetConfirm = true;
-                this.SetStatus(APM_Text("APM-Msg-ResetAllConfirm", "Click again to reset everything (pose, expression, items in hand)"));
+                this.SetStatus(this.m_faceMode ? APM_Text("APM-Msg-ResetFaceConfirm", "Click again to reset the face (the Photo Mode expression)") : APM_Text("APM-Msg-ResetBodyConfirm", "Click again to reset the body (pose, items in hand)"));
             }
         } else if Equals(prefix, "pose") {
             let index = this.m_posePage * APM_PosesPerPage() + StringToInt(arg);

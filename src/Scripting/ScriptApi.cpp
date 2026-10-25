@@ -760,22 +760,6 @@ void FaceResetPose(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     }
 }
 
-void FaceResetZone(IScriptable*, CStackFrame* aFrame, void*, int64_t)
-{
-    CString zone;
-    RED4ext::GetParameter(aFrame, &zone);
-    aFrame->code++;
-    auto weights = APM::Pose::PoseOverrides::GetFaceWeights();
-    for (size_t i = 0; i < APM::Pose::FacePoses::Count(); ++i)
-    {
-        if (std::strcmp(APM::Pose::FacePoses::Zone(i), zone.c_str()) == 0)
-        {
-            weights[i] = APM::Pose::FaceUnset;
-        }
-    }
-    APM::Pose::PoseOverrides::SetFaceWeights(weights, APM::Pose::PoseOverrides::GetFaceName());
-}
-
 void FaceReset(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     aFrame->code++;
@@ -1561,7 +1545,6 @@ void Register()
     ::Register("APM_FaceIsLinked", &FaceIsLinked, "Bool", {});
     ::Register("APM_FaceIsEdited", &FaceIsEdited, "Bool", {{"Int32", "pose"}});
     ::Register("APM_FaceResetPose", &FaceResetPose, nullptr, {{"Int32", "pose"}});
-    ::Register("APM_FaceResetZone", &FaceResetZone, nullptr, {{"String", "zone"}});
     ::Register("APM_FaceReset", &FaceReset, nullptr, {});
     ::Register("APM_FaceGetLoadedName", &FaceGetLoadedName, "String", {});
     ::Register("APM_FaceReloadList", &FaceReloadList, nullptr, {});

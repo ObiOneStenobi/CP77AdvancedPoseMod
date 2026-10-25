@@ -90,7 +90,13 @@ struct TrackMap
 {
     uint32_t trackCount = 0;
     std::vector<int32_t> tracks;
+    std::array<std::array<int32_t, 4>, 2> gaze{}; // eye_<l|r>_dir_<up|dn|in|out> (-1: missing)
 };
+
+// Gaze tracks at 1: the eye turned by about this much (probe 25/10, game 2.31; the same limits as the eye bones).
+constexpr float GazeUpDegrees = 21.f;
+constexpr float GazeDownDegrees = 30.f;
+constexpr float GazeSideDegrees = 40.f;
 std::shared_mutex g_trackMapMutex;
 std::unordered_map<uint64_t, std::shared_ptr<const TrackMap>> g_trackMaps;
 
@@ -108,6 +114,63 @@ struct GameExpression
 };
 std::array<GameExpression, APM::Pose::Characters::Count> g_gameExpressions{};
 std::array<std::atomic<bool>, APM::Pose::Characters::Count> g_characterMale{};
+// Editor gaze per character (see SetGaze), and when the solver last took it.
+struct Gaze
+{
+    bool active = false;
+    std::array<APM::Math::Vec3, 2> turns{};
+    uint64_t takenAt = 0;
+};
+std::array<Gaze, APM::Pose::Characters::Count> g_gazes{};
+
+// Whether a face's solver result reaches its final pose (see OnSolverInput), by animated component.
+struct SolverCheck
+{
+    std::vector<int32_t> watched; // face rig bones the poses move
+    std::vector<RED4ext::QsTransform> input;
+    std::vector<RED4ext::QsTransform> output;
+    bool active = false; // a pose track is up in this frame
+    bool moved = false;  // the solver moved the watched bones
+    bool hasOutput = false;
+    uint32_t badFrames = 0;
+    bool confirmed = false; // seen working
+    bool ignored = false;   // posed on the bones from now on
+};
+std::mutex g_checkMutex;
+std::unordered_map<uintptr_t, SolverCheck> g_checks;
+constexpr float CheckActivity = 0.2f; // pose track needed to judge a frame
+constexpr float MovedDegrees = 0.5f;
+constexpr float MovedMeters = 0.0005f;
+constexpr float SameDegrees = 3.f; // later nodes may still touch the face a little
+constexpr float SameMeters = 0.002f;
+constexpr uint32_t BadFramesToIgnore = 30;
+
+bool IsIgnoredFace(uintptr_t aComponent)
+{
+    std::scoped_lock lock(g_checkMutex);
+    const auto it = g_checks.find(aComponent);
+    return it != g_checks.end() && it->second.ignored;
+}
+
+// Largest difference between two sets of bones (degrees, meters).
+std::pair<float, float> Difference(const RED4ext::QsTransform* aA, const RED4ext::QsTransform* aB, size_t aCount)
+{
+    float degrees = 0.f;
+    float meters = 0.f;
+    for (size_t i = 0; i < aCount; ++i)
+    {
+        const auto& a = aA[i];
+        const auto& b = aB[i];
+        const float dot = std::fabs(a.Rotation.i * b.Rotation.i + a.Rotation.j * b.Rotation.j +
+                                    a.Rotation.k * b.Rotation.k + a.Rotation.r * b.Rotation.r);
+        degrees = std::max(degrees, 2.f * std::acos(std::min(dot, 1.f)) * 57.29578f);
+        const float dx = a.Translation.X - b.Translation.X;
+        const float dy = a.Translation.Y - b.Translation.Y;
+        const float dz = a.Translation.Z - b.Translation.Z;
+        meters = std::max(meters, std::sqrt(dx * dx + dy * dy + dz * dz));
+    }
+    return {degrees, meters};
+}
 constexpr uint64_t SolverFaceTimeout = 1000;
 constexpr uint64_t ExpressionSettleMs = 500; // after a change in the menu, before the new expression is read
 constexpr float MaxLoadedValue = 4.f;        // values of a saved expression (other mods' expressions go above 1)
@@ -316,6 +379,24 @@ std::shared_ptr<const TrackMap> TrackMapFor(uint64_t aRig, const RED4ext::CName*
             missingNames += " " + pose.name;
         }
     }
+    static constexpr const char* GazeNames[2][4] = {
+        {"eye_l_dir_up", "eye_l_dir_dn", "eye_l_dir_in", "eye_l_dir_out"},
+        {"eye_r_dir_up", "eye_r_dir_dn", "eye_r_dir_in", "eye_r_dir_out"}};
+    for (int e = 0; e < 2; ++e)
+    {
+        for (int d = 0; d < 4; ++d)
+        {
+            const uint64_t hash = RED4ext::CName(GazeNames[e][d]).hash;
+            map->gaze[e][d] = -1;
+            for (uint32_t i = 0; i < aCount; ++i)
+            {
+                if (aNames[i].hash == hash)
+                {
+                    map->gaze[e][d] = static_cast<int32_t>(i);
+                }
+            }
+        }
+    }
     APM::Log::Info("Face poses: face rig %016llx with %u tracks, %zu of %zu poses found%s%s",
                    static_cast<unsigned long long>(aRig), aCount, g_data.poses.size() - missing, g_data.poses.size(),
                    missing > 0 ? " (on the bones:" : "", missing > 0 ? (missingNames + ")").c_str() : "");
@@ -414,12 +495,12 @@ int32_t Find(const std::string& aName)
     return -1;
 }
 
-void ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const RED4ext::CName* aNames, uint32_t aNameCount,
-                 const OverrideSnapshot& aPose, bool aApply)
+float ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const RED4ext::CName* aNames, uint32_t aNameCount,
+                  const OverrideSnapshot& aPose, bool aApply)
 {
-    if (!IsAvailable() || !aTracks || !aNames)
+    if (!IsAvailable() || !aTracks || !aNames || IsIgnoredFace(aTarget.animatedComponent))
     {
-        return;
+        return 0.f;
     }
     const auto map = TrackMapFor(aTarget.rig, aNames, std::min(aNameCount, aCount));
     const size_t poseCount = std::min({g_data.poses.size(), MaxFacePoses, map->tracks.size()});
@@ -444,17 +525,172 @@ void ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const R
             }
         }
     }
-    if (!aApply || !AnyFaceWeight(aPose.faceWeights))
+    if (aApply && aTarget.photoModeSlot < Characters::Count)
     {
-        return;
+        Gaze gaze;
+        {
+            std::scoped_lock lock(g_solverMutex);
+            gaze = g_gazes[aTarget.photoModeSlot];
+        }
+        if (gaze.active && map->gaze[0][0] >= 0)
+        {
+            for (int e = 0; e < 2; ++e)
+            {
+                // Sideways: + turns the left eye out and the right eye in (towards the character's left).
+                const float pitch = gaze.turns[e].z;
+                const float side = gaze.turns[e].x;
+                const float out = e == 0 ? side : -side;
+                const float values[4] = {std::clamp(pitch / GazeUpDegrees, 0.f, 1.f),
+                                         std::clamp(-pitch / GazeDownDegrees, 0.f, 1.f),
+                                         std::clamp(-out / GazeSideDegrees, 0.f, 1.f),
+                                         std::clamp(out / GazeSideDegrees, 0.f, 1.f)};
+                for (int d = 0; d < 4; ++d)
+                {
+                    const int32_t track = map->gaze[e][d];
+                    if (track >= 0 && static_cast<uint32_t>(track) < aCount)
+                    {
+                        aTracks[track] = values[d];
+                    }
+                }
+            }
+            std::scoped_lock lock(g_solverMutex);
+            g_gazes[aTarget.photoModeSlot].takenAt = NowMs();
+        }
     }
+    if (aApply && AnyFaceWeight(aPose.faceWeights))
+    {
+        for (size_t p = 0; p < poseCount; ++p)
+        {
+            const int32_t track = map->tracks[p];
+            if (track >= 0 && aPose.faceWeights[p] >= 0.f)
+            {
+                aTracks[track] = aPose.faceWeights[p];
+            }
+        }
+    }
+    float highest = 0.f;
     for (size_t p = 0; p < poseCount; ++p)
     {
         const int32_t track = map->tracks[p];
-        if (track >= 0 && aPose.faceWeights[p] >= 0.f)
+        if (track >= 0 && std::isfinite(aTracks[track]))
         {
-            aTracks[track] = aPose.faceWeights[p];
+            highest = std::max(highest, aTracks[track]);
         }
+    }
+    return highest;
+}
+
+void OnSolverInput(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, float aActivity)
+{
+    if (!aBones || !IsAvailable())
+    {
+        return;
+    }
+    std::scoped_lock lock(g_checkMutex);
+    auto& check = g_checks[aTarget.animatedComponent];
+    check.active = false;
+    check.hasOutput = false;
+    if (check.ignored || check.confirmed || aActivity < CheckActivity)
+    {
+        return;
+    }
+    if (check.watched.empty())
+    {
+        if (const Head* head = HeadFor(aTarget))
+        {
+            for (const int32_t bone : MapFor(aTarget, *head)->indices)
+            {
+                if (bone >= 0)
+                {
+                    check.watched.push_back(bone);
+                }
+            }
+        }
+    }
+    check.input.resize(check.watched.size());
+    for (size_t i = 0; i < check.watched.size(); ++i)
+    {
+        if (static_cast<uint32_t>(check.watched[i]) >= aCount)
+        {
+            return;
+        }
+        check.input[i] = aBones[check.watched[i]];
+    }
+    check.active = !check.watched.empty();
+}
+
+void OnSolverOutput(uintptr_t aComponent, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    if (!aBones)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_checkMutex);
+    const auto it = g_checks.find(aComponent);
+    if (it == g_checks.end() || !it->second.active)
+    {
+        return;
+    }
+    auto& check = it->second;
+    check.output.resize(check.watched.size());
+    for (size_t i = 0; i < check.watched.size(); ++i)
+    {
+        if (static_cast<uint32_t>(check.watched[i]) >= aCount)
+        {
+            check.active = false;
+            return;
+        }
+        check.output[i] = aBones[check.watched[i]];
+    }
+    const auto [degrees, meters] = Difference(check.input.data(), check.output.data(), check.watched.size());
+    check.moved = degrees > MovedDegrees || meters > MovedMeters;
+    check.hasOutput = true;
+}
+
+void OnFinalFace(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    {
+        std::scoped_lock lock(g_checkMutex);
+        const auto it = g_checks.find(aTarget.animatedComponent);
+        if (it == g_checks.end() || !it->second.active || !it->second.hasOutput)
+        {
+            return;
+        }
+        auto& check = it->second;
+        check.active = false;
+        thread_local std::vector<RED4ext::QsTransform> final;
+        final.resize(check.watched.size());
+        for (size_t i = 0; i < check.watched.size(); ++i)
+        {
+            if (static_cast<uint32_t>(check.watched[i]) >= aCount)
+            {
+                return;
+            }
+            final[i] = aBones[check.watched[i]];
+        }
+        const auto [degrees, meters] = Difference(check.output.data(), final.data(), final.size());
+        if (check.moved && degrees < SameDegrees && meters < SameMeters)
+        {
+            check.confirmed = true;
+            Log::Info("Face poses: character %u: the facial solver poses the face", aTarget.photoModeSlot);
+            return;
+        }
+        if (++check.badFrames < BadFramesToIgnore)
+        {
+            return;
+        }
+        check.ignored = true;
+        Log::Info("Face poses: character %u: the face ignores the facial solver (%s, %.1f degrees / %.1f mm from its "
+                  "result), posed on the bones",
+                  aTarget.photoModeSlot, check.moved ? "its result is replaced later" : "it does not move the face",
+                  degrees, meters * 1000.f);
+    }
+    std::scoped_lock solverLock(g_solverMutex);
+    g_solverFaces.erase(aTarget.animatedComponent);
+    if (aTarget.photoModeSlot < Characters::Count)
+    {
+        g_gameExpressions[aTarget.photoModeSlot].known = false;
+        g_gameExpressions[aTarget.photoModeSlot].values = {};
     }
 }
 
@@ -488,6 +724,7 @@ void OnExpressionChanged(uint32_t aCharacter, int32_t aExpression)
     {
         return;
     }
+    FaceWeights before{}; // the expression it showed, for the undo step
     {
         std::scoped_lock lock(g_solverMutex);
         auto& expression = g_gameExpressions[aCharacter];
@@ -498,10 +735,11 @@ void OnExpressionChanged(uint32_t aCharacter, int32_t aExpression)
         expression.menuIndex = aExpression;
         if (expression.known)
         {
+            before = expression.values;
             expression.captureAt = NowMs() + ExpressionSettleMs;
         }
     }
-    if (PoseOverrides::ResetFaceOf(aCharacter))
+    if (PoseOverrides::ResetFaceOf(aCharacter, before))
     {
         Log::Info("Expression: character %u changed expression in the menu, face edits reset", aCharacter);
     }
@@ -515,16 +753,51 @@ void ResetCharacter(uint32_t aCharacter)
     }
     std::scoped_lock lock(g_solverMutex);
     g_gameExpressions[aCharacter] = {};
+    g_gazes[aCharacter] = {};
     g_characterMale[aCharacter] = false;
 }
 
 void ResetSession()
 {
+    {
+        std::scoped_lock checkLock(g_checkMutex);
+        g_checks.clear();
+    }
     std::scoped_lock lock(g_solverMutex);
     for (auto& expression : g_gameExpressions)
     {
         expression = {};
     }
+    for (auto& gaze : g_gazes)
+    {
+        gaze = {};
+    }
+}
+
+void SetGaze(uint32_t aCharacter, bool aActive, const std::array<Math::Vec3, 2>& aTurns)
+{
+    if (aCharacter >= Characters::Count)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_solverMutex);
+    auto& gaze = g_gazes[aCharacter];
+    gaze.active = aActive;
+    if (aActive)
+    {
+        gaze.turns = aTurns;
+    }
+}
+
+bool SolverTakesGaze(const Target& aTarget)
+{
+    if (aTarget.photoModeSlot >= Characters::Count || !IsSolverFace(aTarget.animatedComponent))
+    {
+        return false;
+    }
+    std::scoped_lock lock(g_solverMutex);
+    const auto& gaze = g_gazes[aTarget.photoModeSlot];
+    return gaze.active && NowMs() - gaze.takenAt < SolverFaceTimeout;
 }
 
 void SetCharacterMale(uint32_t aCharacter, bool aMale)

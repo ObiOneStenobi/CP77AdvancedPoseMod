@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Math/Vec3.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/CName.hpp>
 #include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -40,8 +42,16 @@ int32_t Find(const std::string& aName);
 // Face rig, every frame, before the solver: the character's set values into its face tracks (aNames: the rig's track
 // names); aApply false (pose off) only reads the Photo Mode expression. Afterwards Apply only adds the poses that rig
 // has no track for.
-void ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const RED4ext::CName* aNames, uint32_t aNameCount,
-                 const OverrideSnapshot& aPose, bool aApply);
+// Returns the highest face pose track after the edits (0 for a face that ignores the solver, see OnSolverInput).
+float ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const RED4ext::CName* aNames, uint32_t aNameCount,
+                  const OverrideSnapshot& aPose, bool aApply);
+// Some faces ignore the solver (Johnny Silverhand: the tracks reach it, the face does not change; also the NPC page
+// expressions of most added characters): their face rig bones before the solver (aActivity: the highest pose track),
+// after it, and at the end of the graph are compared while a pose track is up. A face whose solver does not move the
+// bones, or whose final bones are not the solver's, is posed on the bones from then on (until Photo Mode closes).
+void OnSolverInput(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, float aActivity);
+void OnSolverOutput(uintptr_t aComponent, const RED4ext::QsTransform* aBones, uint32_t aCount);
+void OnFinalFace(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount);
 // Face rig, every frame, after the graph: the set poses as bone deltas (fallback, see above).
 void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, const OverrideSnapshot& aPose);
 
@@ -58,6 +68,12 @@ bool IsEdited(size_t aPose);
 void OnExpressionChanged(uint32_t aCharacter, int32_t aExpression);
 void ResetCharacter(uint32_t aCharacter);
 void ResetSession();
+// Eyes turned by the editor (eye markers, eyes aimed at the camera): their turn from the reference (degrees, see
+// EyelidFollow::EyeTurns) goes into the gaze tracks (eye_<l|r>_dir_<up|dn|in|out>) before the solver, which then turns
+// the eyes and moves the eyelids as the game's own gaze does. aActive false: the gaze tracks stay the game's.
+void SetGaze(uint32_t aCharacter, bool aActive, const std::array<Math::Vec3, 2>& aTurns);
+// The solver took this face's gaze from the editor in the last frames (the eyelids then need no EyelidFollow).
+bool SolverTakesGaze(const Target& aTarget);
 // Male character (pma head for the bone fallback): male V, or an added character the game reports as male.
 void SetCharacterMale(uint32_t aCharacter, bool aMale);
 

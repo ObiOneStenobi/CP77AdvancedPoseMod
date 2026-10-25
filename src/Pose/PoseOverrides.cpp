@@ -767,7 +767,7 @@ void ResetFace()
     PublishLocked();
 }
 
-bool ResetFaceOf(uint32_t aCharacter)
+bool ResetFaceOf(uint32_t aCharacter, const FaceWeights& aShown)
 {
     if (aCharacter >= Characters::Count)
     {
@@ -778,6 +778,13 @@ bool ResetFaceOf(uint32_t aCharacter)
     if (!AnyFaceWeight(state.faceWeights) && state.faceName.empty())
     {
         return false;
+    }
+    for (size_t p = 0; p < MaxFacePoses; ++p)
+    {
+        if (state.faceWeights[p] < 0.f)
+        {
+            state.faceWeights[p] = aShown[p];
+        }
     }
     CheckpointLocked(state);
     state.faceWeights = UnsetFaceWeights();

@@ -145,6 +145,21 @@ bool ReadEyes(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_
     return true;
 }
 
+bool EyeTurns(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, std::array<Math::Vec3, 2>& aOut)
+{
+    const RigBones rig = Resolve(aTarget);
+    for (int e = 0; e < 2; ++e)
+    {
+        const int32_t eye = rig.eyes[e];
+        if (eye < 0 || static_cast<uint32_t>(eye) >= aCount || static_cast<size_t>(eye) >= aTarget.refRotationsLS.size())
+        {
+            return false;
+        }
+        aOut[e] = TurnDegrees(Rotation(aBones[eye]), aTarget.refRotationsLS[eye]);
+    }
+    return true;
+}
+
 std::atomic<bool> g_probe{false};
 struct EyeProbe
 {

@@ -595,6 +595,29 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     g_cameraEyesValid[character] = ok;
 }
 
+// Eyes turned by the editor rather than by the game: an eye edit (not paused by the game's Look at camera), or the eyes
+// aimed at the camera over a full pose.
+bool EyesEditedByUs(const APM::Pose::Target& aTarget, const APM::Pose::OverrideSnapshot& aPose)
+{
+    const size_t character = CharacterOf(aTarget);
+    {
+        std::scoped_lock lock(g_cameraEyeMutex);
+        if (g_cameraEyesValid[character] && APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) >= 2 &&
+            APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
+        {
+            return true;
+        }
+    }
+    for (const auto& bone : aPose.bones)
+    {
+        if (bone.hasRotation && IsEyeBone(bone.boneHash) && !IsLookAtBone(character, bone.boneHash))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // The face rig's eyeballs follow the camera-aimed eyes of the main skeleton.
 void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
@@ -857,6 +880,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     const bool eyes = face && APM::Pose::EyelidFollow::ReadEyes(aTarget, aBones, aCount, gameEyes);
     if (face)
     {
+        APM::Pose::FacePoses::OnFinalFace(aTarget, aBones, aCount);
         LogEyesOnce(aTarget, aBones, aCount);
         if (eyes)
         {
@@ -866,9 +890,17 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
-    if (eyes)
+    if (face)
     {
-        // The eyelids follow our gaze as the game would make them follow its own.
+        // Eyes turned by the editor: their turn goes to the solver's gaze tracks for the next frame.
+        std::array<Vec3, 2> turns{};
+        const bool edited = EyesEditedByUs(aTarget, aPose) && APM::Pose::EyelidFollow::EyeTurns(aTarget, aBones, aCount, turns);
+        APM::Pose::FacePoses::SetGaze(aTarget.photoModeSlot, edited, turns);
+    }
+    if (eyes && !APM::Pose::FacePoses::SolverTakesGaze(aTarget))
+    {
+        // The eyelids follow our gaze as the game would make them follow its own (the solver does it when it takes
+        // the gaze from the tracks).
         APM::Pose::EyelidFollow::Apply(aTarget, aBones, aCount, gameEyes);
     }
 }

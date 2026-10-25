@@ -113,14 +113,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-GizmoRotate", "Rotate (Ctrl+3): rings on the selected part. Markers only select");
         this.Text("APM-Tip-AxesLocal", "Axes (Ctrl+4): Local, the part's own (they turn with it). Click for Global");
         this.Text("APM-Tip-AxesGlobal", "Axes (Ctrl+4): Global, the character's (fixed). Click for Local");
-        this.Text("APM-Tip-ResetAll", "Reset everything (click twice): pose, expression and items in hand");
         this.Text("APM-Button-ModeBody", "Body");
         this.Text("APM-Tip-ModeBody", "Pose the body: parts, IK, poses, items");
         this.Text("APM-Button-ModeFace", "Face");
         this.Text("APM-Tip-ModeFace", "Expression editor: the Photo Mode expression, pose by pose");
-        this.Text("APM-Title-Body", "Body");
-        this.Text("APM-Button-ResetBody", "Reset body");
-        this.Text("APM-Tip-BodyReset", "Reset the body: parts, IK and pose (the face stays)");
         this.Text("APM-Button-Reset", "Reset");
         this.Text("APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
         this.Text("APM-Button-EyesBoth", "Both");
@@ -166,12 +162,9 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Label-LeftHand", "Left");
         this.Text("APM-Tip-ItemClearLeft", "Empty the left hand");
         this.Text("APM-Title-Face", "Face");
-        this.Text("APM-Button-ResetFace", "Reset face");
-        this.Text("APM-Tip-FaceReset", "Reset the face: the Photo Mode expression as it is");
         this.Text("APM-Button-FaceLinked", "L+R");
         this.Text("APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         this.Text("APM-Msg-FaceDataMissing", "Face data not found: reinstall the mod (red4ext\\plugins\\AdvancedPoseMod\\face)");
-        this.Text("APM-Button-ResetZone", "Reset zone");
         this.Text("APM-Picker-All", "All");
         this.Text("APM-Picker-Weapons", "Weapons");
         this.Text("APM-Picker-Food", "Food");
@@ -199,6 +192,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Help-KeyGizmoAxes", "Ctrl + 4");
         this.Text("APM-Help-GizmoAxes", "axes: the part's own / the character's");
         this.Text("APM-Label-Root", "V's root (Photo Mode position)");
+        this.Text("APM-Tip-FaceRowReset", "Back to the value of the Photo Mode expression");
         this.Text("APM-Label-EditedExpression", "- edited Photo Mode expression");
         this.Text("APM-Label-PhotoModeExpression", "- Photo Mode expression");
         this.Text("APM-Button-TPose", "T pose");
@@ -217,7 +211,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Button-PoseOn", "Pose on");
         this.Text("APM-PartShort-Eyes", "Eyes");
         this.Text("APM-Row-FocusDistance", "Focus distance");
-        this.Text("APM-Tip-ResetAllConfirm", "Click again to reset everything");
+        this.Text("APM-Tip-ResetFaceConfirm", "Click again to reset the face");
+        this.Text("APM-Tip-ResetFace", "Reset the face (click twice): the Photo Mode expression");
+        this.Text("APM-Tip-ResetBodyConfirm", "Click again to reset the body");
+        this.Text("APM-Tip-ResetBody", "Reset the body (click twice): pose and items in hand (the face stays)");
         this.Text("APM-Title-Expressions", "Expressions");
         this.Text("APM-Label-HandPoseLeft", "left hand");
         this.Text("APM-Label-HandPoseRight", "right hand");
@@ -238,7 +235,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Mode-Look", "look");
         this.Text("APM-Mode-FreeRotate", "free rotate");
         this.Text("APM-Mode-Rotate", "rotate");
-        this.Text("APM-Msg-ResetAllConfirm", "Click again to reset everything (pose, expression, items in hand)");
+        this.Text("APM-Msg-ResetFaceConfirm", "Click again to reset the face (the Photo Mode expression)");
+        this.Text("APM-Msg-ResetBodyConfirm", "Click again to reset the body (pose, items in hand)");
         this.Text("APM-Msg-PoseSaveFailed", "Could not save the pose");
         this.Text("APM-Msg-ExpressionSaveFailed", "Could not save the expression");
         this.Text("APM-Msg-PoseLoadFailed", "Could not load {0}");

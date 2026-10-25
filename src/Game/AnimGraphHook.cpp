@@ -733,6 +733,7 @@ std::unordered_map<uintptr_t, FakeVtable*> g_fakeVtablesByCopy;            // by
 
 thread_local Sample_t t_faceInputSample = nullptr; // original Sample of the input node being sampled for Sermo
 thread_local void* t_faceInputNode = nullptr;
+thread_local uintptr_t t_solverComponent = 0; // face whose solver input was checked (Pose/FacePoses OnSolverInput)
 
 std::atomic<bool> g_sermoFirstLogged{false};
 std::atomic<bool> g_faceProbe{false}; // [Probe] FaceTracks
@@ -819,8 +820,19 @@ void OnFaceTracks(void* aContext, SampleOutput* aOut)
         if (named > 0)
         {
             const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
-            APM::Pose::FacePoses::ApplyTracks(aTarget, tracks, trackCount, rig.trackNames, named, *snapshot,
-                                              APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot));
+            const float activity = APM::Pose::FacePoses::ApplyTracks(
+                aTarget, tracks, trackCount, rig.trackNames, named, *snapshot,
+                APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot));
+            uint32_t boneCount = 0;
+            uint64_t bonesAddress = 0;
+            if (APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount) &&
+                APM::SafeMemory::ReadU64(aOut->pose + PoseBones, bonesAddress) && boneCount == aTarget.boneNames.size() &&
+                APM::SafeMemory::LooksLikePointer(bonesAddress))
+            {
+                APM::Pose::FacePoses::OnSolverInput(aTarget, reinterpret_cast<const RED4ext::QsTransform*>(bonesAddress),
+                                                    boneCount, activity);
+                t_solverComponent = aTarget.animatedComponent;
+            }
         }
         if (!probe)
         {
@@ -954,11 +966,26 @@ void Detour_SermoSample(void* aNode, void* aContext, void* a3, SampleOutput* aOu
     void* const previousNode = t_faceInputNode;
     t_faceInputSample = fake->originalSample;
     t_faceInputNode = reinterpret_cast<void*>(input);
+    t_solverComponent = 0;
     InterlockedExchange64(object, copy);
     g_origSermoSample(aNode, aContext, a3, aOut);
     InterlockedCompareExchange64(object, original, copy);
     t_faceInputSample = previousSample;
     t_faceInputNode = previousNode;
+    if (t_solverComponent != 0 && aOut && aOut->pose)
+    {
+        // The solver's result, compared at the end of the graph with the face's final bones.
+        uint32_t boneCount = 0;
+        uint64_t bonesAddress = 0;
+        if (APM::SafeMemory::ReadU32(aOut->pose + PoseBoneCount, boneCount) &&
+            APM::SafeMemory::ReadU64(aOut->pose + PoseBones, bonesAddress) && boneCount > 0 && boneCount <= MaxBones &&
+            APM::SafeMemory::LooksLikePointer(bonesAddress))
+        {
+            APM::Pose::FacePoses::OnSolverOutput(t_solverComponent,
+                                                 reinterpret_cast<const RED4ext::QsTransform*>(bonesAddress), boneCount);
+        }
+        t_solverComponent = 0;
+    }
 }
 
 uintptr_t ResolveNodeVtable(const char* aClass)

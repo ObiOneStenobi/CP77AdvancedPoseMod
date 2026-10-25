@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Quat.hpp"
+#include "Math/Vec3.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/Scripting/Natives/Generated/QsTransform.hpp>
@@ -24,6 +25,9 @@ void ResetSession();
 // Eye bones of the face rig as the game animated them (before our edits): [left, right]. False if the rig has none.
 bool ReadEyes(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount,
               std::array<Math::Quat, 2>& aOut);
+
+// Turn of each face rig eye from its reference (degrees, in the parent's space: x sideways, z up / down).
+bool EyeTurns(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, std::array<Math::Vec3, 2>& aOut);
 
 // [Probe] FaceTracks: logs the eyes as the game posed them (after the facial solver), when they turn, with the gaze
 // tracks (eye_*_dir_*) the probe logs before the solver.

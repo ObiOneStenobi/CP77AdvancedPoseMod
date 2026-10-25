@@ -132,7 +132,6 @@ public native func APM_FaceIsLinked() -> Bool
 public native func APM_FaceIsEdited(pose: Int32) -> Bool
 // Resets give the Photo Mode values back
 public native func APM_FaceResetPose(pose: Int32)
-public native func APM_FaceResetZone(zone: String)
 public native func APM_FaceReset()
 public native func APM_FaceGetLoadedName() -> String
 public native func APM_FaceReloadList()

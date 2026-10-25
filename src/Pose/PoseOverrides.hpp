@@ -181,8 +181,9 @@ void SetFaceWeights(const FaceWeights& aWeights, const std::string& aName);
 std::string GetFaceName();
 // Values and loaded expression name cleared.
 void ResetFace();
-// The same for one character whose Photo Mode expression changed (undo kept). False if it had no face edits.
-bool ResetFaceOf(uint32_t aCharacter);
+// The same for one character whose Photo Mode expression changed. The undo step gives back the whole face it showed
+// (aShown: the previous expression's values, for the poses it had not set). False if it had no face edits.
+bool ResetFaceOf(uint32_t aCharacter, const FaceWeights& aShown);
 
 // Items held in the hands (TweakDB record ids as numbers, 0 = none); saved with poses.
 void SetHandProp(bool aRightHand, uint64_t aRecord);

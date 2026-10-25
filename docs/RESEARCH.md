@@ -299,8 +299,13 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
   control tracks (`faceEnvelope`, `jaliJaw`, `*AnimOverrideWeight`, some at 2.00 in mod expressions) are not
   touched. Poses a rig has no track for go on the bones (pwa / pma head by the character's gender:
   `gamePuppet.GetResolvedGenderName` for added characters); the bone deltas also stay the fallback without the solver.
-- Gaze tracks: `eye_*_dir_{up,dn,in,out}` are non-zero in Photo Mode (log 24/10: dn 0.04, up up to 0.19, in / out up
-  to 0.04). To measure (probe 25/10): what they do to the eye and eyelid bones after the solver
-  (`FaceProbe: character N eyes after the solver` with `FaceTrack=eye_l_dir_dn`, `FaceTrackWeight=0.5` / `1`), and
-  whether Look at camera moves the eyes through them or after the solver.
+- Gaze tracks `eye_<l|r>_dir_<up|dn|in|out>` (probe 25/10, game 2.31): the solver turns the eye and moves its eyelids
+  from them, linearly: at 1 about 30 degrees down, 21 up, 40 sideways (the eye bones' limits); `eye_l_dir_dn` 0.5 ->
+  left eye 15.3 degrees down. Sideways: the left eye's `in` with the right eye's `out` turn both to the character's
+  right (negative x of the turn vector). Photo Mode's Look at camera drives the eyes through these tracks (values up to
+  1). 1.4.0 writes the editor's eye turn into them (one frame late) and skips EyelidFollow for those faces.
+- Some faces ignore the solver: Johnny Silverhand (added character; the game reports him as "Female") has all 414
+  tracks and receives the edited values, but his face does not change, like the NPC page expressions on most added
+  characters. 1.4.0 compares the face rig bones before / after the solver and at the end of the graph while a pose
+  track is at least 0.2; 30 frames without the solver's result reaching the end -> bone fallback for that face.
 

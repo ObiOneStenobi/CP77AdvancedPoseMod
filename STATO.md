@@ -230,16 +230,28 @@ Aggiornato: 2026-10-25
 - Sonda occhi: con [Probe] FaceTracks=1 log "FaceProbe: character N eyes after the solver" (gradi, quando cambiano
   di 0,5°, max 2 al secondo), insieme alle tracce non nulle (eye_*_dir_*) già loggate.
 
+## Test 25/10 mattina (log advancedposemod-2026-10-25-10-45-19) e modifiche dopo
+- Sonda occhi: le tracce eye_*_dir_* muovono occhi e palpebre (lineari: 1 = 30° giù, 21° su, 40° di lato; dn 0,5 ->
+  15,3°); Guarda la camera usa le stesse tracce. FATTO: lo sguardo del gizmo / occhi verso la camera va nelle tracce
+  (FacePoses::SetGaze da ProcessSecondarySkeleton, un frame dopo; EyesEditedByUs), EyelidFollow saltato per quei visi
+  (SolverTakesGaze).
+- Johnny = personaggio 1 (genere letto "Female": non affidabile, resta pwa); tracce ricevute (lips_l_corner_up 1.00)
+  ma viso fermo. FATTO: controllo automatico per viso (OnSolverInput / OnSolverOutput / OnFinalFace: ossa delle pose
+  prima e dopo il risolutore e a fine grafo, con una traccia >= 0,2; 30 frame senza risultato -> ossa per quel viso,
+  log "the face ignores the facial solver").
+- UI: tolti Reset body / Reset face dalle intestazioni (e l'intestazione Body); il cestino resetta la parte aperta
+  (Body: posa + oggetti in mano, Face: viso), doppio clic; tolto Reset zone (e APM_FaceResetZone); nelle righe del
+  viso il pulsante 0 è un'icona reset (valore di Photo Mode, anche la posa opposta delle righe bipolari); pagine
+  < n/N > (sinistra, centro, destra).
+- Cambio espressione nel menu: l'undo (solo se c'erano modifiche) ridà il viso intero di prima. Niente messaggi.
+- Altri NPC provati: espressioni già funzionanti.
+
 ## Da provare in gioco (2.31)
-- Palpebre / sguardo, fase A: config.ini del gioco [Probe] FaceTracks=1, FaceTrack=eye_l_dir_dn, FaceTrackWeight=0.5
-  (poi 1, poi eye_l_dir_up / in / out); occhi dritti, Guarda la camera spenta; poi Guarda la camera sugli occhi muovendo
-  la camera. Mandare il log: decide la fase B (direzione nelle tracce eye_*_dir_* oppure riserva EyelidFollow neutra
-  con zona palpebre modificata).
-- Johnny: con FaceTracks=1 il log dice quali pose del suo rig vanno sulle ossa e il genere letto; verificare se gli
-  slider che "non facevano niente" ora si muovono.
-- Viso: slider = espressione attuale, pallino, reset, cambio espressione nel menu (V e NPC) con undo, espressioni
-  salvate intere, valori >100 delle mod.
-- Verificare con Debug Log=1 se l'attributo 56 arriva anche selezionando un NPC (non solo cambiando espressione).
+- Johnny: muovere una riga (>= 20) -> nel log "ignores the facial solver" e il viso cambia sulle ossa; gli altri NPC e
+  V devono dare "the facial solver poses the face" (se un viso normale finisce sulle ossa per errore: soglie in
+  FacePoses.cpp SameDegrees / SameMeters).
+- Sguardo: girare gli occhi col marker -> palpebre come nel gioco; con Guarda la camera nessun cambiamento.
+- Cestino in Body e in Face, reset per riga (anche bipolari e L+R), pagine.
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
