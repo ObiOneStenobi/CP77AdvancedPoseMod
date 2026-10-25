@@ -282,7 +282,10 @@ Aggiornato: 2026-10-25
   salvataggio si carica, AdvancedPoseMod 1.4.0 FUNZIONA sulla 2.5 (log senza errori/avvisi, script ok, Photo Mode,
   rig 71/181/56/344 ossa, viso 93/93 pose e solver, sguardo). Non salvare in quel profilo. Il profilo completo
   resta per la 2.31 (ramo beta, mod 2.31, DLL dist231, deploy REDmod).
-- Prossimo: test completo sulla 2.5 (lista sotto), poi veicoli (RESEARCH.md); release 1.4.0 su Nexus.
+- Test dell'utente sulla 2.5: funziona tutto. Veicoli rimandati alla release successiva.
+- Release 1.4.0 preparata: release\AdvancedPoseMod-1.4.0.zip (2.5) e AdvancedPoseMod-1.4.0-game2.31.zip (2.31),
+  changelog in release\CHANGELOG-1.4.0.md; README (requisiti per versione, build 2.31). Pubblicazione su Nexus e
+  GitHub a cura dell'utente.
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.

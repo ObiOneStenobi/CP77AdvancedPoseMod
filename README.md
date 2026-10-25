@@ -9,16 +9,23 @@ and shared.
 ## Download
 
 - [Nexus Mods](https://www.nexusmods.com/cyberpunk2077/mods/35013)
-- [GitHub Releases](https://github.com/ObiOneStenobi/CP77AdvancedPoseMod/releases): `AdvancedPoseMod-<version>.zip`
+- [GitHub Releases](https://github.com/ObiOneStenobi/CP77AdvancedPoseMod/releases)
 
-Install with Vortex, or extract the zip into the game folder (the one containing `bin`).
+Two files with the same features, one per game version:
+
+- `AdvancedPoseMod-<version>.zip`: game 2.5
+- `AdvancedPoseMod-<version>-game2.31.zip`: game 2.31, for setups whose other mods are not updated to 2.5 yet
+
+Install with Vortex, or extract the zip into the game folder (the one containing `bin`). Each file loads only on its
+own game version.
 
 ## Requirements
 
-- Cyberpunk 2077 2.5 (PC); for 2.31 use AdvancedPoseMod 1.3.0
-- [RED4ext](https://docs.red4ext.com) with 2.5 support
+- Cyberpunk 2077 2.5 or 2.31 (PC), with the matching file
+- [RED4ext](https://docs.red4ext.com) for that game version (2.5: 1.31 or later; 2.31: 1.30)
 - [redscript](https://github.com/jac3km4/redscript)
-- [Codeware](https://github.com/psiberx/cp2077-codeware) (interface translations)
+- [Codeware](https://github.com/psiberx/cp2077-codeware) for that game version (2.5: 1.21 or later; 2.31: 1.20)
+  (interface translations)
 
 Windows only so far: Linux / Steam Deck (Proton) has not been tested.
 Any screen shape is supported (16:9, 16:10, ultrawide 21:9 / 32:9): the gizmos follow the game window's size.
@@ -39,6 +46,13 @@ Command line alternative (Developer PowerShell for VS 2022):
 ```powershell
 cmake --preset vs2022
 cmake --build --preset release
+```
+
+The game 2.31 build uses the same sources with the older RED4ext.SDK (`APM_GAME_231`):
+
+```powershell
+cmake --preset vs2022-231
+cmake --build --preset release-231
 ```
 
 ## Deploy for testing

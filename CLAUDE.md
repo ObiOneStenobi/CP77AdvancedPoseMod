@@ -8,8 +8,14 @@ All'inizio di ogni sessione leggere STATO.md (obiettivi, decisioni, file toccati
 tecnici in docs/RESEARCH.md (sezioni "Game 2.5" e "Vehicles").
 
 ## Versioni
-- Gioco 2.5 (3.0.88.46235). La 1.4.0 è compilata con RED4ext.SDK 0f5eba4 e accetta solo la 2.5; la 2.31 resta alla 1.3.0.
-- Script: redscript 0.5.32. In gioco non si può ancora provare: mancano le release di RED4ext e Codeware per la 2.5.
+- Gioco 2.5 (3.0.88.46235), RED4ext 1.31, Codeware 1.21. La 1.4.0 esce in due file con gli stessi script: per la 2.5
+  (SDK 0f5eba4) e per la 2.31 (SDK ad72777, APM_GAME_231); ogni DLL accetta solo la sua versione del gioco.
+- Script: redscript 0.5.32. Prove in gioco sulla 2.5 con il profilo Vortex "2.5 APM" (solo mod di base).
+
+## Release
+- Zip da dist\ -> release\AdvancedPoseMod-<versione>.zip e da dist231\ -> release\AdvancedPoseMod-<versione>-game2.31.zip
+  (voci con "/", struttura r6/... e red4ext/...). Prima controllare che script e DLL in dist e dist231 coincidano con
+  scripts\ e con le build. Changelog per Nexus in release\CHANGELOG-<versione>.md (release\ è gitignored).
 
 ## Build (solo in locale, mai in cloud: tools/cloud_build non va usato)
 - Il CMake 3.22 di VS 2022 non conosce DOWNLOAD_EXTRACT_TIMESTAMP: usare CMake >= 3.24, per esempio quello di VS 18
