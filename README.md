@@ -107,9 +107,10 @@ closer.
 
 - Click a marker to select that body part in the panel.
 - Markers that cover each other on screen (e.g. the fingers of two hands one over the other): the nearest is drawn on
-  top and takes the click. Up close the ones behind turn fainter, the more the farther behind (from 1 to 5 cm);
-  they stay selectable. Besides, every marker fades with its depth behind the nearest one (faintest half a meter
-  behind), so the far side of the body reads as farther.
+  top and takes the click. Up close (camera within about a meter of the markers, e.g. while posing the hands) the
+  ones behind turn fainter, the more the farther behind (from 0.5 to 3 cm), and every marker fades with its depth
+  behind the nearest one (faintest 40 cm behind); they stay selectable. From farther away (the whole pose) no marker
+  fades.
 - **Gizmo mode** (tools row: pointer = **Direct**, arrows = **Move**, rings = **Rotate**; **Ctrl+1 / 2 / 3**, axes **Ctrl+4**): Direct drags the markers (as described below); Rotate puts on the selected part
   three rings (red / green / blue = the panel's *forward / back*, *sideways* and *twist*) and an outer white ring
   that turns it as seen from the camera; drag a ring to turn the part around that axis. Move shows arrows that move the hips, held

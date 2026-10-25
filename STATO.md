@@ -37,7 +37,7 @@ Aggiornato: 2026-10-25
 - Dipendenze da aggiornare dagli autori: RED4ext, redscript, Codeware (e SDK per la build).
 
 ## Fatto dopo (seconda parte)
-- Marker sovrapposti: attenuazione graduale solo da vicino (marker davanti < 1,3 m): 1 cm pieno -> 5 cm al 45%.
+- Marker sovrapposti: attenuazione graduale solo da vicino (vedi 25/10: < 1,0-1,5 m, 0,5 cm pieno -> 3 cm al 15%).
 - Robustezza patch: `src/Game/EngineLayout.*` (offset da RTTI: IComponent.name, AnimatedComponent.rig, Rig.boneNames,
   Rig.tags; components dell'entità verificati/cercati), usato da PhotoModeTracker; Resolve() in OnPostRegisterTypes.
 - Gizmo classici: pulsante "Direct/Rotate/Move" accanto a Gizmos, "Local/Global" (pulsante assi);
@@ -187,7 +187,7 @@ Aggiornato: 2026-10-25
   dello sguardo si trascina sempre.
 - Rotazione ad anello oltre il limite: RotatePart applica solo la frazione dentro i limiti (bisezione, 10 passi).
 - Marker e loro linee: opacità in base alla profondità dietro il più vicino (0-40 cm -> 100-30%, DepthFade), oltre
-  all'attenuazione per sovrapposizione.
+  all'attenuazione per sovrapposizione (dal 25/10 solo da vicino, vedi sotto).
 - Talloni tolti (catalogo, JointLimits Heel, closeUp, APM_GizmoIsPartCloseUp, marker CloseUp). Nota: il tipo CloseUp
   valeva 3 come EyeLook, per questo il rombo non si vedeva.
 
@@ -246,13 +246,19 @@ Aggiornato: 2026-10-25
 - Cambio espressione nel menu: l'undo (solo se c'erano modifiche) ridà il viso intero di prima. Niente messaggi.
 - Altri NPC provati: espressioni già funzionanti.
 
-## Da provare in gioco (2.31)
-- Johnny: muovere una riga (>= 20) -> nel log "ignores the facial solver" e il viso cambia sulle ossa; gli altri NPC e
-  V devono dare "the facial solver poses the face" (se un viso normale finisce sulle ossa per errore: soglie in
-  FacePoses.cpp SameDegrees / SameMeters).
-- Sguardo: girare gli occhi col marker -> palpebre come nel gioco; con Guarda la camera nessun cambiamento.
-- Cestino in Body e in Face, reset per riga (anche bipolari e L+R), pagine.
+## Test 25/10 pomeriggio (log advancedposemod-2026-10-25-11-21-13): tutto ok
+- Sguardo nelle tracce, Johnny sulle ossa, cestino, reset per riga, pagine: funzionano.
+- Log: V e NPC "the facial solver poses the face"; Johnny (personaggio 1) ha due componenti viso: due "poses the
+  face" e uno "ignores the facial solver (it does not move the face)" -> quello passa alle ossa.
 
+## 25/10/2026: priorità dei marker sovrapposti (ResolveMarkerOverlaps) - da provare in gioco su 2.31 (dist231)
+- Causa: copertura con raggio fisso 24 px (da vicino le dita della mano dietro escono dai 24 px dei marker della mano
+  davanti -> di nuovo pieni); da lontano molti marker entro 24 px con 3 cm di differenza si attenuavano, e
+  behindFade partiva dal marker dello sguardo (0,6 m davanti agli occhi) -> tutto il corpo attenuato.
+- Ora: fattore di vicinanza dal marker più vicino (sguardo escluso): pieno < 1,0 m, nullo > 1,5 m; moltiplica
+  coverFade e behindFade (da lontano nessuna attenuazione). Raggio di copertura = 3 cm proiettati alla profondità
+  del più vicino (minimo 24 px), cerchio; ordine di disegno con metà raggio. Soglie 0,5-3 cm e 40 cm invariate.
+- Valori da tarare in gioco (1,0/1,5 m, 3 cm). Le mod richieste per la 2.5 sono uscite: poi aggiornare e provare.
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.

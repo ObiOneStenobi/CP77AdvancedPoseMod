@@ -3336,7 +3336,7 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        this.ResolveMarkerOverlaps(s);
+        this.ResolveMarkerOverlaps(camera, s);
         // Choosing "Eyes (both)" or a single eye in the Head tab switches the eye markers.
         if selected == this.m_leftEyePart || selected == this.m_rightEyePart {
             this.SetEyesTogether(false);
@@ -3349,13 +3349,12 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     // Markers that cover each other on screen (e.g. the fingers of two hands one above the other): the nearer one is
-    // drawn on top, so it is the one the cursor picks. Markers near another one on screen (within 24 px) that is
-    // nearer the camera turn much fainter, with their lines: full under 0.5 cm behind it, faintest from 3 cm. All stay
+    // drawn on top, so it is the one the cursor picks. Fading only up close (nearest marker under 1 m, none from
+    // 1.5 m, the eye look marker left out), where many markers crowd: markers within 3 cm on screen (at least 24 px)
+    // of a nearer one turn much fainter, with their lines: full under 0.5 cm behind it, faintest from 3 cm. All stay
     // selectable. Besides, every marker fades with its depth behind the nearest one shown: full at the same depth,
     // faintest from 40 cm behind (the far side of the body).
-    private func ResolveMarkerOverlaps(s: Float) {
-        let reach = 12.0 * s;
-        let coverReach = 24.0 * s;
+    private func ResolveMarkerOverlaps(camera: ref<CameraSystem>, s: Float) {
         let shown: array<ref<APM_Marker>>;
         let nearest = -1.0;
         let i = 0;
@@ -3365,15 +3364,26 @@ public class APM_PoseEditor extends IScriptable {
             marker.coverFade = 0.0;
             if marker.root.IsVisible() {
                 ArrayPush(shown, marker);
-                if nearest < 0.0 || marker.depth < nearest {
+                if marker.kind != APM_MarkerKindEyeLook() && (nearest < 0.0 || marker.depth < nearest) {
                     nearest = marker.depth;
                 }
             }
             i += 1;
         }
+        let closeness = nearest < 0.0 ? 0.0 : ClampF((1.5 - nearest) / 0.5, 0.0, 1.0);
+        // Pixels per meter at the nearest marker: the cover distance follows the hand's size on screen.
+        let fov = camera.GetActiveCameraFOV();
+        if fov < 1.0 || fov > 170.0 {
+            fov = 60.0;
+        }
+        let perMeter = APM_ScreenHeight() / (2.0 * MaxF(nearest, 0.05) * TanF(Deg2Rad(fov) * 0.5));
+        let coverReach = MaxF(24.0 * s, 0.03 * perMeter);
+        let reach = 0.5 * coverReach;
         i = 0;
         while i < ArraySize(shown) {
-            shown[i].behindFade = ClampF((shown[i].depth - nearest) / 0.4, 0.0, 1.0);
+            if shown[i].kind != APM_MarkerKindEyeLook() {
+                shown[i].behindFade = closeness * ClampF((shown[i].depth - nearest) / 0.4, 0.0, 1.0);
+            }
             i += 1;
         }
         let front: array<ref<APM_Marker>>;
@@ -3385,11 +3395,14 @@ public class APM_PoseEditor extends IScriptable {
                 let b = shown[j];
                 let nearer = a.depth <= b.depth ? a : b;
                 let farther = a.depth <= b.depth ? b : a;
-                if AbsF(a.screenX - b.screenX) < coverReach && AbsF(a.screenY - b.screenY) < coverReach {
-                    let fade = ClampF((farther.depth - nearer.depth - 0.005) / 0.025, 0.0, 1.0);
+                let dx = a.screenX - b.screenX;
+                let dy = a.screenY - b.screenY;
+                let apart = dx * dx + dy * dy;
+                if closeness > 0.0 && apart < coverReach * coverReach {
+                    let fade = closeness * ClampF((farther.depth - nearer.depth - 0.005) / 0.025, 0.0, 1.0);
                     farther.coverFade = MaxF(farther.coverFade, fade);
                 }
-                if AbsF(a.screenX - b.screenX) < reach && AbsF(a.screenY - b.screenY) < reach {
+                if apart < reach * reach {
                     if !ArrayContains(front, nearer) {
                         ArrayPush(front, nearer);
                     }
