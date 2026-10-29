@@ -735,7 +735,8 @@ void SetFaceWeight(size_t aPose, float aWeight)
         return;
     }
     std::scoped_lock lock(g_mutex);
-    S().faceWeights[aPose] = aWeight < 0.f ? FaceUnset : std::min(aWeight, 1.f);
+    // Up to 4 (400%): the panel limits it to 1 unless the face limits are unlocked.
+    S().faceWeights[aPose] = aWeight < 0.f ? FaceUnset : std::min(aWeight, 4.f);
     PublishLocked();
     S().enabled = true;
 }

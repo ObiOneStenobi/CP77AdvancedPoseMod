@@ -319,6 +319,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_libraryTabs: wref<inkCanvas>; // Body / Hands tabs of the list (Body mode)
     private let m_partTitle: wref<inkText>;
     private let m_posesTitle: wref<inkText>;
+    private let m_posesPageText: wref<inkText>; // n/N between < and > under the list
     // Panel sections, stacked by Layout()
     private let m_sectionHeader: wref<inkCanvas>;
     private let m_sectionCharacter: wref<inkCanvas>; // character selector row (only while characters are added)
@@ -598,6 +599,9 @@ public class APM_PoseEditor extends IScriptable {
         this.UpdatePoseList(timeDelta);
         this.UpdateWaitingHover();
         this.UpdateTooltip(timeDelta);
+        if active {
+            APM_SetPlayerEntity(this.m_controller.GetPlayerControlledObject()); // posed as V in a vehicle (no puppet)
+        }
         this.PublishCamera();
         if this.m_clearPressedButton {
             this.m_clearPressedButton = false;
@@ -842,7 +846,7 @@ public class APM_PoseEditor extends IScriptable {
         posesBody.SetName(n"APM_PosesBody");
         posesBody.SetAnchor(inkEAnchor.TopLeft);
         posesBody.SetMargin(0.0, 40.0 * s, 0.0, 0.0);
-        posesBody.SetSize(width * s, 174.0 * s);
+        posesBody.SetSize(width * s, 208.0 * s);
         posesBody.Reparent(poses);
         this.m_posesBody = posesBody;
         i = 0;
@@ -860,8 +864,11 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(posesBody, "load", this.L("APM-Button-Load", "Load"), 446.0, 68.0, 86.0, 30.0);
         this.CreateButton(posesBody, "rename", this.L("APM-Button-Rename", "Rename"), 538.0, 68.0, 86.0, 30.0);
         this.CreateButton(posesBody, "delete", this.L("APM-Button-Delete", "Delete"), 446.0, 102.0, 178.0, 30.0);
-        this.CreateButton(posesBody, "pageprev", "<", 446.0, 136.0, 86.0, 30.0);
-        this.CreateButton(posesBody, "pagenext", ">", 538.0, 136.0, 86.0, 30.0);
+        // Pages under the list, as in the face rows: < n/N >
+        this.CreateButton(posesBody, "pageprev", "<", 16.0, 170.0, 86.0, 30.0);
+        this.m_posesPageText = this.CreateText(posesBody, "", 270.0, 168.0, 100.0, 34.0, 22, APM_ColorAccent());
+        this.m_posesPageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
+        this.CreateButton(posesBody, "pagenext", ">", 538.0, 170.0, 86.0, 30.0);
 
         // Item in hand
         let items = this.CreateSection(n"APM_Items");
@@ -957,7 +964,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_libraryTabs.SetVisible(tabs);
         this.m_posesBody.SetVisible(this.m_posesOpen);
         this.m_posesBody.SetMargin(0.0, (tabs ? 76.0 : 40.0) * s, 0.0, 0.0);
-        let libraryHeight = (this.m_posesOpen ? 218.0 : 40.0) + (tabs ? 36.0 : 0.0);
+        let libraryHeight = (this.m_posesOpen ? 252.0 : 40.0) + (tabs ? 36.0 : 0.0);
         if body {
             y = this.PlaceSection(this.m_sectionPoses, y, libraryHeight, true);
         }
@@ -3174,10 +3181,10 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        // The open folder after the title ("Poses / Some mod 1/2").
+        // The open folder after the title ("Poses / Some mod"); the page is under the list.
         let openFolder = this.LibraryFolder();
-        let folderText = StrLen(openFolder) == 0 ? "" : " / " + (Equals(openFolder, "::builtin/") ? APM_Text("APM-Folder-BuiltIn", "Built-in") : StrLeft(openFolder, StrLen(openFolder) - 1));
-        let pageText = folderText + " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount());
+        let pageText = StrLen(openFolder) == 0 ? "" : " / " + (Equals(openFolder, "::builtin/") ? APM_Text("APM-Folder-BuiltIn", "Built-in") : StrLeft(openFolder, StrLen(openFolder) - 1));
+        this.m_posesPageText.SetText(IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount()));
         let kind = this.LibraryKind();
         if kind == 2 {
             this.m_posesTitle.SetText(APM_Text("APM-Title-Expressions", "Expressions") + pageText);
@@ -3186,8 +3193,7 @@ public class APM_PoseEditor extends IScriptable {
             let handText = hand == 1 ? APM_Text("APM-Label-HandPoseLeft", "left hand") : (hand == 2 ? APM_Text("APM-Label-HandPoseRight", "right hand") : "");
             this.m_posesTitle.SetText(APM_Text("APM-Title-HandPoses", "Hand poses") + pageText + (StrLen(handText) > 0 ? "  - " + handText : ""));
         } else {
-            let base = APM_GetBasePoseName();
-            this.m_posesTitle.SetText(APM_Text("APM-Title-Poses", "Poses") + pageText + (StrLen(base) > 0 ? "  - " + base : ""));
+            this.m_posesTitle.SetText(APM_Text("APM-Title-Poses", "Poses") + pageText);
         }
         this.SetButton("lib:body", !this.m_handLibrary, true);
         this.SetButton("lib:hands", this.m_handLibrary, true);

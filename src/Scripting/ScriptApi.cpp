@@ -118,6 +118,14 @@ void CharacterGetEntity(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     }
 }
 
+void SetPlayerEntity(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    RED4ext::Handle<RED4ext::ISerializable> entity;
+    RED4ext::GetParameter(aFrame, &entity);
+    aFrame->code++;
+    APM::PhotoModeTracker::SetPlayerEntity(reinterpret_cast<uint64_t>(entity.instance));
+}
+
 // Main skeleton ("root") animated component of a character: its GetLocalToWorld() maps that character's model space.
 void CharacterGetComponent(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -1494,6 +1502,7 @@ void Register()
     ::Register("APM_CharacterGetSelected", &CharacterGetSelected, "Int32", {});
     ::Register("APM_CharacterSelect", &CharacterSelect, nullptr, {{"Int32", "character"}});
     ::Register("APM_CharacterGetEntity", &CharacterGetEntity, "handle:entEntity", {{"Int32", "character"}});
+    ::Register("APM_SetPlayerEntity", &SetPlayerEntity, nullptr, {{"handle:entEntity", "entity"}});
     ::Register("APM_CharacterHasEdits", &CharacterHasEdits, "Bool", {{"Int32", "character"}});
     ::Register("APM_GetBoneCount", &GetBoneCount, "Int32", {});
     ::Register("APM_GetBoneName", &GetBoneName, "CName", {{"Int32", "index"}});

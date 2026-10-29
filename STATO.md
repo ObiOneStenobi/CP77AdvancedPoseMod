@@ -324,6 +324,15 @@ Aggiornato: 2026-10-25
   SetFaceUnlocked), nativo APM_FaceSetUnlocked -> PhotoModeUi g_faceUnlocked (clamp 4 invece di 1). Risolutore: valore
   passato così com'è; ossa (Johnny): oltre l'ultimo inbetween la posa continua allo stesso ritmo (Slerp con t > 1).
   Richiudendo, i valori sopra 100 restano finché non si tocca la riga. Testi APM-Tip-FaceUnlock / FaceLock.
+- 30/10 dopo la prova (log advancedposemod-2026-10-30-00-29-09): FIX limite 400% che tornava a 100 al rilascio
+  (PoseOverrides::SetFaceWeight tagliava a 1, ora 4). Libreria: pagine in una riga sotto la lista (< n/N >, come il
+  viso; posesBody 208, sezione 252); titolo = solo nome + cartella aperta (tolto il nome della posa caricata e la pagina).
+- Veicoli, prova 30/10: sessione 1 a piedi (ok). Sessioni 2 e 3 = auto e moto con camera esterna, personaggio
+  visibile e animato, ma slot 0 puppet=0: sul veicolo Photo Mode non crea il puppet e mostra il giocatore stesso.
+  FATTO: APM_SetPlayerEntity (script, ogni frame con Photo Mode attivo: GetPlayerControlledObject) ->
+  PhotoModeTracker g_playerEntity; RefreshTargets, se slot 0 non ha puppet, posa il giocatore come V (se
+  IsHumanCharacter); log "no Photo Mode puppet (vehicle): V is the player character itself". Azzerato a Deactivate.
+  Da provare: auto e moto, corpo, viso, T pose, IK, marker; uscita da Photo Mode (il giocatore torna normale).
 - Veicoli: log "PhotoMode: player list slot N puppet=... type=..." (Verbose, quando cambia) e "V has no puppet / no
   animated components" (Info, una volta per sessione); RESEARCH.md "Vehicles" aggiornato. Prova in gioco da fare.
 ## Prossimi passi

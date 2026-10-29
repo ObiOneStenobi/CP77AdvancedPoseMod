@@ -12,6 +12,7 @@ public native func APM_CharacterIsPresent(character: Int32) -> Bool
 public native func APM_CharacterGetSelected() -> Int32
 public native func APM_CharacterSelect(character: Int32) -> Void
 public native func APM_CharacterGetEntity(character: Int32) -> ref<Entity>
+public native func APM_SetPlayerEntity(entity: ref<Entity>)
 public native func APM_CharacterHasEdits(character: Int32) -> Bool
 // Main skeleton component of a character (its local-to-world is that character's model space).
 public native func APM_CharacterGetComponent(character: Int32) -> ref<IPlacedComponent>

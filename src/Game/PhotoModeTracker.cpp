@@ -528,6 +528,7 @@ bool IsMalePuppet(uint64_t aPuppet)
 
 // Puppet of each character last time (0 = none): a new puppet in a slot is a new character, whose pose starts empty.
 std::array<uint64_t, APM::Pose::Characters::Count> g_characterPuppets{};
+std::atomic<uint64_t> g_playerEntity{0}; // see SetPlayerEntity
 
 void RefreshTargets(void* aSystem)
 {
@@ -583,13 +584,30 @@ void RefreshTargets(void* aSystem)
         }
         s_lastPlayers = players;
     }
-    // V cannot be posed (e.g. first person Photo Mode, as in some vehicles): said once per session.
+    // No puppet (Photo Mode in a vehicle): V is the player on the seat, if it has a human skeleton.
+    const uint64_t player = g_playerEntity.load();
+    static uint32_t s_playerSession = 0;
+    if (targets.empty() && !players[0].first && player)
+    {
+        std::vector<Pose::Target> own;
+        AddPuppetTargets(own, player, 0, players[0].second, animatedCls, config);
+        if (IsHumanCharacter(own, player))
+        {
+            targets = std::move(own);
+            if (s_playerSession != g_sessionId.load())
+            {
+                s_playerSession = g_sessionId.load();
+                Log::Info("PhotoMode: no Photo Mode puppet (vehicle): V is the player character itself");
+            }
+        }
+    }
+    // V cannot be posed: said once per session.
     static uint32_t s_noVSession = 0;
     if (targets.empty() && s_noVSession != g_sessionId.load())
     {
         s_noVSession = g_sessionId.load();
-        Log::Info("PhotoMode: V has %s: nothing to pose (first person Photo Mode?)",
-                  players[0].first ? "no animated components" : "no puppet");
+        Log::Info("PhotoMode: V has %s: nothing to pose",
+                  players[0].first ? "no animated components" : (player ? "no puppet and the player has no human skeleton" : "no puppet"));
     }
 
     // Characters added in the scene: the three slots point to their catalog entries; only human ones are posed.
@@ -697,6 +715,7 @@ void ActivateSession()
 void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
+    g_playerEntity = 0;
     APM::CrashGuard::Guard("Photo Mode end", [] {
         APM::Pose::TargetRegistry::Clear();
         APM::Pose::JointLimits::ResetCache();
@@ -783,6 +802,11 @@ void Uninstall()
 bool IsActive()
 {
     return g_active.load();
+}
+
+void SetPlayerEntity(uint64_t aEntity)
+{
+    g_playerEntity = g_active ? aEntity : 0;
 }
 
 uint64_t GetCharacterPuppet(uint32_t aCharacter)
