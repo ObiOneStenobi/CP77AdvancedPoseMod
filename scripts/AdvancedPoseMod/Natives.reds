@@ -64,7 +64,7 @@ public native func APM_UiIsSlotSaved(slot: Int32) -> Bool
 // Pose library
 public native func APM_DeletePose(name: String) -> Bool
 // Saves under the first free name ("Pose 001", ...) and returns it; empty on failure
-public native func APM_SaveNewPose() -> String
+public native func APM_SaveNewPose(folder: String) -> String
 // Renames a saved pose; returns the new name (made unique), or "" on failure
 public native func APM_RenamePose(oldName: String, newName: String) -> String
 // Saved full pose currently replacing the Photo Mode pose ("" if none)
@@ -73,7 +73,7 @@ public native func APM_GetBasePoseName() -> String
 public native func APM_GetHandPoseCount() -> Int32
 public native func APM_GetHandPoseName(index: Int32) -> String
 public native func APM_SaveHandPose(name: String, rightHand: Bool) -> Bool
-public native func APM_SaveNewHandPose(rightHand: Bool) -> String
+public native func APM_SaveNewHandPose(folder: String, rightHand: Bool) -> String
 public native func APM_LoadHandPose(name: String, rightHand: Bool) -> Bool
 public native func APM_DeleteHandPose(name: String) -> Bool
 public native func APM_RenameHandPose(oldName: String, newName: String) -> String
@@ -128,6 +128,7 @@ public native func APM_FacePoseMirror(pose: Int32) -> Int32
 // L+R linked: a left / right pose's weight also goes to its mirror (on by default)
 public native func APM_FaceSetLinked(linked: Bool)
 public native func APM_FaceIsLinked() -> Bool
+public native func APM_FaceSetUnlocked(unlocked: Bool)
 // Set and different from the Photo Mode value
 public native func APM_FaceIsEdited(pose: Int32) -> Bool
 // Resets give the Photo Mode values back
@@ -138,7 +139,7 @@ public native func APM_FaceReloadList()
 public native func APM_FaceListCount() -> Int32
 public native func APM_FaceListName(index: Int32) -> String
 public native func APM_FaceSave(name: String) -> Bool
-public native func APM_FaceSaveNew() -> String
+public native func APM_FaceSaveNew(folder: String) -> String
 public native func APM_FaceLoad(name: String) -> Bool
 public native func APM_FaceDelete(name: String) -> Bool
 // Renames a saved expression; returns the new name (made unique), or "" on failure
@@ -146,7 +147,7 @@ public native func APM_FaceRename(oldName: String, newName: String) -> String
 // False when the game was updated and the mod could not hook into it.
 public native func APM_IsReady() -> Bool
 // Opens the folder of saved poses (0) or saved expressions (1).
-public native func APM_OpenFolder(kind: Int32) -> Bool
+public native func APM_OpenFolder(kind: Int32, folder: String) -> Bool
 public native func APM_SetWheelCapture(capture: Bool)
 public native func APM_ConsumeWheel() -> Int32
 // Game window size in pixels: x = width, y = height, w = 1 when known.

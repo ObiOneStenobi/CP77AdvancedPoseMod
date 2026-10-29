@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -70,6 +71,59 @@ inline std::string FolderOf(const std::string& aName)
 {
     const size_t slash = aName.rfind('/');
     return slash == std::string::npos ? std::string() : aName.substr(0, slash + 1);
+}
+
+// Name of a file the mod writes: the folder part as given (an existing subfolder), its own name with plain
+// characters only. "" if the folder is not valid.
+inline std::string SanitizeInFolder(const std::filesystem::path& aDirectory, const std::string& aName)
+{
+    const std::string folder = FolderOf(aName);
+    const std::string base = SanitizeNew(aName.substr(folder.size()));
+    std::filesystem::path unused;
+    if (base.empty() || !Resolve(aDirectory, folder + base, unused))
+    {
+        return {};
+    }
+    return folder + base;
+}
+
+// First free "<prefix> 001", "<prefix> 002"... in a folder of the library ("" = the library's own folder,
+// otherwise "Some mod/" with the slash). "" if the folder is not valid or every number is taken.
+inline std::string FreeName(const std::filesystem::path& aDirectory, const std::string& aFolder, const char* aPrefix)
+{
+    std::error_code ec;
+    for (int number = 1; number < 10000; ++number)
+    {
+        char base[48]{};
+        std::snprintf(base, sizeof(base), "%s %03d", aPrefix, number);
+        std::filesystem::path path;
+        if (!Resolve(aDirectory, aFolder + base, path))
+        {
+            return {};
+        }
+        if (!std::filesystem::exists(path, ec))
+        {
+            return aFolder + base;
+        }
+    }
+    return {};
+}
+
+// Path of a folder of the library ("" or "Some mod/"), false if it would leave the library folder.
+inline bool ResolveFolder(const std::filesystem::path& aDirectory, const std::string& aFolder, std::filesystem::path& aOut)
+{
+    if (aFolder.empty())
+    {
+        aOut = aDirectory;
+        return true;
+    }
+    std::filesystem::path file;
+    if (aFolder.back() != '/' || !Resolve(aDirectory, aFolder + "x", file))
+    {
+        return false;
+    }
+    aOut = file.parent_path();
+    return true;
 }
 
 // Renames a file; it stays in its folder and only its own name changes (a folder typed in front of the new name is

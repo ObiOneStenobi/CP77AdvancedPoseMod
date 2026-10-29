@@ -82,7 +82,7 @@ void SetCharacterMale(uint32_t aCharacter, bool aMale);
 std::filesystem::path GetDirectory();
 std::vector<std::string> ListSaved();
 bool Save(const std::string& aName);
-std::string SaveNew();
+std::string SaveNew(const std::string& aFolder);
 bool Load(const std::string& aName);
 bool Delete(const std::string& aName);
 // Renames a saved expression; returns the new name (made unique), or "" on failure.

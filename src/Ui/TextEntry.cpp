@@ -1,5 +1,6 @@
 #include "Ui/TextEntry.hpp"
 
+#include "Core/CrashGuard.hpp"
 #include "Core/Log.hpp"
 
 #include <Windows.h>
@@ -133,6 +134,15 @@ bool SwallowRawKeyboard(LPARAM aParam)
 
 LRESULT CALLBACK WindowProc(HWND aWindow, UINT aMessage, WPARAM aWParam, LPARAM aLParam)
 {
+    if (!g_originalProc)
+    {
+        return DefWindowProcW(aWindow, aMessage, aWParam, aLParam);
+    }
+    if (APM::CrashGuard::ShuttingDown())
+    {
+        return CallWindowProcW(g_originalProc, aWindow, aMessage, aWParam, aLParam);
+    }
+    APM::CrashGuard::Stage stage("text entry window procedure");
     if (aMessage == WM_INPUT)
     {
         TrackRawButtons(aLParam);
@@ -364,9 +374,9 @@ void Shutdown()
     if (g_window && g_originalProc &&
         GetWindowLongPtrW(g_window, GWLP_WNDPROC) == reinterpret_cast<LONG_PTR>(&WindowProc))
     {
+        // g_originalProc stays set: the window thread may still be inside WindowProc. When another program hooked the
+        // window after us, ours stays in its chain (the plugin is pinned, see CrashGuard) and passes everything on.
         SetWindowLongPtrW(g_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_originalProc));
-        g_window = nullptr;
-        g_originalProc = nullptr;
     }
 }
 } // namespace APM::Ui::TextEntry

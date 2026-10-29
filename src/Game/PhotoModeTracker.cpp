@@ -1,6 +1,7 @@
 #include "Game/PhotoModeTracker.hpp"
 
 #include "Core/Config.hpp"
+#include "Core/CrashGuard.hpp"
 #include "Core/Log.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/LookAtCamera.hpp"
@@ -556,6 +557,9 @@ void RefreshTargets(void* aSystem)
     const auto config = Config::Get();
     std::vector<Pose::Target> targets;
 
+    // Player list as read, logged when it changes (research for Photo Mode in vehicles: which slot has a puppet).
+    static std::vector<std::pair<uint64_t, uint32_t>> s_lastPlayers;
+    std::vector<std::pair<uint64_t, uint32_t>> players;
     for (uint32_t slot = 0; slot < list.size; ++slot)
     {
         const uintptr_t character = list.entries + slot * PhotoModeLayout::CharacterSize;
@@ -564,10 +568,28 @@ void RefreshTargets(void* aSystem)
         uint32_t characterType = 0;
         SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet);
         SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, characterType);
+        players.emplace_back(puppet, characterType);
         if (puppet && slot == 0)
         {
             AddPuppetTargets(targets, puppet, 0, characterType, animatedCls, config); // V
         }
+    }
+    if (players != s_lastPlayers)
+    {
+        for (uint32_t slot = 0; slot < players.size(); ++slot)
+        {
+            Log::Verbose("PhotoMode: player list slot %u puppet=%p type=%u", slot,
+                         reinterpret_cast<void*>(players[slot].first), players[slot].second);
+        }
+        s_lastPlayers = players;
+    }
+    // V cannot be posed (e.g. first person Photo Mode, as in some vehicles): said once per session.
+    static uint32_t s_noVSession = 0;
+    if (targets.empty() && s_noVSession != g_sessionId.load())
+    {
+        s_noVSession = g_sessionId.load();
+        Log::Info("PhotoMode: V has %s: nothing to pose (first person Photo Mode?)",
+                  players[0].first ? "no animated components" : "no puppet");
     }
 
     // Characters added in the scene: the three slots point to their catalog entries; only human ones are posed.
@@ -638,17 +660,26 @@ void RefreshTargets(void* aSystem)
     Pose::TargetRegistry::Set(std::move(targets));
 }
 
+void ActivateSession();
+
 bool Detour_Activate(void* aSystem)
 {
     // Every Photo Mode session starts from the game's pose: nothing from the previous session is kept.
-    APM::Pose::PoseOverrides::ClearSession();
-    APM::Ui::PhotoModeUi::ResetSession();
-    APM::Pose::EyelidFollow::ResetSession();
-    APM::Pose::FacePoses::ResetSession();
-    APM::Pose::PoseProcessor::ResetCharacter(0); // V's per-session state (added characters reset when they appear)
-    APM::Pose::JointLimits::ResetCache();
+    APM::CrashGuard::Guard("Photo Mode start (reset)", [] {
+        APM::Pose::PoseOverrides::ClearSession();
+        APM::Ui::PhotoModeUi::ResetSession();
+        APM::Pose::EyelidFollow::ResetSession();
+        APM::Pose::FacePoses::ResetSession();
+        APM::Pose::PoseProcessor::ResetCharacter(0); // V's per-session state (added characters reset when they appear)
+        APM::Pose::JointLimits::ResetCache();
+    });
     const bool result = g_origActivate(aSystem);
+    APM::CrashGuard::Guard("Photo Mode start", [] { ActivateSession(); });
+    return result;
+}
 
+void ActivateSession()
+{
     APM::Config::Load();
     APM::Pose::LookAtCamera::Reset(); // the game starts every session with "Look at camera" off
     APM::Pose::LookAtCamera::ForgetCamera();
@@ -661,40 +692,45 @@ bool Detour_Activate(void* aSystem)
     g_sessionId.fetch_add(1);
     g_active = true;
     APM::Log::Info("PhotoMode: activated (session %u)", g_sessionId.load());
-    return result;
 }
 
 void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
-    APM::Pose::TargetRegistry::Clear();
-    APM::Pose::JointLimits::ResetCache();
-    APM::Pose::GizmoState::Clear();
-    // The edits are dropped: the next session starts from the game's pose.
-    APM::Pose::PoseOverrides::ClearSession();
-    APM::Ui::TextEntry::End();
-    APM::Log::Info("PhotoMode: deactivated");
+    APM::CrashGuard::Guard("Photo Mode end", [] {
+        APM::Pose::TargetRegistry::Clear();
+        APM::Pose::JointLimits::ResetCache();
+        APM::Pose::GizmoState::Clear();
+        // The edits are dropped: the next session starts from the game's pose.
+        APM::Pose::PoseOverrides::ClearSession();
+        APM::Ui::TextEntry::End();
+        APM::Log::Info("PhotoMode: deactivated");
+    });
     g_origDeactivate(aSystem);
 }
 
 void Detour_SpawnCharacter(void* aSystem, void* aCharacter, const void* aSpawnTransform, uint64_t a4)
 {
     g_origSpawnCharacter(aSystem, aCharacter, aSpawnTransform, a4);
-    if (g_active)
+    if (g_active && !APM::CrashGuard::ShuttingDown())
     {
-        ProbeSpawn(aSystem, aCharacter);
-        RefreshTargets(aSystem);
-        ProbeLists(aSystem);
+        APM::CrashGuard::Guard("Photo Mode character spawn", [&] {
+            ProbeSpawn(aSystem, aCharacter);
+            RefreshTargets(aSystem);
+            ProbeLists(aSystem);
+        });
     }
 }
 
 void Detour_ApplyPuppetTransforms(void* aSystem, void* aCharacterList, uint8_t aCharacterGroup)
 {
     g_origApplyPuppetTransforms(aSystem, aCharacterList, aCharacterGroup);
-    if (g_active)
+    if (g_active && !APM::CrashGuard::ShuttingDown())
     {
-        RefreshTargets(aSystem);
-        ProbeLists(aSystem, aCharacterList, aCharacterGroup);
+        APM::CrashGuard::Guard("Photo Mode characters update", [&] {
+            RefreshTargets(aSystem);
+            ProbeLists(aSystem, aCharacterList, aCharacterGroup);
+        });
     }
 }
 

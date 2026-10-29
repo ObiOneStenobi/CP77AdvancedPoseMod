@@ -1,4 +1,5 @@
 #include "Core/Config.hpp"
+#include "Core/CrashGuard.hpp"
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
@@ -108,6 +109,31 @@ bool CheckGameVersion()
     return false;
 }
 
+// The script natives use the SDK's function and stack frame layouts, which differ between 2.31 (3.0.80) and 2.5
+// (3.0.88 and later): registering them with the other game's layout crashes. A hotfix of the same game is accepted.
+bool ScriptLayoutMatchesGame()
+{
+    uint16_t version[4]{};
+    if (!ReadGameVersion(version))
+    {
+        return true;
+    }
+#ifdef APM_GAME_231
+    const bool matches = version[0] == 3 && version[1] == 0 && version[2] < 88;
+    constexpr const char* OtherFile = "the main file (for game 2.5)";
+#else
+    const bool matches = version[0] > 3 || (version[0] == 3 && (version[1] > 0 || version[2] >= 88));
+    constexpr const char* OtherFile = "the file for game 2.31";
+#endif
+    if (!matches)
+    {
+        APM::Log::Error("This AdvancedPoseMod file is for another game version (game %u.%u.%u.%u): script natives "
+                        "are not registered. Install %s.",
+                        version[0], version[1], version[2], version[3], OtherFile);
+    }
+    return matches;
+}
+
 void OnPostRegisterTypes()
 {
     // RTTI is ready here, so the animation node classes can be inspected and natives registered.
@@ -117,7 +143,11 @@ void OnPostRegisterTypes()
         APM::GetRuntime().animationReady = APM::AnimGraphHook::Install();
         APM::PhotoModeMenuGuard::Install();
     }
-    APM::ScriptApi::Register(); // always: the scripts declare these natives, the game would not start without them
+    // The scripts declare these natives: without them redscript reports the errors and the mod's scripts are off.
+    if (ScriptLayoutMatchesGame())
+    {
+        APM::ScriptApi::Register();
+    }
 }
 } // namespace
 
@@ -138,6 +168,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         g_runtime.pluginDir = ResolvePluginDir();
 
         APM::Log::Info("AdvancedPoseMod %s is loading", APM_VERSION_STRING);
+        APM::CrashGuard::Install();
 
         APM::Config::Load(); // the debug log and the version check need it from the start
         APM::Pose::FacePoses::LoadData();
@@ -148,6 +179,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
     }
     case RED4ext::v1::EMainReason::Unload:
     {
+        APM::CrashGuard::BeginShutdown();
         APM::Ui::TextEntry::Shutdown();
         APM::AnimGraphHook::Uninstall();
         APM::PhotoModeMenuGuard::Uninstall();

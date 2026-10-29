@@ -286,6 +286,46 @@ Aggiornato: 2026-10-25
 - Release 1.4.0 preparata: release\AdvancedPoseMod-1.4.0.zip (2.5) e AdvancedPoseMod-1.4.0-game2.31.zip (2.31),
   changelog in release\CHANGELOG-1.4.0.md; README (requisiti per versione, build 2.31). Pubblicazione su Nexus e
   GitHub a cura dell'utente.
+- Ritorno alla 2.31 per giocare (profilo Vortex completo): RED4ext 1.30, Codeware 1.20.5, ArchiveXL 1.27.4,
+  TweakXL 1.11.4, CET 1.37.1, DLL dist231. Deploy REDmod 2.3 riuscito (480 mod, ordine dal load order Vortex,
+  servono -rttiSchemaPath=<gioco>\tools\redmod\metadata.json e lancio dalla cartella del gioco, file senza BOM).
+- 29/10: requisiti su GitHub: RED4ext 1.31.0 e redscript 0.5.32 invariati; SDK ultimo 5246e65 (già valutato);
+  Codeware 1.21.2 (settori/nodi del mondo, eventi widget ink scriptati, inkWidgetLibraryResource: la mod usa solo
+  RegisterToCallback vanilla); CET 1.38.1 (solo SDK); ArchiveXL 1.28.6 e TweakXL 1.12.0 non richiesti. Nessuna
+  modifica necessaria; README può citare Codeware 1.21.2+.
+- 29/10: analisi (piano in attesa di ok): occhi fermi con Guarda in camera = g_gazes non scade (ApplyTracks scrive
+  sempre, SetGaze solo se la posa ha modifiche); rischi crash (vtable Sermo 96 voci, subclass finestra TextEntry,
+  rig letto dopo despawn, runtime INDEPENDENT, detour senza try/catch) + gestore eccezioni con log; libreria a
+  cartelle (ListFolder, Built-in in cima, ←, icone folder/arrow-left; sovrascrittura in sottocartella da
+  verificare); veicoli: prima prova in gioco con Log=1/DumpRig=1.
+## Fatto il 29/10 (build 2.5 e 2.31 ok, DLL in dist e dist231, NON ancora nel gioco né provate)
+- Occhi fermi con Guarda in camera: Gaze.setAt, sguardo ignorato dopo 250 ms senza SetGaze (ApplyTracks e
+  SolverTakesGaze); SetGaze solo dal viso con ossa degli occhi (`eyes`, Johnny); log Verbose "gaze from the editor/game".
+- CrashGuard (src/Core/CrashGuard.*): DLL bloccata in memoria (PIN), gestore eccezioni vettoriale che scrive
+  red4ext\plugins\AdvancedPoseMod\crash.log (modulo+offset, thread, fase) solo se il crash è nel plugin o in una fase
+  della mod (Stage), max 8 righe; BeginShutdown all'Unload (i detour passano solo al gioco); Guard = try/catch nei
+  detour (Output, input del risolutore, Photo Mode start/end/spawn/update, attributi del menu).
+- Sermo: vtable copiata a 256 voci (riserva 96), scambio e ripristino in SampleWithFakeVtable con __try/__finally.
+- TextEntry: WindowProc con originale nullo -> DefWindowProcW; Shutdown non azzera più g_originalProc.
+- Main: nativi non registrati se la DLL è per l'altra versione del gioco (ScriptLayoutMatchesGame, errore nel log).
+- Da provare: sulla 2.31 (dist231) Guarda in camera + modifica + annulla/Reset (occhi seguono); Johnny; uscita dal
+  gioco con Photo Mode aperto; DLL 2.5 sulla 2.31 -> errore chiaro, niente crash (redscript segnala i nativi mancanti).
+- Libreria a cartelle (script ok, build ok, dist/dist231): la lista mostra una cartella alla volta (m_libraryAll =
+  tutti i file, BuildEntries -> "::up" (".." con freccia), "::builtin/" (cartella Built-in in cima, T/A e preset mani),
+  sottocartelle "Nome/" con icona folder, poi i file col solo nome); clic su cartella = apre, cartella aperta per
+  libreria (m_libraryFolders) e nel titolo ("Poses / Cartella 1/2"). Salva nuovo nella cartella aperta (nativi
+  APM_SaveNewPose/APM_SaveNewHandPose/APM_FaceSaveNew con folder, NamedFiles::FreeName); OpenFolder apre la
+  sottocartella; rinomina mostra solo il nome. FIX: sovrascrivere una posa del corpo in sottocartella creava
+  "Cartella_Nome" nella principale (Save usa NamedFiles::SanitizeInFolder). Icone folder e arrow-left (Lucide,
+  rasterizzate con lo stesso metodo: chevron-up identica). Testo nuovo APM-Folder-BuiltIn. 5 righe per pagina;
+  niente crea/rinomina/elimina cartella; cartelle vuote non visibili (la lista viene dai file).
+- Limite viso sbloccabile (richiesta utenti): lucchetto nell'intestazione Face (face:unlock "lock" / face:lock
+  "lock-open" in colore di avviso, pref "FaceUnlocked"): righe fino a 400 (bipolari -400..400, FaceRowMax /
+  SetFaceUnlocked), nativo APM_FaceSetUnlocked -> PhotoModeUi g_faceUnlocked (clamp 4 invece di 1). Risolutore: valore
+  passato così com'è; ossa (Johnny): oltre l'ultimo inbetween la posa continua allo stesso ritmo (Slerp con t > 1).
+  Richiudendo, i valori sopra 100 restano finché non si tocca la riga. Testi APM-Tip-FaceUnlock / FaceLock.
+- Veicoli: log "PhotoMode: player list slot N puppet=... type=..." (Verbose, quando cambia) e "V has no puppet / no
+  animated components" (Info, una volta per sessione); RESEARCH.md "Vehicles" aggiornato. Prova in gioco da fare.
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.

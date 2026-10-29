@@ -1,6 +1,7 @@
 #include "Scripting/ScriptApi.hpp"
 
 #include "Core/Log.hpp"
+#include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
 #include "Game/PhotoModeTracker.hpp"
@@ -397,10 +398,12 @@ void SaveHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 void SaveNewHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
+    CString folder;
     bool right = false;
+    RED4ext::GetParameter(aFrame, &folder);
     RED4ext::GetParameter(aFrame, &right);
     aFrame->code++;
-    Return(aOut, CString(APM::Ui::PhotoModeUi::SaveNewHandPose(right).c_str()));
+    Return(aOut, CString(APM::Ui::PhotoModeUi::SaveNewHandPose(folder.c_str(), right).c_str()));
 }
 
 void LoadHandPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -720,6 +723,14 @@ void FaceSetLinked(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Ui::PhotoModeUi::SetFaceLinked(linked);
 }
 
+void FaceSetUnlocked(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    bool unlocked = false;
+    RED4ext::GetParameter(aFrame, &unlocked);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetFaceUnlocked(unlocked);
+}
+
 void FaceIsLinked(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -803,8 +814,10 @@ void FaceSave(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 void FaceSaveNew(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
+    CString folder;
+    RED4ext::GetParameter(aFrame, &folder);
     aFrame->code++;
-    Return(aOut, CString(APM::Pose::FacePoses::SaveNew().c_str()));
+    Return(aOut, CString(APM::Pose::FacePoses::SaveNew(folder.c_str()).c_str()));
 }
 
 void FaceLoad(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -841,17 +854,25 @@ void IsReady(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, rt.trackerReady && rt.animationReady);
 }
 
-// Opens the folder of saved poses (0), saved expressions (1) or saved hand poses (2) in Explorer.
+// Opens the folder of saved poses (0), saved expressions (1) or saved hand poses (2) in Explorer: the subfolder open
+// in the list ("Some mod/") when it exists, otherwise the library's own folder.
 void OpenFolder(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t kind = 0;
+    CString folder;
     RED4ext::GetParameter(aFrame, &kind);
+    RED4ext::GetParameter(aFrame, &folder);
     aFrame->code++;
-    const auto path = kind == 1   ? APM::Pose::FacePoses::GetDirectory()
+    const auto root = kind == 1   ? APM::Pose::FacePoses::GetDirectory()
                       : kind == 2 ? APM::Ui::PhotoModeUi::GetHandPoseDirectory()
                                   : APM::Pose::PoseOverrides::GetPoseDirectory();
     std::error_code ec;
-    std::filesystem::create_directories(path, ec);
+    std::filesystem::create_directories(root, ec);
+    std::filesystem::path path;
+    if (!APM::NamedFiles::ResolveFolder(root, folder.c_str(), path) || !std::filesystem::is_directory(path, ec))
+    {
+        path = root;
+    }
     const auto result = reinterpret_cast<intptr_t>(ShellExecuteW(nullptr, L"open", path.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     Return(aOut, result > 32);
 }
@@ -912,8 +933,10 @@ void TextEntryGetText(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 
 void SaveNewPose(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
+    CString folder;
+    RED4ext::GetParameter(aFrame, &folder);
     aFrame->code++;
-    Return(aOut, CString(APM::Pose::PoseOverrides::SaveNew().c_str()));
+    Return(aOut, CString(APM::Pose::PoseOverrides::SaveNew(folder.c_str()).c_str()));
 }
 
 void PrefGet(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1498,12 +1521,12 @@ void Register()
     ::Register("APM_GetPoseCount", &GetPoseCount, "Int32", {});
     ::Register("APM_GetPoseName", &GetPoseName, "String", {{"Int32", "index"}});
     ::Register("APM_DeletePose", &DeletePose, "Bool", {{"String", "name"}});
-    ::Register("APM_SaveNewPose", &SaveNewPose, "String", {});
+    ::Register("APM_SaveNewPose", &SaveNewPose, "String", {{"String", "folder"}});
     ::Register("APM_RenamePose", &RenamePose, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_GetHandPoseCount", &GetHandPoseCount, "Int32", {});
     ::Register("APM_GetHandPoseName", &GetHandPoseName, "String", {{"Int32", "index"}});
     ::Register("APM_SaveHandPose", &SaveHandPose, "Bool", {{"String", "name"}, {"Bool", "rightHand"}});
-    ::Register("APM_SaveNewHandPose", &SaveNewHandPose, "String", {{"Bool", "rightHand"}});
+    ::Register("APM_SaveNewHandPose", &SaveNewHandPose, "String", {{"String", "folder"}, {"Bool", "rightHand"}});
     ::Register("APM_LoadHandPose", &LoadHandPose, "Bool", {{"String", "name"}, {"Bool", "rightHand"}});
     ::Register("APM_DeleteHandPose", &DeleteHandPose, "Bool", {{"String", "name"}});
     ::Register("APM_RenameHandPose", &RenameHandPose, "String", {{"String", "oldName"}, {"String", "newName"}});
@@ -1543,6 +1566,7 @@ void Register()
     ::Register("APM_FacePoseMirror", &FacePoseMirror, "Int32", {{"Int32", "pose"}});
     ::Register("APM_FaceSetLinked", &FaceSetLinked, nullptr, {{"Bool", "linked"}});
     ::Register("APM_FaceIsLinked", &FaceIsLinked, "Bool", {});
+    ::Register("APM_FaceSetUnlocked", &FaceSetUnlocked, nullptr, {{"Bool", "unlocked"}});
     ::Register("APM_FaceIsEdited", &FaceIsEdited, "Bool", {{"Int32", "pose"}});
     ::Register("APM_FaceResetPose", &FaceResetPose, nullptr, {{"Int32", "pose"}});
     ::Register("APM_FaceReset", &FaceReset, nullptr, {});
@@ -1551,12 +1575,12 @@ void Register()
     ::Register("APM_FaceListCount", &FaceListCount, "Int32", {});
     ::Register("APM_FaceListName", &FaceListName, "String", {{"Int32", "index"}});
     ::Register("APM_FaceSave", &FaceSave, "Bool", {{"String", "name"}});
-    ::Register("APM_FaceSaveNew", &FaceSaveNew, "String", {});
+    ::Register("APM_FaceSaveNew", &FaceSaveNew, "String", {{"String", "folder"}});
     ::Register("APM_FaceLoad", &FaceLoad, "Bool", {{"String", "name"}});
     ::Register("APM_FaceDelete", &FaceDelete, "Bool", {{"String", "name"}});
     ::Register("APM_FaceRename", &FaceRename, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_IsReady", &IsReady, "Bool", {});
-    ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}});
+    ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}, {"String", "folder"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
     ::Register("APM_GetViewportSize", &GetViewportSize, "Vector4", {});

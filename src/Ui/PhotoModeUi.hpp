@@ -75,7 +75,7 @@ bool ApplyHandPreset(bool aRightHand, int32_t aPreset);
 std::filesystem::path GetHandPoseDirectory();
 std::vector<std::string> ListHandPoses();
 bool SaveHandPose(const std::string& aName, bool aRightHand);
-std::string SaveNewHandPose(bool aRightHand);
+std::string SaveNewHandPose(const std::string& aFolder, bool aRightHand);
 bool LoadHandPose(const std::string& aName, bool aRightHand);
 bool DeleteHandPose(const std::string& aName);
 std::string RenameHandPose(const std::string& aOldName, const std::string& aNewName);
@@ -90,6 +90,8 @@ bool IsMirror();
 // Face poses: a left / right pose's weight also goes to the same pose on the other side (on by default).
 void SetFaceLinked(bool aLinked);
 bool IsFaceLinked();
+// Face rows up to 400% (the game's expressions stop at 100%; above it the face can deform).
+void SetFaceUnlocked(bool aUnlocked);
 
 // Joint limits: rotations stay within natural ranges (on by default).
 void SetLimits(bool aLimits);

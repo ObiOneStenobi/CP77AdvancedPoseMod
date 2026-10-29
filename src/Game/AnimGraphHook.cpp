@@ -1,6 +1,7 @@
 #include "Game/AnimGraphHook.hpp"
 
 #include "Core/Config.hpp"
+#include "Core/CrashGuard.hpp"
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
@@ -685,7 +686,7 @@ void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
     g_origSample(aNode, aContext, a3, aOut);
     --t_depth;
 
-    if (!APM::PhotoModeTracker::IsActive())
+    if (!APM::PhotoModeTracker::IsActive() || APM::CrashGuard::ShuttingDown())
     {
         return;
     }
@@ -700,8 +701,10 @@ void Detour_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
     }
     g_statOuterCalls.fetch_add(1, std::memory_order_relaxed);
 
-    OnPoseSampled(aNode, aContext, aOut, reinterpret_cast<uintptr_t>(_ReturnAddress()),
-                  reinterpret_cast<uintptr_t>(_AddressOfReturnAddress()));
+    const auto returnAddress = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const auto returnSlot = reinterpret_cast<uintptr_t>(_AddressOfReturnAddress());
+    APM::CrashGuard::Guard("pose edits (animation output)",
+                           [&] { OnPoseSampled(aNode, aContext, aOut, returnAddress, returnSlot); });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -716,7 +719,8 @@ constexpr uintptr_t NodeInput = 0x58;      // input node of a one-pose-input nod
 constexpr uintptr_t PoseTrackCount = 0x28; // uint32
 constexpr uintptr_t PoseTracks = 0x38;     // float*
 constexpr uint32_t MaxTracks = 4096;
-constexpr size_t FakeVtableSlots = 96;     // entries copied (Sample is slot 37)
+constexpr size_t FakeVtableSlots = 256;    // entries copied (Sample is slot 37), more than any node class has
+constexpr size_t MinFakeVtableSlots = 96;  // when the image ends sooner
 
 void* g_addrSermoSample = nullptr;
 Sample_t g_origSermoSample = nullptr;
@@ -771,7 +775,11 @@ const FakeVtable* GetFakeVtable(uintptr_t aVtable)
     auto fake = std::make_unique<FakeVtable>();
     if (!APM::SafeMemory::ReadBytes(aVtable, fake->slots.data(), sizeof(uintptr_t) * FakeVtableSlots))
     {
-        return nullptr;
+        fake->slots.fill(0);
+        if (!APM::SafeMemory::ReadBytes(aVtable, fake->slots.data(), sizeof(uintptr_t) * MinFakeVtableSlots))
+        {
+            return nullptr;
+        }
     }
     fake->original = aVtable;
     fake->originalSample = reinterpret_cast<Sample_t>(fake->slots[SampleVtableSlot]);
@@ -933,14 +941,31 @@ void FaceInput_Sample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
     }
     t_faceInputSample = nullptr; // nested samples of other nodes are not ours
     original(aNode, aContext, a3, aOut);
-    OnFaceTracks(aContext, aOut);
+    APM::CrashGuard::Guard("face tracks (facial solver input)", [&] { OnFaceTracks(aContext, aOut); });
+}
+
+// The solver sampled with the vtable copy on its input node; the node gets its own vtable back even when the call
+// ends with an exception (no C++ objects here: __try/__finally).
+void SampleWithFakeVtable(volatile LONG64* aObject, LONG64 aCopy, LONG64 aOriginal, void* aNode, void* aContext, void* a3,
+                          SampleOutput* aOut)
+{
+    InterlockedExchange64(aObject, aCopy);
+    __try
+    {
+        g_origSermoSample(aNode, aContext, a3, aOut);
+    }
+    __finally
+    {
+        InterlockedCompareExchange64(aObject, aOriginal, aCopy);
+    }
 }
 
 void Detour_SermoSample(void* aNode, void* aContext, void* a3, SampleOutput* aOut)
 {
     uint64_t input = 0;
     uint64_t vtable = 0;
-    if (!APM::PhotoModeTracker::IsActive() || g_contextPath.load(std::memory_order_relaxed) == PathUnknown ||
+    if (!APM::PhotoModeTracker::IsActive() || APM::CrashGuard::ShuttingDown() ||
+        g_contextPath.load(std::memory_order_relaxed) == PathUnknown ||
         !APM::SafeMemory::ReadU64(reinterpret_cast<uintptr_t>(aNode) + NodeInput, input) ||
         !APM::SafeMemory::LooksLikePointer(input) || !APM::SafeMemory::ReadU64(input, vtable))
     {
@@ -967,13 +992,15 @@ void Detour_SermoSample(void* aNode, void* aContext, void* a3, SampleOutput* aOu
     t_faceInputSample = fake->originalSample;
     t_faceInputNode = reinterpret_cast<void*>(input);
     t_solverComponent = 0;
-    InterlockedExchange64(object, copy);
-    g_origSermoSample(aNode, aContext, a3, aOut);
-    InterlockedCompareExchange64(object, original, copy);
+    {
+        APM::CrashGuard::Stage stage("facial solver (input node on the mod's vtable copy)");
+        SampleWithFakeVtable(object, copy, original, aNode, aContext, a3, aOut);
+    }
     t_faceInputSample = previousSample;
     t_faceInputNode = previousNode;
     if (t_solverComponent != 0 && aOut && aOut->pose)
     {
+        APM::CrashGuard::Stage stage("facial solver output check");
         // The solver's result, compared at the end of the graph with the face's final bones.
         uint32_t boneCount = 0;
         uint64_t bonesAddress = 0;

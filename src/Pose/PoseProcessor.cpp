@@ -890,9 +890,10 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
-    if (face)
+    if (eyes)
     {
-        // Eyes turned by the editor: their turn goes to the solver's gaze tracks for the next frame.
+        // Eyes turned by the editor: their turn goes to the solver's gaze tracks for the next frame. Only a face with
+        // eye bones sets it (Johnny has a second face without them, which would switch it off every frame).
         std::array<Vec3, 2> turns{};
         const bool edited = EyesEditedByUs(aTarget, aPose) && APM::Pose::EyelidFollow::EyeTurns(aTarget, aBones, aCount, turns);
         APM::Pose::FacePoses::SetGaze(aTarget.photoModeSlot, edited, turns);

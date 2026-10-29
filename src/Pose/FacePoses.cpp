@@ -114,11 +114,13 @@ struct GameExpression
 };
 std::array<GameExpression, APM::Pose::Characters::Count> g_gameExpressions{};
 std::array<std::atomic<bool>, APM::Pose::Characters::Count> g_characterMale{};
-// Editor gaze per character (see SetGaze), and when the solver last took it.
+// Editor gaze per character (see SetGaze), when it was last set and when the solver last took it. A gaze not set
+// again within GazeTimeout is old (the pose is no longer processed, e.g. after Reset or undo): the tracks stay the game's.
 struct Gaze
 {
     bool active = false;
     std::array<APM::Math::Vec3, 2> turns{};
+    uint64_t setAt = 0;
     uint64_t takenAt = 0;
 };
 std::array<Gaze, APM::Pose::Characters::Count> g_gazes{};
@@ -172,6 +174,7 @@ std::pair<float, float> Difference(const RED4ext::QsTransform* aA, const RED4ext
     return {degrees, meters};
 }
 constexpr uint64_t SolverFaceTimeout = 1000;
+constexpr uint64_t GazeTimeout = 250;
 constexpr uint64_t ExpressionSettleMs = 500; // after a change in the menu, before the new expression is read
 constexpr float MaxLoadedValue = 4.f;        // values of a saved expression (other mods' expressions go above 1)
 
@@ -532,7 +535,7 @@ float ApplyTracks(const Target& aTarget, float* aTracks, uint32_t aCount, const 
             std::scoped_lock lock(g_solverMutex);
             gaze = g_gazes[aTarget.photoModeSlot];
         }
-        if (gaze.active && map->gaze[0][0] >= 0)
+        if (gaze.active && NowMs() - gaze.setAt < GazeTimeout && map->gaze[0][0] >= 0)
         {
             for (int e = 0; e < 2; ++e)
             {
@@ -782,10 +785,15 @@ void SetGaze(uint32_t aCharacter, bool aActive, const std::array<Math::Vec3, 2>&
     }
     std::scoped_lock lock(g_solverMutex);
     auto& gaze = g_gazes[aCharacter];
+    if (gaze.active != aActive)
+    {
+        Log::Verbose("Face poses: character %u gaze %s", aCharacter, aActive ? "from the editor" : "from the game");
+    }
     gaze.active = aActive;
     if (aActive)
     {
         gaze.turns = aTurns;
+        gaze.setAt = NowMs();
     }
 }
 
@@ -797,7 +805,8 @@ bool SolverTakesGaze(const Target& aTarget)
     }
     std::scoped_lock lock(g_solverMutex);
     const auto& gaze = g_gazes[aTarget.photoModeSlot];
-    return gaze.active && NowMs() - gaze.takenAt < SolverFaceTimeout;
+    const uint64_t now = NowMs();
+    return gaze.active && now - gaze.setAt < GazeTimeout && now - gaze.takenAt < SolverFaceTimeout;
 }
 
 void SetCharacterMale(uint32_t aCharacter, bool aMale)
@@ -833,7 +842,8 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
     const size_t poseCount = std::min(g_data.poses.size(), MaxFacePoses);
     for (size_t p = 0; p < poseCount; ++p)
     {
-        const float weight = std::clamp(aPose.faceWeights[p], 0.f, 1.f);
+        // Above 100% (limits unlocked, other mods' expressions) the last inbetween is extended at the same rate.
+        const float weight = std::clamp(aPose.faceWeights[p], 0.f, MaxLoadedValue);
         const auto& inbetweens = head->poses[p];
         if (weight <= 0.f || inbetweens.empty() ||
             (solverTracks && (p >= solverTracks->tracks.size() || solverTracks->tracks[p] >= 0)))
@@ -849,7 +859,8 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
         const Inbetween* lo = hi > 0 ? &inbetweens[hi - 1] : nullptr;
         const float from = lo ? lo->weight : 0.f;
         const float span = inbetweens[hi].weight - from;
-        const float t = span > 1e-6f ? std::clamp((weight - from) / span, 0.f, 1.f) : 1.f;
+        const bool last = hi + 1 == inbetweens.size();
+        const float t = span > 1e-6f ? std::clamp((weight - from) / span, 0.f, last ? MaxLoadedValue / span : 1.f) : 1.f;
         const auto& deltas = inbetweens[hi].deltas;
         for (size_t d = 0; d < deltas.size(); ++d)
         {
@@ -918,19 +929,10 @@ bool Save(const std::string& aName)
     return true;
 }
 
-std::string SaveNew()
+std::string SaveNew(const std::string& aFolder)
 {
-    std::error_code ec;
-    for (int number = 1; number < 10000; ++number)
-    {
-        char name[32]{};
-        std::snprintf(name, sizeof(name), "Expression %03d", number);
-        if (!std::filesystem::exists(GetDirectory() / (std::string(name) + ".json"), ec))
-        {
-            return Save(name) ? std::string(name) : std::string();
-        }
-    }
-    return {};
+    const auto name = NamedFiles::FreeName(GetDirectory(), aFolder, "Expression");
+    return !name.empty() && Save(name) ? name : std::string();
 }
 
 bool Load(const std::string& aName)

@@ -1,5 +1,6 @@
 #include "Game/PhotoModeMenuGuard.hpp"
 
+#include "Core/CrashGuard.hpp"
 #include "Core/Log.hpp"
 #include "Core/Runtime.hpp"
 #include "Core/SafeMemory.hpp"
@@ -33,34 +34,36 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     {
         return;
     }
-    if (aAttribute == 15 || aAttribute == 74)
-    {
-        APM::Log::Verbose("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
-    }
-    else if (aAttribute == 28)
-    {
-        APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
-        APM::Pose::EyelidFollow::SetExpression(0, static_cast<int32_t>(aValue + 0.5f));
-        APM::Pose::FacePoses::OnExpressionChanged(0, static_cast<int32_t>(aValue + 0.5f));
-    }
-    else if (aAttribute == 56)
-    {
-        // Facial expression of the character selected in the NPC page (attribute 68).
-        const int32_t npc = APM::Pose::LookAtCamera::g_selectedNpc.load();
-        APM::Log::Verbose("Photo Mode facial expression of added character %d: %.0f", npc + 1, aValue);
-        if (npc >= 0 && npc < 3)
+    APM::CrashGuard::Guard("Photo Mode menu attribute", [&] {
+        if (aAttribute == 15 || aAttribute == 74)
         {
-            APM::Pose::EyelidFollow::SetExpression(static_cast<uint32_t>(npc) + 1, static_cast<int32_t>(aValue + 0.5f));
-            APM::Pose::FacePoses::OnExpressionChanged(static_cast<uint32_t>(npc) + 1,
-                                                      static_cast<int32_t>(aValue + 0.5f));
+            APM::Log::Verbose("Photo Mode look at camera: attribute %u = %.0f", aAttribute, aValue);
         }
-    }
-    else
-    {
-        // Research (debug log): which attributes the Photo Mode menu changes (e.g. the added characters' options).
-        APM::Log::Verbose("Photo Mode attribute %u = %.3f", aAttribute, aValue);
-    }
-    APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
+        else if (aAttribute == 28)
+        {
+            APM::Log::Verbose("Photo Mode facial expression: %.0f", aValue);
+            APM::Pose::EyelidFollow::SetExpression(0, static_cast<int32_t>(aValue + 0.5f));
+            APM::Pose::FacePoses::OnExpressionChanged(0, static_cast<int32_t>(aValue + 0.5f));
+        }
+        else if (aAttribute == 56)
+        {
+            // Facial expression of the character selected in the NPC page (attribute 68).
+            const int32_t npc = APM::Pose::LookAtCamera::g_selectedNpc.load();
+            APM::Log::Verbose("Photo Mode facial expression of added character %d: %.0f", npc + 1, aValue);
+            if (npc >= 0 && npc < 3)
+            {
+                APM::Pose::EyelidFollow::SetExpression(static_cast<uint32_t>(npc) + 1, static_cast<int32_t>(aValue + 0.5f));
+                APM::Pose::FacePoses::OnExpressionChanged(static_cast<uint32_t>(npc) + 1,
+                                                          static_cast<int32_t>(aValue + 0.5f));
+            }
+        }
+        else
+        {
+            // Research (debug log): which attributes the Photo Mode menu changes (e.g. the added characters' options).
+            APM::Log::Verbose("Photo Mode attribute %u = %.3f", aAttribute, aValue);
+        }
+        APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
+    });
     g_origForward(aCallback, aAttribute, aValue, aApply);
 }
 

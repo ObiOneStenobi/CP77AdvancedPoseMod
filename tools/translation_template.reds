@@ -162,6 +162,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Label-LeftHand", "Left");
         this.Text("APM-Tip-ItemClearLeft", "Empty the left hand");
         this.Text("APM-Title-Face", "Face");
+        this.Text("APM-Tip-FaceUnlock", "Face rows stop at 100% (as the game's expressions). Click to allow up to 400%");
+        this.Text("APM-Tip-FaceLock", "Face rows go up to 400%: above 100% the face can deform. Click to stop at 100% again");
         this.Text("APM-Button-FaceLinked", "L+R");
         this.Text("APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         this.Text("APM-Msg-FaceDataMissing", "Face data not found: reinstall the mod (red4ext\\plugins\\AdvancedPoseMod\\face)");
@@ -195,6 +197,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-FaceRowReset", "Back to the value of the Photo Mode expression");
         this.Text("APM-Label-EditedExpression", "- edited Photo Mode expression");
         this.Text("APM-Label-PhotoModeExpression", "- Photo Mode expression");
+        this.Text("APM-Folder-BuiltIn", "Built-in");
         this.Text("APM-Button-TPose", "T pose");
         this.Text("APM-Button-APose", "A pose");
         this.Text("APM-Msg-NeutralUnavailable", "Neutral pose not available");

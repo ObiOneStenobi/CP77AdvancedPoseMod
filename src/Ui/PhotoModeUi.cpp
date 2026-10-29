@@ -43,6 +43,7 @@ constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
 // Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
 std::atomic<bool> g_mirror{false};
 std::atomic<bool> g_faceLinked{true};
+std::atomic<bool> g_faceUnlocked{false}; // face rows up to 400% instead of 100%
 // Last focus distance set for the eyes (cm), used when their lines of sight do not cross.
 float g_eyeFocus = 150.f;
 void MirrorCurrentPart();
@@ -794,7 +795,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         if (aAttribute >= Attr::FacePose && aAttribute < Attr::FacePose + Pose::FacePoses::Count())
         {
             const size_t pose = aAttribute - Attr::FacePose;
-            const float weight = std::clamp(aValue / 100.f, 0.f, 1.f);
+            const float weight = std::clamp(aValue / 100.f, 0.f, g_faceUnlocked ? 4.f : 1.f);
             if (!Same(weight, Pose::FacePoses::ShownValue(pose)))
             {
                 Pose::PoseOverrides::SetFaceWeight(pose, weight);
@@ -1580,6 +1581,11 @@ bool IsFaceLinked()
     return g_faceLinked;
 }
 
+void SetFaceUnlocked(bool aUnlocked)
+{
+    g_faceUnlocked = aUnlocked;
+}
+
 void SetLimits(bool aLimits)
 {
     Pose::JointLimits::SetEnabled(aLimits);
@@ -1789,19 +1795,10 @@ bool SaveHandPose(const std::string& aName, bool aRightHand)
     return true;
 }
 
-std::string SaveNewHandPose(bool aRightHand)
+std::string SaveNewHandPose(const std::string& aFolder, bool aRightHand)
 {
-    std::error_code ec;
-    for (int number = 1; number < 10000; ++number)
-    {
-        char name[32]{};
-        std::snprintf(name, sizeof(name), "Hand %03d", number);
-        if (!std::filesystem::exists(GetHandPoseDirectory() / (std::string(name) + ".json"), ec))
-        {
-            return SaveHandPose(name, aRightHand) ? std::string(name) : std::string();
-        }
-    }
-    return {};
+    const auto name = NamedFiles::FreeName(GetHandPoseDirectory(), aFolder, "Hand");
+    return !name.empty() && SaveHandPose(name, aRightHand) ? name : std::string();
 }
 
 bool LoadHandPose(const std::string& aName, bool aRightHand)

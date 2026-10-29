@@ -308,7 +308,11 @@ public class APM_PoseEditor extends IScriptable {
     private let m_partIndices: array<Int32>;
     private let m_poseButtons: array<ref<APM_Button>>;
     private let m_poseLocks: array<wref<inkCanvas>>; // lock on a list entry: built-in, load only
-    private let m_poseNames: array<String>;
+    private let m_poseFolderIcons: array<wref<inkCanvas>>; // folder icon on a list entry that opens a folder
+    private let m_poseUpIcons: array<wref<inkCanvas>>;     // arrow on the ".." entry (back to the parent folder)
+    private let m_poseNames: array<String>; // entries of the open folder (see BuildEntries)
+    private let m_libraryAll: array<String>; // every saved file of the library, "Folder/Name"
+    private let m_libraryFolders: array<String>; // open folder per library (index LibraryKind())
     private let m_posePage: Int32;
     private let m_selectedPose: String;
     private let m_handLibrary: Bool; // Body mode: the list shows the hand poses (Hands tab) instead of the body poses
@@ -336,6 +340,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_faceZones: array<String>;       // zone tabs ("brows", "eyelids", ..., as in face/*.json)
     private let m_faceZone: Int32;                // tab shown
     private let m_faceLinked: Bool;               // L+R: one row moves the left and right pose
+    private let m_faceUnlocked: Bool;             // face rows up to 400% instead of 100%
     private let m_faceRows: array<ref<APM_ValueRow>>; // every face row (both sides of the left / right ones)
     private let m_faceRowZones: array<String>;
     private let m_faceRowSides: array<String>;    // "l", "r" (a side of a left / right pose) or ""
@@ -491,6 +496,8 @@ public class APM_PoseEditor extends IScriptable {
         this.m_faceZone = Cast<Int32>(APM_SessionGet("FaceZone", 4.0) + 0.5); // lips
         this.m_faceLinked = APM_PrefGet("FaceLinked", 1.0) > 0.5;
         APM_FaceSetLinked(this.m_faceLinked);
+        this.m_faceUnlocked = APM_PrefGet("FaceUnlocked", 0.0) > 0.5;
+        APM_FaceSetUnlocked(this.m_faceUnlocked);
         this.m_autoIk = APM_SessionGet("AutoIk", 1.0) > 0.5;
         this.m_eyesTogether = APM_SessionGet("EyesTogether", 1.0) > 0.5;
 
@@ -843,7 +850,9 @@ public class APM_PoseEditor extends IScriptable {
             let poseButton = this.CreateButton(posesBody, "pose:" + IntToString(i), "", 16.0, Cast<Float>(i) * 34.0, 420.0, 30.0);
             poseButton.label.SetLetterCase(textLetterCase.OriginalCase);
             ArrayPush(this.m_poseButtons, poseButton);
-            ArrayPush(this.m_poseLocks, this.AddLock(poseButton));
+            ArrayPush(this.m_poseLocks, this.AddRowIcon(poseButton, "lock", false));
+            ArrayPush(this.m_poseFolderIcons, this.AddRowIcon(poseButton, "folder", true));
+            ArrayPush(this.m_poseUpIcons, this.AddRowIcon(poseButton, "arrow-left", true));
             i += 1;
         }
         this.CreateButton(posesBody, "savenew", this.L("APM-Button-SaveNew", "Save new"), 446.0, 0.0, 178.0, 30.0);
@@ -874,7 +883,9 @@ public class APM_PoseEditor extends IScriptable {
         this.m_sectionFace = face;
         this.AddSeparator(face);
         this.CreateText(face, this.L("APM-Title-Face", "Face"), 16.0, 6.0, 70.0, 28.0, 16, APM_ColorAccent());
-        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 448.0, 26.0, 13, APM_ColorDimText());
+        this.m_faceInfo = this.CreateText(face, "", 84.0, 8.0, 402.0, 26.0, 13, APM_ColorDimText());
+        this.CreateIconButton(face, "face:unlock", "lock", 492.0, 6.0, this.L("APM-Tip-FaceUnlock", "Face rows stop at 100% (as the game's expressions). Click to allow up to 400%"), 28.0);
+        this.CreateIconButton(face, "face:lock", "lock-open", 492.0, 6.0, this.L("APM-Tip-FaceLock", "Face rows go up to 400%: above 100% the face can deform. Click to stop at 100% again"), 28.0);
         let linkedButton = this.CreateSmallButton(face, "face:linked", this.L("APM-Button-FaceLinked", "L+R"), 538.0, 6.0, 86.0, 28.0);
         this.TipL(linkedButton, "APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         let faceBody = new inkCanvas();
@@ -1501,7 +1512,8 @@ public class APM_PoseEditor extends IScriptable {
 
     // One face row: 0..100 (a pose's weight), or -100..100 when it has a negative pose. Placed by LayoutFace().
     private func AddFaceRow(parent: wref<inkCompoundWidget>, pose: Int32, negative: Int32, side: String, key: String, english: String, text: String) {
-        this.CreateRow(parent, 7800u + Cast<Uint32>(pose), text, 0.0, negative >= 0 ? -100.0 : 0.0, 100.0, 5.0, 0.3, "", true);
+        let maxValue = this.FaceRowMax();
+        this.CreateRow(parent, 7800u + Cast<Uint32>(pose), text, 0.0, negative >= 0 ? -maxValue : 0.0, maxValue, 5.0, 0.3, "", true);
         let row = this.m_rows[ArraySize(this.m_rows) - 1];
         row.pairAttribute = negative >= 0 ? 7800u + Cast<Uint32>(negative) : 0u;
         ArrayPush(this.m_faceRows, row);
@@ -1509,6 +1521,25 @@ public class APM_PoseEditor extends IScriptable {
         ArrayPush(this.m_faceRowSides, side);
         ArrayPush(this.m_faceRowKeys, key);
         ArrayPush(this.m_faceRowTexts, english);
+    }
+
+    // Highest value of a face row: 100 (as the game's expressions) or 400 with the limits unlocked.
+    private func FaceRowMax() -> Float {
+        return this.m_faceUnlocked ? 400.0 : 100.0;
+    }
+
+    private func SetFaceUnlocked(unlocked: Bool) {
+        this.m_faceUnlocked = unlocked;
+        APM_FaceSetUnlocked(unlocked);
+        APM_PrefSet("FaceUnlocked", unlocked ? 1.0 : 0.0);
+        let maxValue = this.FaceRowMax();
+        let i = 0;
+        while i < ArraySize(this.m_faceRows) {
+            let row = this.m_faceRows[i];
+            row.maxValue = maxValue;
+            row.minValue = row.pairAttribute != 0u ? -maxValue : 0.0;
+            i += 1;
+        }
     }
 
     private func AddFaceFooter(button: ref<APM_Button>, offset: Float) {
@@ -1625,6 +1656,14 @@ public class APM_PoseEditor extends IScriptable {
         this.SetButton("mode:body", !this.m_faceMode, true);
         this.SetButton("mode:face", this.m_faceMode, true);
         this.SetButton("face:linked", this.m_faceLinked, true);
+        let unlockButton = this.FindButton("face:unlock");
+        let lockButton = this.FindButton("face:lock");
+        if IsDefined(unlockButton) && IsDefined(lockButton) {
+            unlockButton.root.SetVisible(!this.m_faceUnlocked);
+            lockButton.root.SetVisible(this.m_faceUnlocked);
+            lockButton.isMarked = true; // warning color while the limits are off
+            lockButton.UpdateLook();
+        }
         let edited: array<Bool>;
         let z = 0;
         while z < ArraySize(this.m_faceZones) {
@@ -2067,12 +2106,31 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func IsBuiltIn(name: String) -> Bool {
-        return StrBeginsWith(name, "::");
+        return StrBeginsWith(name, "::") && !this.IsFolderEntry(name);
+    }
+
+    // List entries that open a folder: "::up" (the parent), "::builtin/" (the built-in entries), "Some mod/".
+    private func IsFolderEntry(name: String) -> Bool {
+        return Equals(name, "::up") || StrEndsWith(name, "/");
+    }
+
+    // Last part of a path ("Some mod/Sitting" -> "Sitting").
+    private func LastPart(path: String) -> String {
+        return StrContains(path, "/") ? StrAfterLast(path, "/") : path;
     }
 
     private func EntryText(name: String) -> String {
+        if Equals(name, "::up") {
+            return "..";
+        }
+        if Equals(name, "::builtin/") {
+            return APM_Text("APM-Folder-BuiltIn", "Built-in");
+        }
+        if StrEndsWith(name, "/") {
+            return this.LastPart(StrLeft(name, StrLen(name) - 1));
+        }
         if !this.IsBuiltIn(name) {
-            return name;
+            return this.LastPart(name);
         }
         let text: String;
         if Equals(name, "::t") {
@@ -2121,14 +2179,89 @@ public class APM_PoseEditor extends IScriptable {
         return hand;
     }
 
+    // Folder of the list open in the library shown: "" its own folder, "Some mod/" a subfolder, "::builtin/" the
+    // built-in entries (T and A poses, hand presets).
+    private func LibraryFolder() -> String {
+        let kind = this.LibraryKind();
+        return kind < ArraySize(this.m_libraryFolders) ? this.m_libraryFolders[kind] : "";
+    }
+
+    // Folder on disk for saving and Explorer (the built-in entries have none: the library's own folder).
+    private func LibraryDiskFolder() -> String {
+        let folder = this.LibraryFolder();
+        return StrBeginsWith(folder, "::") ? "" : folder;
+    }
+
+    private func OpenLibraryFolder(folder: String) {
+        while ArraySize(this.m_libraryFolders) < 3 {
+            ArrayPush(this.m_libraryFolders, "");
+        }
+        this.m_libraryFolders[this.LibraryKind()] = folder;
+        this.m_selectedPose = "";
+        this.m_posePage = 0;
+        this.ReloadPoses();
+    }
+
+    // Parent of an open folder ("A/B/" -> "A/", "A/" and "::builtin/" -> "").
+    private func ParentFolder(folder: String) -> String {
+        let trimmed = StrLeft(folder, StrLen(folder) - 1);
+        return !StrBeginsWith(folder, "::") && StrContains(trimmed, "/") ? StrBeforeLast(trimmed, "/") + "/" : "";
+    }
+
+    // Entries of the open folder, as in Explorer: ".." in a subfolder, then the folders (Built-in first in the
+    // library's own folder), then the files.
+    private func BuildEntries() {
+        let folder = this.LibraryFolder();
+        let builtIns = this.BuiltInIds();
+        let entries: array<String>;
+        let files: array<String>;
+        if StrLen(folder) > 0 {
+            ArrayPush(entries, "::up");
+        }
+        let i = 0;
+        if Equals(folder, "::builtin/") {
+            while i < ArraySize(builtIns) {
+                ArrayPush(entries, builtIns[i]);
+                i += 1;
+            }
+            this.m_poseNames = entries;
+            return;
+        }
+        if StrLen(folder) == 0 && ArraySize(builtIns) > 0 {
+            ArrayPush(entries, "::builtin/");
+        }
+        while i < ArraySize(this.m_libraryAll) {
+            let name = this.m_libraryAll[i];
+            if StrLen(folder) == 0 || StrBeginsWith(name, folder) {
+                let rest = StrMid(name, StrLen(folder));
+                if StrContains(rest, "/") {
+                    let sub = folder + StrBeforeFirst(rest, "/") + "/";
+                    if !ArrayContains(entries, sub) {
+                        ArrayPush(entries, sub);
+                    }
+                } else {
+                    ArrayPush(files, name);
+                }
+            }
+            i += 1;
+        }
+        i = 0;
+        while i < ArraySize(files) {
+            ArrayPush(entries, files[i]);
+            i += 1;
+        }
+        this.m_poseNames = entries;
+    }
+
     private func ReloadPoses() {
-        this.m_poseNames = this.BuiltInIds();
+        ArrayClear(this.m_libraryAll);
         let count = this.LibraryCount();
         let i = 0;
         while i < count {
-            ArrayPush(this.m_poseNames, this.LibraryName(i));
+            ArrayPush(this.m_libraryAll, this.LibraryName(i));
             i += 1;
         }
+        this.BuildEntries();
         let pages = this.PageCount();
         if this.m_posePage >= pages {
             this.m_posePage = pages - 1;
@@ -2153,13 +2286,11 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         this.m_poseListTimer = 0.0;
-        let builtInIds = this.BuiltInIds();
-        let builtIn = ArraySize(builtInIds);
         let count = this.LibraryCount();
-        let changed = builtIn + count != ArraySize(this.m_poseNames);
+        let changed = count != ArraySize(this.m_libraryAll);
         let i = 0;
         while !changed && i < count {
-            changed = NotEquals(this.LibraryName(i), this.m_poseNames[builtIn + i]);
+            changed = NotEquals(this.LibraryName(i), this.m_libraryAll[i]);
             i += 1;
         }
         if changed {
@@ -2675,7 +2806,7 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_pickerOpen {
             this.ClosePicker();
         }
-        if !APM_TextEntryBegin(name) {
+        if !APM_TextEntryBegin(this.EntryText(name)) { // its own name: the file stays in its folder
             this.SetStatus(APM_Text("APM-Msg-TypingUnavailable", "Typing is not available"));
             return;
         }
@@ -2689,7 +2820,7 @@ public class APM_PoseEditor extends IScriptable {
         let text = APM_TextEntryGetText();
         APM_TextEntryEnd();
         this.m_renaming = false;
-        if !confirm || Equals(text, this.m_renameFrom) {
+        if !confirm || Equals(text, this.EntryText(this.m_renameFrom)) {
             return;
         }
         let kind = this.LibraryKind();
@@ -2798,19 +2929,20 @@ public class APM_PoseEditor extends IScriptable {
         button.dot = dot;
     }
 
-    // Small lock at the right end of a list entry (shown for the built-in entries, which can only be loaded).
-    private func AddLock(button: ref<APM_Button>) -> wref<inkCanvas> {
+    // Small icon at one end of a list entry, hidden until shown: the lock of the built-in entries (right, they can only
+    // be loaded), the folder icon and the ".." arrow (left).
+    private func AddRowIcon(button: ref<APM_Button>, name: String, left: Bool) -> wref<inkCanvas> {
         let s = APM_UiScale();
         let size = 18.0;
         let lock = new inkCanvas();
         lock.SetAnchor(inkEAnchor.TopLeft);
-        lock.SetMargin((button.w - size - 10.0) * s, (button.h - size) * 0.5 * s, 0.0, 0.0);
+        lock.SetMargin((left ? 10.0 : button.w - size - 10.0) * s, (button.h - size) * 0.5 * s, 0.0, 0.0);
         lock.SetSize(size * s, size * s);
         lock.SetInteractive(false);
         lock.SetVisible(false);
         lock.Reparent(button.root);
         let cell = size / 24.0;
-        let spans = APM_IconSpans("lock");
+        let spans = APM_IconSpans(name);
         let i = 0;
         while i + 3 < ArraySize(spans) {
             let rect = new inkRectangle();
@@ -3030,6 +3162,8 @@ public class APM_PoseEditor extends IScriptable {
             if index < ArraySize(this.m_poseNames) {
                 button.root.SetVisible(true);
                 this.m_poseLocks[i].SetVisible(this.IsBuiltIn(this.m_poseNames[index]));
+                this.m_poseUpIcons[i].SetVisible(Equals(this.m_poseNames[index], "::up"));
+                this.m_poseFolderIcons[i].SetVisible(StrEndsWith(this.m_poseNames[index], "/"));
                 let isRenamed = this.m_renaming && Equals(this.m_poseNames[index], this.m_renameFrom);
                 button.label.SetText(isRenamed ? APM_TextEntryGetText() + "_" : this.EntryText(this.m_poseNames[index]));
                 button.isSelected = Equals(this.m_poseNames[index], this.m_selectedPose);
@@ -3040,7 +3174,10 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        let pageText = " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount());
+        // The open folder after the title ("Poses / Some mod 1/2").
+        let openFolder = this.LibraryFolder();
+        let folderText = StrLen(openFolder) == 0 ? "" : " / " + (Equals(openFolder, "::builtin/") ? APM_Text("APM-Folder-BuiltIn", "Built-in") : StrLeft(openFolder, StrLen(openFolder) - 1));
+        let pageText = folderText + " " + IntToString(this.m_posePage + 1) + "/" + IntToString(this.PageCount());
         let kind = this.LibraryKind();
         if kind == 2 {
             this.m_posesTitle.SetText(APM_Text("APM-Title-Expressions", "Expressions") + pageText);
@@ -4670,6 +4807,8 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_posePage = 0;
                 this.ReloadPoses();
             }
+        } else if Equals(id, "face:unlock") || Equals(id, "face:lock") {
+            this.SetFaceUnlocked(Equals(id, "face:unlock"));
         } else if Equals(id, "face:linked") {
             this.m_faceRowPage = 0;
             this.m_faceLinked = !this.m_faceLinked;
@@ -4677,7 +4816,7 @@ public class APM_PoseEditor extends IScriptable {
             APM_PrefSet("FaceLinked", this.m_faceLinked ? 1.0 : 0.0);
         } else if Equals(id, "poses:folder") {
             let folderKind = this.LibraryKind();
-            APM_OpenFolder(folderKind == 2 ? 1 : (folderKind == 1 ? 2 : 0));
+            APM_OpenFolder(folderKind == 2 ? 1 : (folderKind == 1 ? 2 : 0), this.LibraryDiskFolder());
         } else if Equals(prefix, "lib") {
             if NotEquals(Equals(arg, "hands"), this.m_handLibrary) {
                 this.ShowLibrary(Equals(arg, "hands"));
@@ -4739,13 +4878,24 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(prefix, "pose") {
             let index = this.m_posePage * APM_PosesPerPage() + StringToInt(arg);
             if index >= 0 && index < ArraySize(this.m_poseNames) {
-                this.m_selectedPose = this.m_poseNames[index];
+                let entry = this.m_poseNames[index];
+                if Equals(entry, "::up") {
+                    this.OpenLibraryFolder(this.ParentFolder(this.LibraryFolder()));
+                } else if StrEndsWith(entry, "/") {
+                    this.OpenLibraryFolder(entry);
+                } else {
+                    this.m_selectedPose = entry;
+                }
             }
         } else if Equals(id, "savenew") {
             let saveKind = this.LibraryKind();
             let saveHand = saveKind == 1 ? this.HandPoseTarget() : 0;
             if saveKind != 1 || saveHand > 0 {
-                let name = saveKind == 2 ? APM_FaceSaveNew() : (saveKind == 1 ? APM_SaveNewHandPose(saveHand == 2) : APM_SaveNewPose());
+                if StrBeginsWith(this.LibraryFolder(), "::") {
+                    this.OpenLibraryFolder(""); // saved in the library's own folder, shown there
+                }
+                let saveFolder = this.LibraryDiskFolder(); // in the open folder
+                let name = saveKind == 2 ? APM_FaceSaveNew(saveFolder) : (saveKind == 1 ? APM_SaveNewHandPose(saveFolder, saveHand == 2) : APM_SaveNewPose(saveFolder));
                 this.ReloadPoses();
                 if StrLen(name) > 0 {
                     this.m_selectedPose = name;

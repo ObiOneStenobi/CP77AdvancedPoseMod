@@ -268,6 +268,11 @@ Compared offline with 2.31 (executables, `cyberpunk2077_addresses.json`, `final.
   in some states (Photo Mode Unlocker empties them). In first person there may be no puppet: then nothing to pose.
 - Test plan (Debug Log=1, DumpRig=1): car driver, car passenger, bike; Photo Mode third person; note whether markers
   show, a rotation applies, a T pose loads, the IK world pin holds, and what the log reports for V's targets.
+- Log lines for the test: "PhotoMode: player list slot N puppet=... type=..." (Debug Log=1, when the list changes),
+  "PhotoMode: V has no puppet / no animated components" (always, once per session: first person, nothing to pose),
+  "PhotoMode: target slot=0 ... name=root bones=71", "pose bone count (...) differs" (the ride graph adds bones).
+- Known risks from the code: a saved standing pose with a hips translation moves a seated character off the seat (the
+  hips translation is model space); items in hand may be blocked in a vehicle state; no code checks for vehicles.
 
 ## Face poses (expression editor, 1.4.0)
 

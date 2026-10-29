@@ -473,7 +473,8 @@ std::filesystem::path GetPoseDirectory()
 
 bool Save(const std::string& aName)
 {
-    const auto name = SanitizeName(aName);
+    // A pose in a subfolder is saved in it ("Some mod/Sitting").
+    const auto name = NamedFiles::SanitizeInFolder(GetPoseDirectory(), aName);
     if (name.empty())
     {
         Log::Warn("SavePose: invalid name");
@@ -571,9 +572,10 @@ bool Save(const std::string& aName)
         }
     }
 
+    std::filesystem::path path;
+    NamedFiles::Resolve(GetPoseDirectory(), name, path);
     std::error_code ec;
-    std::filesystem::create_directories(GetPoseDirectory(), ec);
-    const auto path = GetPoseDirectory() / (name + ".json");
+    std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream out(path, std::ios::trunc);
     if (!out)
     {
@@ -1053,18 +1055,9 @@ std::string Rename(const std::string& aOldName, const std::string& aNewName)
     return name;
 }
 
-std::string SaveNew()
+std::string SaveNew(const std::string& aFolder)
 {
-    std::error_code ec;
-    for (int number = 1; number < 10000; ++number)
-    {
-        char name[32]{};
-        std::snprintf(name, sizeof(name), "Pose %03d", number);
-        if (!std::filesystem::exists(GetPoseDirectory() / (std::string(name) + ".json"), ec))
-        {
-            return Save(name) ? std::string(name) : std::string();
-        }
-    }
-    return {};
+    const auto name = NamedFiles::FreeName(GetPoseDirectory(), aFolder, "Pose");
+    return !name.empty() && Save(name) ? name : std::string();
 }
 } // namespace APM::Pose::PoseOverrides
