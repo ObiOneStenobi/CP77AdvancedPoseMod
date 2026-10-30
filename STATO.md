@@ -1,6 +1,6 @@
 # STATO – AdvancedPoseMod 1.4.0 (in corso)
 
-Aggiornato: 2026-10-25
+Aggiornato: 2026-10-30
 
 ## Obiettivo 1.4.0
 1. Supporto gioco 2.5 (3.0.88.46235) oltre alla 2.31 (3.0.80.51928).
@@ -373,7 +373,42 @@ Aggiornato: 2026-10-25
   gioco Photo Mode su veicolo AVEVA il puppet (targets registrati). Simile al crash del 25/10 dopo l'uscita.
 - Veicoli: log "PhotoMode: player list slot N puppet=... type=..." (Verbose, quando cambia) e "V has no puppet / no
   animated components" (Info, una volta per sessione); RESEARCH.md "Vehicles" aggiornato. Prova in gioco da fare.
+## Guarda in camera: occhi e testa (sessione 30/10 sera, NON committato)
+Gioco installato: 2.31 (3.0.80) -> copiare build231 nel gioco (la DLL 2.5 lo fa crashare all'avvio).
+File toccati: src/Pose/PoseProcessor.cpp, src/Game/AnimGraphHook.cpp.
+DLL copiate in dist, dist231 e nel gioco. Script invariati.
+- Scoperto: la mesh degli occhi (he_*.mesh) è skinnata al face_rig (Head, l/r_J_eye_JNT, pupil, wetness, palpebre).
+  Il gioco gira la Head del face_rig per conto suo con Look at camera (30-65 gradi dalla Head della root su una posa
+  salvata; posizione uguale, pose di riferimento identiche).
+- Fatto:
+  - AimFaceRigEyesAtCamera: occhi mirati nel face_rig (dalla sua testa, "avanti" = occhio->pupilla a riposo),
+    limiti del gioco 40 lati / 21 su / 30 giù (FaceAxes, KeepInEyeRange). Prova lying: ok.
+  - FollowMainNeck: Spine3/Neck/Neck1/Head del face_rig copiano quelli finali della root (g_mainNecks, salvati in
+    AimEyesAtCamera) mentre la mod mira alla camera.
+  - AnimGraphHook: Look at camera (Fotocamera, Testa/Torace) gestito dalla mod anche senza modifiche (POSE ON).
+  - KeepLookAt: limite misurato dal corpo, lati e su/giù separati (ToAngles/FromAngles): Testa 60/35/45 dal petto,
+    Torace 120/40/50 dal bacino; petto/bacino ricavati dalla forma (BodyAxes: Spine2->Neck + LeftArm-RightArm,
+    Hips->Spine1 + cosce); collo/testa con TurnFaceTo (testa dritta: alto del viso verso l'alto del petto), quote
+    Neck 0.35 / Neck1 0.5 / Head 1.
+  - Movimento graduale (SmoothLook, molla critica): testa 0.4 s, occhi 0.12 s; reset dopo 0.3 s di pausa.
+- Log diagnostici tolti (31/10); FacePoses.cpp torna uguale al commit.
+- Collo torto sulla posa del PM pack (31/10, da provare in gioco): BodyAxes era giusto. Causa: sulle pose di Photo
+  Mode KeepLookAt partiva dalla testa già girata dal Look at camera del gioco (camera dietro -> ~141 gradi), e la
+  rotazione più corta verso il lato opposto (-60) passava dietro il collo (twist -263/114/95). Fix: (A) in
+  ProcessMainSkeleton, se RemoveGameLookAt riesce e TakesOverLookAt, le ossa di LookAtChain ripartono dalla posa senza
+  il giro del gioco; (B) in KeepLookAt, Neck/Neck1/Head: se la svolta più corta attraversa la schiena, ogni osso fa la
+  sua quota passando davanti (max ~160 gradi). Build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco (2.31).
+  Da provare: PM pack con camera dietro a destra/sinistra, T-pose, laying_1, posa PM con Look at camera acceso prima
+  di sceglierla (lì A non agisce, resta B).
+- Limiti dopo il confronto con CDPR (31/10, posa Azione; da provare): Testa su 35 -> 60 (CDPR alza molto di più);
+  Torace lati 120 -> 90 (il nostro girava troppo), su 40 -> 65. Giù invariato (45 / 50). Build 2.5 e 2.31 ok,
+  DLL in dist, dist231 e gioco.
+- Altri da fare: rendere graduale anche l'accensione/spegnimento di Guarda in camera (ora scatta); controllare se il
+  gizmo degli occhi (AimPart / eye edit) ha lo stesso problema della testa del face_rig; attenzione warning
+  C4100 'aContext' in AnimGraphHook.cpp:394 (preesistente).
+
 ## Prossimi passi
+- Guarda in camera: provare in gioco il fix del collo torto (sezione sopra), poi commit.
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
 - Dopo il downgrade a 2.31: check_scripts.ps1 (bundle 2.31), test in gioco di dist231 (editor espressioni, FacePoses).

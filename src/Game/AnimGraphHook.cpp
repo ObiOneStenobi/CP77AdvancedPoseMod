@@ -12,6 +12,7 @@
 #include "Pose/FacePoses.hpp"
 #include "Pose/PoseOverrides.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/LookAtCamera.hpp"
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 
@@ -403,7 +404,12 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
     APM::Pose::TargetRegistry::VisitTarget(aTargetPointer, [&](const APM::Pose::Target& aTarget) {
         // Each character (V, added characters) has its own pose.
         const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
-        const bool applyPose = APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && !snapshot->IsEmpty();
+        // Photo Mode's Look at camera is taken over on every pose (the game stops the head and the eyes short of the
+        // camera, and turns the face rig apart from the body): also without edits.
+        const bool aimsAtCamera = APM::Pose::LookAtCamera::Reach(aTarget.photoModeSlot) >= 2 &&
+                                  APM::Pose::LookAtCamera::AimsAtCamera(aTarget.photoModeSlot);
+        const bool applyPose =
+            APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && (!snapshot->IsEmpty() || aimsAtCamera);
         uint32_t rigBoneCount = 0;
         if (APM::Log::g_verbose.load(std::memory_order_relaxed))
         {

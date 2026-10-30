@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <iterator>
 #include <mutex>
@@ -531,6 +532,187 @@ std::mutex g_cameraEyeMutex;
 std::array<std::array<Quat, 2>, CharacterCount> g_cameraEyeLocals{};
 std::array<bool, CharacterCount> g_cameraEyesValid{};
 
+// The neck and head of the main skeleton after the camera turn (model space), for the face rig (see FollowMainNeck).
+constexpr const char* NeckChain[] = {"Spine3", "Neck", "Neck1", "Head"};
+struct MainNeck
+{
+    std::array<Vec3, std::size(NeckChain)> positions{};
+    std::array<Quat, std::size(NeckChain)> rotations{};
+    bool valid = false;
+};
+std::array<MainNeck, CharacterCount> g_mainNecks{}; // under g_cameraEyeMutex
+
+// Where the face looks in a pose, and its own axes: up as the head's, left across (the reference face looks level, so
+// they are square).
+void FaceAxes(const APM::Pose::Target& aTarget, const ModelPose& aPose, int32_t aHead, const Vec3& aFace, Vec3& aForward,
+              Vec3& aLeft, Vec3& aUp)
+{
+    const Quat headTurn = APM::Math::Mul(aPose.rotations[aHead], APM::Math::Conjugate(aTarget.refRotationsMS[aHead]));
+    aForward = APM::Math::Rotate(headTurn, aFace);
+    aUp = APM::Math::Normalize(APM::Math::Rotate(headTurn, Vec3{0.f, 0.f, 1.f}));
+    aLeft = APM::Math::Normalize(APM::Math::Cross(aUp, aForward));
+}
+
+// The chest or the hips seen from their shape (the spine's direction and the line across the arms / thighs) rather
+// than from their bones' rotations: custom poses turn those bones around their length and make it up further up the
+// chain (a PM pack pose had its head "151 degrees" from Spine3, test 30/10). The face's reference direction carried by
+// that shape, with its up and left.
+bool BodyAxes(const APM::Pose::Target& aTarget, const ModelPose& aPose, uint32_t aCount, bool aHips, const Vec3& aFace,
+              Vec3& aForward, Vec3& aLeft, Vec3& aUp)
+{
+    const int32_t lower = IndexOf(aTarget, Hash(aHips ? "Hips" : "Spine2"));
+    const int32_t upper = IndexOf(aTarget, Hash(aHips ? "Spine1" : "Neck"));
+    const int32_t left = IndexOf(aTarget, Hash(aHips ? "LeftUpLeg" : "LeftArm"));
+    const int32_t right = IndexOf(aTarget, Hash(aHips ? "RightUpLeg" : "RightArm"));
+    const size_t refCount = std::min(aTarget.refRotationsMS.size(), aTarget.refTranslationsLS.size());
+    for (const int32_t bone : {lower, upper, left, right})
+    {
+        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount || static_cast<size_t>(bone) >= refCount)
+        {
+            return false;
+        }
+    }
+    thread_local std::vector<Vec3> refPositions;
+    refPositions.resize(refCount);
+    for (size_t i = 0; i < refCount; ++i)
+    {
+        const int16_t parent = i < aTarget.parents.size() ? aTarget.parents[i] : int16_t(-1);
+        refPositions[i] = parent >= 0 && static_cast<size_t>(parent) < i
+                              ? refPositions[parent] + APM::Math::Rotate(aTarget.refRotationsMS[parent], aTarget.refTranslationsLS[i])
+                              : aTarget.refTranslationsLS[i];
+    }
+    // An orthonormal frame from the spine (first axis) and the line across (second).
+    const auto frame = [](const Vec3& aAlong, const Vec3& aAcross, std::array<Vec3, 3>& aOut) {
+        if (APM::Math::Length(aAlong) < 1e-4f)
+        {
+            return false;
+        }
+        aOut[0] = APM::Math::Normalize(aAlong);
+        const Vec3 across = aAcross - aOut[0] * APM::Math::Dot(aAcross, aOut[0]);
+        if (APM::Math::Length(across) < 1e-4f)
+        {
+            return false;
+        }
+        aOut[1] = APM::Math::Normalize(across);
+        aOut[2] = APM::Math::Cross(aOut[0], aOut[1]);
+        return true;
+    };
+    std::array<Vec3, 3> reference{};
+    std::array<Vec3, 3> now{};
+    if (!frame(refPositions[upper] - refPositions[lower], refPositions[left] - refPositions[right], reference) ||
+        !frame(aPose.positions[upper] - aPose.positions[lower], aPose.positions[left] - aPose.positions[right], now))
+    {
+        return false;
+    }
+    const auto carry = [&](const Vec3& aVector) {
+        return now[0] * APM::Math::Dot(aVector, reference[0]) + now[1] * APM::Math::Dot(aVector, reference[1]) +
+               now[2] * APM::Math::Dot(aVector, reference[2]);
+    };
+    aForward = APM::Math::Normalize(carry(aFace));
+    aUp = APM::Math::Normalize(carry(Vec3{0.f, 0.f, 1.f}));
+    aLeft = APM::Math::Normalize(APM::Math::Cross(aUp, aForward));
+    return true;
+}
+
+// Sideways (+ to the left) and up / down angles (radians) of a direction around aForward, and back.
+void ToAngles(const Vec3& aDirection, const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp, float& aSide, float& aPitch)
+{
+    aSide = std::atan2(APM::Math::Dot(aDirection, aLeft), APM::Math::Dot(aDirection, aForward));
+    aPitch = std::asin(std::clamp(APM::Math::Dot(aDirection, aUp), -1.f, 1.f));
+}
+
+Vec3 FromAngles(float aSide, float aPitch, const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp)
+{
+    const float level = std::cos(aPitch);
+    return APM::Math::Normalize(aForward * (level * std::cos(aSide)) + aLeft * (level * std::sin(aSide)) +
+                                aUp * std::sin(aPitch));
+}
+
+// Look at camera moves towards its target gradually, easing in and out (a critically damped spring), as the game's
+// does: per character, the head (sideways / up-down from the body) and each eye (from the face).
+struct LookSmoothing
+{
+    float side = 0.f;
+    float pitch = 0.f;
+    float sideSpeed = 0.f;
+    float pitchSpeed = 0.f;
+    uint64_t lastUs = 0;
+    bool valid = false;
+};
+std::mutex g_lookSmoothingMutex;
+std::array<std::array<LookSmoothing, 3>, CharacterCount> g_lookSmoothing{}; // head, left eye, right eye
+
+uint64_t NowUs()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+float SmoothDamp(float aValue, float aTarget, float& aSpeed, float aSmoothTime, float aDt)
+{
+    const float omega = 2.f / aSmoothTime;
+    const float x = omega * aDt;
+    const float decay = 1.f / (1.f + x + 0.48f * x * x + 0.235f * x * x * x);
+    const float change = aValue - aTarget;
+    const float temp = (aSpeed + omega * change) * aDt;
+    aSpeed = (aSpeed - omega * temp) * decay;
+    return aTarget + (change + temp) * decay;
+}
+
+// The target angles eased from the last ones (starting at the target after a pause, e.g. Look at camera just on).
+void SmoothLook(size_t aCharacter, size_t aPart, float aSmoothTime, float& aSide, float& aPitch)
+{
+    if (aCharacter >= CharacterCount)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_lookSmoothingMutex);
+    auto& state = g_lookSmoothing[aCharacter][aPart];
+    const uint64_t now = NowUs();
+    const float dt = static_cast<float>(now - state.lastUs) * 1e-6f;
+    if (!state.valid || dt > 0.3f)
+    {
+        state = {aSide, aPitch, 0.f, 0.f, now, true};
+        return;
+    }
+    state.lastUs = now;
+    if (dt <= 0.f)
+    {
+        aSide = state.side;
+        aPitch = state.pitch;
+        return;
+    }
+    state.side = SmoothDamp(state.side, aSide, state.sideSpeed, aSmoothTime, dt);
+    state.pitch = SmoothDamp(state.pitch, aPitch, state.pitchSpeed, aSmoothTime, dt);
+    aSide = state.side;
+    aPitch = state.pitch;
+}
+
+// A direction kept within a range around aForward, sideways and up / down separately (degrees). A single angle would
+// turn around an axis that is arbitrary when the direction is behind (the head then bent sideways, test 30/10).
+Vec3 KeepInRange(const Vec3& aWanted, const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp, float aMaxSide,
+                 float aMaxUp, float aMaxDown)
+{
+    const float side = std::atan2(APM::Math::Dot(aWanted, aLeft), APM::Math::Dot(aWanted, aForward));
+    const float pitch = std::asin(std::clamp(APM::Math::Dot(aWanted, aUp), -1.f, 1.f));
+    const float clampedSide = std::clamp(side, -aMaxSide / 57.2958f, aMaxSide / 57.2958f);
+    const float clampedPitch = std::clamp(pitch, -aMaxDown / 57.2958f, aMaxUp / 57.2958f);
+    if (clampedSide == side && clampedPitch == pitch)
+    {
+        return aWanted;
+    }
+    const float level = std::cos(clampedPitch);
+    return APM::Math::Normalize(aForward * (level * std::cos(clampedSide)) + aLeft * (level * std::sin(clampedSide)) +
+                                aUp * std::sin(clampedPitch));
+}
+
+// A gaze direction kept within how far the game turns the eyes from where the face looks (its gaze tracks at 1, see
+// docs/RESEARCH.md).
+Vec3 KeepInEyeRange(const Vec3& aWanted, const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp)
+{
+    return KeepInRange(aWanted, aForward, aLeft, aUp, 40.f, 21.f, 30.f);
+}
+
 void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
@@ -543,14 +725,16 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     {
         std::scoped_lock lock(g_cameraEyeMutex);
         g_cameraEyesValid[character] = false;
+        g_mainNecks[character].valid = false;
         return;
     }
-    constexpr float MaxEyeTurn = 0.52f; // ~30 degrees from where the face looks
     const Vec3 face = FaceForward(aTarget);
     thread_local ModelPose current;
     ComputeModelPose(aTarget, aBones, aCount, current);
-    const Vec3 faceDirection =
-        APM::Math::Rotate(current.rotations[head], APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face));
+    Vec3 faceDirection{};
+    Vec3 faceLeft{};
+    Vec3 faceUp{};
+    FaceAxes(aTarget, current, head, face, faceDirection, faceLeft, faceUp);
 
     std::array<Quat, 2> locals{};
     bool ok = true;
@@ -572,12 +756,7 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
             break;
         }
         wanted = APM::Math::Normalize(wanted);
-        const float fromFace = APM::Math::AngleBetween(faceDirection, wanted);
-        const Vec3 clampAxis = APM::Math::Cross(faceDirection, wanted);
-        if (fromFace > MaxEyeTurn && APM::Math::Length(clampAxis) > 1e-6f)
-        {
-            wanted = APM::Math::Rotate(APM::Math::FromAxisAngle(clampAxis, MaxEyeTurn), faceDirection);
-        }
+        wanted = KeepInEyeRange(wanted, faceDirection, faceLeft, faceUp);
         const Vec3 eyeLocalForward = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[eye]), face);
         const Vec3 looking = APM::Math::Rotate(current.rotations[eye], eyeLocalForward);
         const float angle = APM::Math::AngleBetween(looking, wanted);
@@ -593,6 +772,70 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     std::scoped_lock lock(g_cameraEyeMutex);
     g_cameraEyeLocals[character] = locals;
     g_cameraEyesValid[character] = ok;
+    auto& neck = g_mainNecks[character];
+    neck.valid = true;
+    for (size_t i = 0; i < std::size(NeckChain); ++i)
+    {
+        const int32_t bone = IndexOf(aTarget, Hash(NeckChain[i]));
+        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount)
+        {
+            neck.valid = false;
+            break;
+        }
+        neck.positions[i] = current.positions[bone];
+        neck.rotations[i] = current.rotations[bone];
+    }
+}
+
+// The face rig (it carries the visible head and the eyes) is turned by the game's Look at camera on its own: on a saved
+// pose its head stays up to 40-65 degrees away from the main skeleton's, which KeepLookAt turned (test 30/10). While
+// the plugin aims at the camera, its neck and head take the main skeleton's.
+void FollowMainNeck(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    const size_t character = CharacterOf(aTarget);
+    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
+        !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
+    {
+        return;
+    }
+    MainNeck main{};
+    {
+        std::scoped_lock lock(g_cameraEyeMutex);
+        main = g_mainNecks[character];
+    }
+    if (!main.valid)
+    {
+        return;
+    }
+    thread_local ModelPose current;
+    ComputeModelPose(aTarget, aBones, aCount, current);
+    for (size_t i = 0; i < std::size(NeckChain); ++i)
+    {
+        const int32_t bone = IndexOf(aTarget, Hash(NeckChain[i]));
+        const int16_t parent = bone >= 0 && static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
+        if (bone < 0 || parent < 0 || static_cast<uint32_t>(bone) >= aCount || static_cast<uint32_t>(parent) >= aCount)
+        {
+            return;
+        }
+        const Quat parentRotation = current.rotations[parent];
+        const Vec3 parentPosition = current.positions[parent];
+        SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(parentRotation), main.rotations[i]));
+        if (i == 0)
+        {
+            // The chain's root also takes the main skeleton's position (the rest keep their lengths).
+            const Vec3 local = APM::Math::Rotate(APM::Math::Conjugate(parentRotation), main.positions[i] - parentPosition);
+            aBones[bone].Translation.X = local.x;
+            aBones[bone].Translation.Y = local.y;
+            aBones[bone].Translation.Z = local.z;
+            current.positions[bone] = main.positions[i];
+        }
+        else
+        {
+            const auto& t = aBones[bone].Translation;
+            current.positions[bone] = parentPosition + APM::Math::Rotate(parentRotation, Vec3{t.X, t.Y, t.Z});
+        }
+        current.rotations[bone] = main.rotations[i];
+    }
 }
 
 // Eyes turned by the editor rather than by the game: an eye edit (not paused by the game's Look at camera), or the eyes
@@ -618,7 +861,71 @@ bool EyesEditedByUs(const APM::Pose::Target& aTarget, const APM::Pose::OverrideS
     return false;
 }
 
-// The face rig's eyeballs follow the camera-aimed eyes of the main skeleton.
+// The eye meshes are skinned to the face rig, whose head the game turns on its own for Look at camera (30-65 degrees
+// away from the main skeleton's head on a saved pose, test 30/10): its eyeballs are aimed from its own head, each
+// along the way it looks at rest (eyeball -> pupil). False when the rig has no pupils.
+bool AimFaceRigEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
+    const int32_t head = IndexOf(aTarget, Hash("Head"));
+    if (!camera.valid || head < 0 || static_cast<uint32_t>(head) >= aCount ||
+        static_cast<size_t>(head) >= aTarget.refRotationsMS.size())
+    {
+        return false;
+    }
+    static constexpr const char* Parts[2][2] = {{"l_J_eye_JNT", "l_J_eye_pupil_JNT"}, {"r_J_eye_JNT", "r_J_eye_pupil_JNT"}};
+    std::array<int32_t, 2> eyes{};
+    std::array<int32_t, 2> pupils{};
+    std::array<int16_t, 2> parents{};
+    for (size_t e = 0; e < 2; ++e)
+    {
+        eyes[e] = IndexOf(aTarget, Hash(Parts[e][0]));
+        pupils[e] = IndexOf(aTarget, Hash(Parts[e][1]));
+        parents[e] = eyes[e] >= 0 && static_cast<size_t>(eyes[e]) < aTarget.parents.size() ? aTarget.parents[eyes[e]] : int16_t(-1);
+        if (eyes[e] < 0 || pupils[e] < 0 || parents[e] < 0 || static_cast<uint32_t>(eyes[e]) >= aCount ||
+            static_cast<uint32_t>(parents[e]) >= aCount || static_cast<size_t>(pupils[e]) >= aTarget.refTranslationsLS.size() ||
+            APM::Math::Length(aTarget.refTranslationsLS[pupils[e]]) < 1e-5f)
+        {
+            return false;
+        }
+    }
+    thread_local ModelPose current;
+    ComputeModelPose(aTarget, aBones, aCount, current);
+    Vec3 faceDirection{};
+    Vec3 faceLeft{};
+    Vec3 faceUp{};
+    FaceAxes(aTarget, current, head, FaceForward(aTarget), faceDirection, faceLeft, faceUp);
+    for (size_t e = 0; e < 2; ++e)
+    {
+        Vec3 wanted = camera.position - current.positions[eyes[e]];
+        if (APM::Math::Length(wanted) < 1e-3f)
+        {
+            return false;
+        }
+        // Within the game's range (40 degrees sideways, 21 up, 30 down from the face), eased faster than the head.
+        float side = 0.f;
+        float pitch = 0.f;
+        ToAngles(APM::Math::Normalize(wanted), faceDirection, faceLeft, faceUp, side, pitch);
+        side = std::clamp(side, -40.f / 57.2958f, 40.f / 57.2958f);
+        pitch = std::clamp(pitch, -30.f / 57.2958f, 21.f / 57.2958f);
+        SmoothLook(CharacterOf(aTarget), 1 + e, 0.12f, side, pitch);
+        wanted = FromAngles(side, pitch, faceDirection, faceLeft, faceUp);
+        const Vec3 localForward = APM::Math::Normalize(aTarget.refTranslationsLS[pupils[e]]);
+        const Vec3 looking = APM::Math::Rotate(current.rotations[eyes[e]], localForward);
+        const float angle = APM::Math::AngleBetween(looking, wanted);
+        const Vec3 axis = APM::Math::Cross(looking, wanted);
+        Quat model = current.rotations[eyes[e]];
+        if (angle > 1e-4f && APM::Math::Length(axis) > 1e-6f)
+        {
+            model = APM::Math::Mul(APM::Math::FromAxisAngle(axis, angle), model);
+        }
+        SetRotation(aBones[eyes[e]], APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parents[e]]), model)));
+    }
+    return true;
+}
+
+// The face rig's eyeballs follow the camera-aimed eyes of the main skeleton (or are aimed from the face rig's own
+// head, see AimFaceRigEyesAtCamera).
 void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     std::array<Quat, 2> locals{};
@@ -631,6 +938,10 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
             return;
         }
         locals = g_cameraEyeLocals[character];
+    }
+    if (AimFaceRigEyesAtCamera(aTarget, aBones, aCount))
+    {
+        return;
     }
     static const uint64_t left = Hash("LeftEye");
     static const uint64_t right = Hash("RightEye");
@@ -647,6 +958,56 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
     }
 }
 
+// A share of a rotation (the same axis, aShare of the angle).
+Quat ScaleRotation(const Quat& aRotation, float aShare)
+{
+    Quat q = APM::Math::Normalize(aRotation);
+    if (q.r < 0.f)
+    {
+        q = {-q.i, -q.j, -q.k, -q.r};
+    }
+    const float s = std::sqrt(q.i * q.i + q.j * q.j + q.k * q.k);
+    if (s < 1e-6f)
+    {
+        return {0.f, 0.f, 0.f, 1.f};
+    }
+    return APM::Math::FromAxisAngle(Vec3{q.i / s, q.j / s, q.k / s}, 2.f * std::atan2(s, q.r) * aShare);
+}
+
+// Model-space turn of the head so that its face looks along aWanted with its top towards the chest's top (no tilt
+// onto the shoulder): the shortest turn of the face, then a roll around aWanted.
+Quat TurnFaceTo(const ModelPose& aPose, int32_t aHead, const Vec3& aChestUp, const Vec3& aFaceLocal, const Vec3& aUpLocal,
+                const Vec3& aWanted)
+{
+    const Vec3 facing = APM::Math::Rotate(aPose.rotations[aHead], aFaceLocal);
+    Quat turn{0.f, 0.f, 0.f, 1.f};
+    const float angle = APM::Math::AngleBetween(facing, aWanted);
+    const Vec3 axis = APM::Math::Cross(facing, aWanted);
+    if (angle > 1e-4f && APM::Math::Length(axis) > 1e-6f)
+    {
+        turn = APM::Math::FromAxisAngle(axis, angle);
+    }
+    const Vec3 wantedUp = aChestUp - aWanted * APM::Math::Dot(aChestUp, aWanted);
+    const Vec3 up = APM::Math::Rotate(turn, APM::Math::Rotate(aPose.rotations[aHead], aUpLocal));
+    const Vec3 upNow = up - aWanted * APM::Math::Dot(up, aWanted);
+    if (APM::Math::Length(wantedUp) < 1e-3f || APM::Math::Length(upNow) < 1e-3f)
+    {
+        return turn; // looking along the chest's top: no roll to take from it
+    }
+    const Vec3 a = APM::Math::Normalize(upNow);
+    const Vec3 b = APM::Math::Normalize(wantedUp);
+    const float roll = std::atan2(APM::Math::Dot(APM::Math::Cross(a, b), aWanted), APM::Math::Dot(a, b));
+    return APM::Math::Mul(APM::Math::FromAxisAngle(aWanted, roll), turn);
+}
+
+// Whether KeepLookAt turns this character towards the camera (head or torso, "camera" target).
+bool TakesOverLookAt(const APM::Pose::Target& aTarget)
+{
+    const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
+    return APM::Pose::LookAtCamera::Reach(character) >= 2 && APM::Pose::LookAtCamera::GetCamera(character).valid &&
+           APM::Pose::LookAtCamera::AimsAtCamera(character);
+}
+
 // Photo Mode's "Look at camera" (head or torso) is part of the animated pose, so a full base pose (T / A pose, saved
 // pose) replaces it, and edits of the hips or the back turn the face away from it. Turn the pose (after the edits)
 // so the face looks at the camera's position.
@@ -655,8 +1016,8 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
 {
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
     const int32_t reach = APM::Pose::LookAtCamera::Reach(character);
-    const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
-    if (reach < 2 || !camera.valid || !APM::Pose::LookAtCamera::AimsAtCamera(character))
+    const auto camera = APM::Pose::LookAtCamera::GetCamera(character);
+    if (!TakesOverLookAt(aTarget))
     {
         return; // "custom": the game's own turn stays (the base pose leaves those bones alone)
     }
@@ -681,6 +1042,7 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
 
     const Vec3 face = FaceForward(aTarget);
     const Vec3 faceLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), face);
+    const Vec3 headUpLocal = APM::Math::Rotate(APM::Math::Conjugate(aTarget.refRotationsMS[head]), Vec3{0.f, 0.f, 1.f});
 
     thread_local ModelPose current;
     ComputeModelPose(aTarget, aBones, aCount, current);
@@ -699,15 +1061,32 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         return;
     }
     wanted = APM::Math::Normalize(wanted);
+    Vec3 chestForward{};
+    Vec3 chestLeft{};
+    Vec3 chestUp{};
+    const bool hasChest = BodyAxes(aTarget, current, aCount, false, face, chestForward, chestLeft, chestUp);
     {
-        // Never more than a natural turn away from the base pose.
-        constexpr float MaxTurn = 1.75f; // ~100 degrees
-        const Vec3 start = APM::Math::Rotate(current.rotations[head], faceLocal);
-        const float angle = APM::Math::AngleBetween(start, wanted);
-        const Vec3 axis = APM::Math::Cross(start, wanted);
-        if (angle > MaxTurn && APM::Math::Length(axis) > 1e-6f)
+        // Never more than a natural turn away from the body: the chest for the head, the hips for the torso. Not from
+        // the head as it comes, which the game's own Look at camera may have turned already (a pose without edits).
+        // Sideways and up / down separately, eased towards the target.
+        Vec3 bodyForward = chestForward;
+        Vec3 bodyLeft = chestLeft;
+        Vec3 bodyUp = chestUp;
+        const bool hasBody = reach >= 3 ? BodyAxes(aTarget, current, aCount, true, face, bodyForward, bodyLeft, bodyUp) : hasChest;
+        if (hasBody)
         {
-            wanted = APM::Math::Rotate(APM::Math::FromAxisAngle(axis, MaxTurn), start);
+            // The head: ~60 degrees sideways, past which the neck mesh twists (test 30/10); the eyes do the rest.
+            // Upwards as far as the game's (test 31/10); the torso turns less sideways than ours did, as the game's.
+            const float maxSide = (reach >= 3 ? 90.f : 60.f) / 57.2958f;
+            const float maxUp = (reach >= 3 ? 65.f : 60.f) / 57.2958f;
+            const float maxDown = (reach >= 3 ? 50.f : 45.f) / 57.2958f;
+            float side = 0.f;
+            float pitch = 0.f;
+            ToAngles(wanted, bodyForward, bodyLeft, bodyUp, side, pitch);
+            side = std::clamp(side, -maxSide, maxSide);
+            pitch = std::clamp(pitch, -maxDown, maxUp);
+            SmoothLook(character, 0, 0.4f, side, pitch);
+            wanted = FromAngles(side, pitch, bodyForward, bodyLeft, bodyUp);
         }
     }
     for (size_t c = 0; c < chainSize; ++c)
@@ -728,6 +1107,37 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         }
         Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
         Vec3 target = wanted;
+        Vec3 neckForward{};
+        Vec3 neckLeft{};
+        Vec3 neckUp{};
+        if (!chain[c].yawOnly && BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
+        {
+            // Neck and head: the face towards the camera with its top towards the chest's (the head upright on the
+            // neck). The shortest turn alone tilted the head onto the shoulder on a pose bent forward (test 30/10).
+            // A head turned far to one side and a camera on the other: the shortest turn passes behind the neck, so
+            // this bone takes its share of the way across the front instead (at most ~160 degrees at once).
+            float faceSide = 0.f;
+            float facePitch = 0.f;
+            float wantedSide = 0.f;
+            float wantedPitch = 0.f;
+            ToAngles(facing, neckForward, neckLeft, neckUp, faceSide, facePitch);
+            ToAngles(wanted, neckForward, neckLeft, neckUp, wantedSide, wantedPitch);
+            if (std::abs(wantedSide - faceSide) > 3.14159265f)
+            {
+                const float step = std::clamp((wantedSide - faceSide) * chain[c].weight, -2.8f, 2.8f);
+                const Vec3 across = FromAngles(faceSide + step, facePitch + (wantedPitch - facePitch) * chain[c].weight,
+                                               neckForward, neckLeft, neckUp);
+                const Quat model = APM::Math::Mul(TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, across),
+                                                  current.rotations[bone]);
+                SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+                continue;
+            }
+            const Quat turn = ScaleRotation(TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, wanted),
+                                            chain[c].weight);
+            const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
+            SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+            continue;
+        }
         if (chain[c].yawOnly)
         {
             facing.z = 0.f;
@@ -841,6 +1251,16 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
     {
         withoutLookAt.assign(aBones, aBones + aCount);
         const bool removed = RemoveGameLookAt(aTarget, withoutLookAt.data(), aCount);
+        if (removed && TakesOverLookAt(aTarget))
+        {
+            // KeepLookAt turns the pose itself, not the game's turn: with the camera behind, the game's head (~140
+            // degrees from the chest) was turned to the other side through the back, twisting the neck (test 30/10).
+            for (const char* name : LookAtChain)
+            {
+                const int32_t bone = IndexOf(aTarget, Hash(name));
+                SetRotation(aBones[bone], GetRotation(withoutLookAt[bone]));
+            }
+        }
         if (useIk)
         {
             // Where the animation (before any edit, and before the game's look at the camera) puts the hands and feet.
@@ -889,6 +1309,10 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
         APM::Pose::FacePoses::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
+    if (face)
+    {
+        FollowMainNeck(aTarget, aBones, aCount);
+    }
     ApplyCameraEyesToLinks(aTarget, aBones, aCount);
     if (eyes)
     {
