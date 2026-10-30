@@ -355,6 +355,9 @@ Aggiornato: 2026-10-25
   sul veicolo) -> LookAtCamera::g_ignored[0] (Reach 0, AimsAtCamera/IsCustom false); AnimGraphHook FreezeAnimation:
   con posa attiva (PoseOverrides::IsEnabled(0)) root/deformations/shadow prendono il fotogramma salvato all'accensione
   (viso, capelli, seno liberi); g_frozen svuotato a ogni attivazione. Log "V is the player in a vehicle ...".
+- Prova 30/10: Guarda in camera ok; animazione ferma ma la posa non si vedeva (gizmo sì): deformations/shadow
+  prendono le ossa della root nei loro grafi, congelarli nascondeva le modifiche -> ora si congela solo la root.
+  Sovrascrivi con conferma al secondo clic come Elimina (m_confirmOverwrite, testo APM-Button-ConfirmOverwrite).
 - Crash report utente (Desktop\CrashReports, 30/10 02:15): Epic 2.31, DLL 1.4.0 del 25/10, PhotoModeEx 1.4.1,
   RedHotTools; crash 0,6 s dopo l'uscita da Photo Mode su veicolo (Herrera Riptide, MountState Mounted), thread
   redDispatcher, ent::Entity::Detach+0x75, lettura 0xFFFF..., nessun frame di mod (AdvancedCrashReporter). Sul suo

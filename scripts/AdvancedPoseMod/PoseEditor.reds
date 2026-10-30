@@ -465,6 +465,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_confirmResetAll: Bool;
     private let m_rightWasDown: Bool;
     private let m_confirmDelete: Bool;
+    private let m_confirmOverwrite: Bool; // Overwrite asks for a second click, as Delete
     // Props: items put in V's hands
     private let m_propRight: Bool;            // the hand the picker works on
     private let m_shownRight: Uint64;         // items actually placed on the puppet
@@ -2043,9 +2044,10 @@ public class APM_PoseEditor extends IScriptable {
             if this.m_messageTimer <= 0.0 {
                 this.HideTip();
                 // "Click again" for Reset / Delete lasts as long as its message.
-                if this.m_confirmResetAll || this.m_confirmDelete {
+                if this.m_confirmResetAll || this.m_confirmDelete || this.m_confirmOverwrite {
                     this.m_confirmResetAll = false;
                     this.m_confirmDelete = false;
+                    this.m_confirmOverwrite = false;
                     this.Refresh();
                 }
             }
@@ -3224,6 +3226,13 @@ public class APM_PoseEditor extends IScriptable {
         this.SetButton("redo", false, APM_CanRedo());
         this.SetButton("rename", this.m_renaming, hasFile);
         this.SetButton("delete", false, hasFile);
+        let overwriteButton = this.FindButton("overwrite");
+        if IsDefined(overwriteButton) {
+            overwriteButton.label.SetText(this.m_confirmOverwrite ? APM_Text("APM-Button-ConfirmOverwrite", "Confirm overwrite") : APM_Text("APM-Button-Overwrite", "Overwrite"));
+            if this.m_confirmOverwrite {
+                overwriteButton.label.SetTintColor(APM_ColorWarning());
+            }
+        }
         let deleteButton = this.FindButton("delete");
         if IsDefined(deleteButton) {
             deleteButton.label.SetText(this.m_confirmDelete ? APM_Text("APM-Button-ConfirmDelete", "Confirm delete") : APM_Text("APM-Button-Delete", "Delete"));
@@ -4718,6 +4727,7 @@ public class APM_PoseEditor extends IScriptable {
         let arg = StrAfterFirst(id, ":");
         let keepResetConfirm = false;
         let keepDeleteConfirm = false;
+        let keepOverwriteConfirm = false;
 
         if Equals(id, "open") {
             this.SetOpen(true);
@@ -4912,7 +4922,9 @@ public class APM_PoseEditor extends IScriptable {
                 }
             }
         } else if Equals(id, "overwrite") {
-            if StrLen(this.m_selectedPose) > 0 && !this.IsBuiltIn(this.m_selectedPose) {
+            if StrLen(this.m_selectedPose) > 0 && !this.IsBuiltIn(this.m_selectedPose) && !this.m_confirmOverwrite {
+                keepOverwriteConfirm = true; // the first click asks for confirmation
+            } else if StrLen(this.m_selectedPose) > 0 && !this.IsBuiltIn(this.m_selectedPose) {
                 if this.LibraryKind() == 2 {
                     if !APM_FaceSave(this.m_selectedPose) {
                         this.SetStatus(APM_Text("APM-Msg-ExpressionSaveFailed", "Could not save the expression"));
@@ -4978,6 +4990,7 @@ public class APM_PoseEditor extends IScriptable {
 
         this.m_confirmResetAll = keepResetConfirm;
         this.m_confirmDelete = keepDeleteConfirm;
+        this.m_confirmOverwrite = keepOverwriteConfirm;
         APM_UiRequestRefresh(); // keeps the Photo Mode menu items in sync
         this.Refresh();
     }

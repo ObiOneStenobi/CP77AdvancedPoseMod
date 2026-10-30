@@ -363,14 +363,15 @@ void NoteSample(const APM::Pose::Target& aTarget, uint32_t aCount, uint32_t aRig
 }
 
 // The player posed in a vehicle (no Photo Mode puppet) keeps its seat animation: while the pose is on, the body takes
-// the frame it had when the pose went on, so it holds still under the edits. The face (expressions go through the
-// facial solver) and the skeletons with physics (hair, breasts, dangles) stay free.
+// the frame it had when the pose went on, so it holds still under the edits. Only the main skeleton: the others take
+// its bones in their own graphs (freezing deformations / shadow hid the edits, test 30/10), the face goes through the
+// facial solver and hair, breasts and dangles have physics.
 std::mutex g_frozenMutex;
 std::unordered_map<uintptr_t, std::vector<RED4ext::QsTransform>> g_frozen; // by animated component
 
 void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, bool aOn)
 {
-    if (aTarget.debugName != "root" && aTarget.debugName != "deformations" && aTarget.debugName != "shadow")
+    if (aTarget.debugName != "root")
     {
         return;
     }

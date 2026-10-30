@@ -222,6 +222,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Label-HandPoseLeft", "left hand");
         this.Text("APM-Label-HandPoseRight", "right hand");
         this.Text("APM-Title-HandPoses", "Hand poses");
+        this.Text("APM-Button-ConfirmOverwrite", "Confirm overwrite");
         this.Text("APM-Button-ConfirmDelete", "Confirm delete");
         this.Text("APM-Hint-ClassicCenter", "drag to move freely (or the arrows)");
         this.Text("APM-Hint-ClassicSelect", "click to select (drag the rings / arrows)");
