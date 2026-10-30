@@ -112,6 +112,19 @@ void Resolve()
               g_rigBoneNames, g_rigTags);
 }
 
+uint64_t ComponentsSignature(uintptr_t aEntity)
+{
+    uint64_t entries = 0;
+    uint32_t size = 0;
+    const uint32_t offset = g_entityComponents.load();
+    if (!SafeMemory::LooksLikePointer(aEntity) || !SafeMemory::ReadU64(aEntity + offset, entries) ||
+        !SafeMemory::ReadU32(aEntity + offset + 0x0C, size))
+    {
+        return 0;
+    }
+    return entries ^ (static_cast<uint64_t>(size) << 48);
+}
+
 bool GetComponents(uintptr_t aEntity, ComponentList& aOut)
 {
     aOut = {};

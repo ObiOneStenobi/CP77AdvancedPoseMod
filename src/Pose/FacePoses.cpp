@@ -823,7 +823,8 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
     {
         return;
     }
-    // A face the solver poses gets here only the poses its rig has no track for.
+    // A face the solver poses gets here the poses its rig has no track for, and of the others only the part above
+    // 100%: the solver stops at 1 (tracks at 4 look as at 1, test 30/10), so the rest goes on the bones.
     std::shared_ptr<const TrackMap> solverTracks;
     if (IsSolverFace(aTarget.animatedComponent))
     {
@@ -845,8 +846,12 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
         // Above 100% (limits unlocked, other mods' expressions) the last inbetween is extended at the same rate.
         const float weight = std::clamp(aPose.faceWeights[p], 0.f, MaxLoadedValue);
         const auto& inbetweens = head->poses[p];
-        if (weight <= 0.f || inbetweens.empty() ||
-            (solverTracks && (p >= solverTracks->tracks.size() || solverTracks->tracks[p] >= 0)))
+        if (weight <= 0.f || inbetweens.empty() || (solverTracks && p >= solverTracks->tracks.size()))
+        {
+            continue;
+        }
+        const bool bySolver = solverTracks && solverTracks->tracks[p] >= 0;
+        if (bySolver && weight <= inbetweens.back().weight)
         {
             continue;
         }
@@ -869,9 +874,15 @@ void Apply(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
             {
                 continue;
             }
-            const Quat rotation = Slerp(lo ? lo->deltas[d].rotation : Quat{}, deltas[d].rotation, t);
+            Quat rotation = Slerp(lo ? lo->deltas[d].rotation : Quat{}, deltas[d].rotation, t);
             const Vec3 base = lo ? lo->deltas[d].translation : Vec3{};
-            const Vec3 translation = base + (deltas[d].translation - base) * t;
+            Vec3 translation = base + (deltas[d].translation - base) * t;
+            if (bySolver)
+            {
+                // The solver already turned the bone as at the last inbetween: only the change from there.
+                rotation = Math::Normalize(Math::Mul(Math::Conjugate(deltas[d].rotation), rotation));
+                translation = translation - deltas[d].translation;
+            }
             auto& out = aBones[bone];
             const Quat current{out.Rotation.i, out.Rotation.j, out.Rotation.k, out.Rotation.r};
             const Quat q = Math::Normalize(Math::Mul(current, rotation));

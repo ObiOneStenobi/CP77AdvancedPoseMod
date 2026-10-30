@@ -333,6 +333,26 @@ Aggiornato: 2026-10-25
   PhotoModeTracker g_playerEntity; RefreshTargets, se slot 0 non ha puppet, posa il giocatore come V (se
   IsHumanCharacter); log "no Photo Mode puppet (vehicle): V is the player character itself". Azzerato a Deactivate.
   Da provare: auto e moto, corpo, viso, T pose, IK, marker; uscita da Photo Mode (il giocatore torna normale).
+- Prova 30/10 00:51 (sessioni 2-3 su veicolo): il giocatore arriva ma IsHumanCharacter fallisce ("player has no human
+  skeleton"). Aggiunto log Info una volta per sessione: classe dell'entità e scheletri (nome(ossa)) -> da riprovare.
+- Prova 30/10 01:08: sul veicolo il giocatore è PlayerPuppet con root(152) deformations(183) shadow face_rig(344)
+  hair_dangle breasts: IsHumanCharacter voleva root == 71. FATTO: parametro aLargerRig (root >= 71 + ossa richieste)
+  solo per il giocatore. NPC aggiunto sul veicolo: comparso lontano (posizione del gioco).
+- Espressioni oltre 100: CONFERMATO limite del risolutore (FaceProbe: tracce a 4,00 / 3,41, nessun effetto oltre 1).
+  FATTO: FacePoses::Apply per le pose con traccia applica sulle ossa solo la parte oltre l'ultimo inbetween
+  (conj(R1)*R(w), T(w)-T1, delta delle teste JSON pwa/pma: approssimati per la testa del personaggio).
+- Da provare: veicolo (auto/moto: marker, rotazioni, T pose, viso), espressioni a 200-400% su V, NPC e Johnny.
+- Crash utente, precisazione 30/10: NON su veicolo (appartamento, stress test pose, niente oggetti in mano); 0,35 s
+  dopo "deactivated", Entity::Detach+0x75 su worker, RBX = entità del personaggio 0 già liberata (primo qword non è
+  una vtable). Ipotesi (sua): riferimento forte della mod ultimo proprietario. Verificato: riferimenti bilanciati e
+  nessuno tenuto dopo l'uscita; MA RefreshTargets (ApplyPuppetTransforms, thread del gioco) faceva LockAlive di
+  entità e di tutti i componenti (161) a ogni chiamata. FATTO: ricostruzione solo se cambia la firma letta senza
+  riferimenti (ReadTargetSignature: puppet della lista, giocatore, slot scena, EngineLayout::ComponentsSignature =
+  indirizzo+dimensione dell'array componenti, sessione), finché manca la root (rig in caricamento) o ogni 2 s.
+- Crash report utente (Desktop\CrashReports, 30/10 02:15): Epic 2.31, DLL 1.4.0 del 25/10, PhotoModeEx 1.4.1,
+  RedHotTools; crash 0,6 s dopo l'uscita da Photo Mode su veicolo (Herrera Riptide, MountState Mounted), thread
+  redDispatcher, ent::Entity::Detach+0x75, lettura 0xFFFF..., nessun frame di mod (AdvancedCrashReporter). Sul suo
+  gioco Photo Mode su veicolo AVEVA il puppet (targets registrati). Simile al crash del 25/10 dopo l'uscita.
 - Veicoli: log "PhotoMode: player list slot N puppet=... type=..." (Verbose, quando cambia) e "V has no puppet / no
   animated components" (Info, una volta per sessione); RESEARCH.md "Vehicles" aggiornato. Prova in gioco da fare.
 ## Prossimi passi

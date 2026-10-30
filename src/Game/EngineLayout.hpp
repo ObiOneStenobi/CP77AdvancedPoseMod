@@ -25,6 +25,9 @@ struct ComponentList
 };
 bool GetComponents(uintptr_t aEntity, ComponentList& aOut);
 uintptr_t GetComponent(const ComponentList& aList, uint32_t aIndex); // instance pointer, 0 if none
+// Address and size of an entity's component array, read without touching the components or taking a reference
+// (0 if unreadable): it changes when components are added or removed.
+uint64_t ComponentsSignature(uintptr_t aEntity);
 
 RED4ext::CName GetComponentName(uintptr_t aComponent);
 // Loaded rig of an animated component (anim::Rig*), 0 if none / not loaded yet.

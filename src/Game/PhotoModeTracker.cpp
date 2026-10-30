@@ -27,6 +27,7 @@
 #include <RED4ext/Scripting/Natives/Generated/ent/Entity.hpp>
 
 #include <algorithm>
+#include <mutex>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -486,14 +487,17 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
 
 // An added character can be posed when its main skeleton is a human one, like V's ("root", 71 bones). Animals and
 // objects have unrelated skeletons.
-bool IsHumanCharacter(const std::vector<APM::Pose::Target>& aTargets, uint64_t aPuppet)
+// aLargerRig: the main skeleton may have more bones than the 71 of the Photo Mode puppets (the player's own entity,
+// shown in a vehicle, has a 152-bone "root").
+bool IsHumanCharacter(const std::vector<APM::Pose::Target>& aTargets, uint64_t aPuppet, bool aLargerRig = false)
 {
     static const uint64_t required[] = {RED4ext::CName("Hips").hash, RED4ext::CName("Spine3").hash,
                                         RED4ext::CName("Head").hash, RED4ext::CName("LeftHand").hash,
                                         RED4ext::CName("RightFoot").hash};
     for (const auto& target : aTargets)
     {
-        if (target.entity != aPuppet || target.debugName != "root" || target.boneNames.size() != 71)
+        if (target.entity != aPuppet || target.debugName != "root" || target.boneNames.size() < 71 ||
+            (!aLargerRig && target.boneNames.size() != 71))
         {
             continue;
         }
@@ -530,6 +534,47 @@ bool IsMalePuppet(uint64_t aPuppet)
 std::array<uint64_t, APM::Pose::Characters::Count> g_characterPuppets{};
 std::atomic<uint64_t> g_playerEntity{0}; // see SetPlayerEntity
 
+// What the targets were built from, read without taking references: the puppets of the player list and of the scene
+// slots, the player entity, and each one's component array. Rebuilding (which locks every component of every
+// character) runs only when this changes, while a character is still loading, or every RebuildMs as a safety net:
+// taking and dropping strong references thousands of times a minute on the game's threads could make the mod the last
+// owner of a puppet the game is despawning (user report 30/10: Photo Mode puppet freed before Entity::Detach).
+constexpr uint64_t RebuildMs = 2000;
+
+std::vector<uint64_t> ReadTargetSignature(uintptr_t aSystem, const RawArray& aList)
+{
+    using namespace APM;
+    std::vector<uint64_t> signature;
+    const auto add = [&](uint64_t aPuppet) {
+        signature.push_back(aPuppet);
+        signature.push_back(aPuppet ? EngineLayout::ComponentsSignature(aPuppet) : 0);
+    };
+    for (uint32_t slot = 0; slot < aList.size; ++slot)
+    {
+        const uintptr_t character = aList.entries + slot * PhotoModeLayout::CharacterSize;
+        uint64_t puppet = 0;
+        uint32_t characterType = 0;
+        SafeMemory::ReadU64(character + PhotoModeLayout::CharacterPuppet, puppet);
+        SafeMemory::ReadU32(character + PhotoModeLayout::CharacterType, characterType);
+        add(puppet);
+        signature.push_back(characterType);
+    }
+    add(g_playerEntity.load());
+    for (uint32_t i = 0; i + 1 < APM::Pose::Characters::Count; ++i)
+    {
+        uint64_t entry = 0;
+        uint64_t puppet = 0;
+        if (SafeMemory::ReadU64(aSystem + PhotoModeLayout::SceneSlots + i * sizeof(uint64_t), entry) &&
+            SafeMemory::LooksLikePointer(entry))
+        {
+            SafeMemory::ReadU64(entry + PhotoModeLayout::CharacterPuppet, puppet);
+        }
+        add(puppet);
+    }
+    signature.push_back(g_sessionId.load());
+    return signature;
+}
+
 void RefreshTargets(void* aSystem)
 {
     using namespace APM;
@@ -546,6 +591,28 @@ void RefreshTargets(void* aSystem)
         Log::Warn("PhotoMode: unexpected player list (size=%u)", list.size);
         return;
     }
+
+    static std::mutex s_rebuildMutex;
+    static std::vector<uint64_t> s_signature;
+    static uint64_t s_builtAt = 0;
+    static bool s_complete = false;
+    auto signature = ReadTargetSignature(system, list);
+    const uint64_t now = GetTickCount64();
+    {
+        std::scoped_lock lock(s_rebuildMutex);
+        if (s_complete && signature == s_signature && now - s_builtAt < RebuildMs)
+        {
+            return;
+        }
+        s_signature = std::move(signature);
+        s_builtAt = now;
+        s_complete = false; // until this rebuild ends
+    }
+    bool complete = true; // every character found has its main skeleton loaded
+    const auto hasRoot = [](const std::vector<Pose::Target>& aTargets) {
+        return std::any_of(aTargets.begin(), aTargets.end(),
+                           [](const Pose::Target& aTarget) { return aTarget.debugName == "root"; });
+    };
 
     auto* rtti = RED4ext::CRTTISystem::Get();
     auto* animatedCls = rtti->GetClass("entAnimatedComponent");
@@ -573,6 +640,7 @@ void RefreshTargets(void* aSystem)
         if (puppet && slot == 0)
         {
             AddPuppetTargets(targets, puppet, 0, characterType, animatedCls, config); // V
+            complete = complete && hasRoot(targets);
         }
     }
     if (players != s_lastPlayers)
@@ -591,14 +659,27 @@ void RefreshTargets(void* aSystem)
     {
         std::vector<Pose::Target> own;
         AddPuppetTargets(own, player, 0, players[0].second, animatedCls, config);
-        if (IsHumanCharacter(own, player))
+        complete = complete && hasRoot(own);
+        const bool human = IsHumanCharacter(own, player, true);
+        if (s_playerSession != g_sessionId.load())
+        {
+            // Research (vehicles): what the player entity is and which skeletons it has, once per session.
+            s_playerSession = g_sessionId.load();
+            const auto alive = EngineLayout::LockAlive(player);
+            auto* type = alive ? alive->GetType() : nullptr;
+            const auto typeName = type ? type->GetName() : RED4ext::CName{};
+            std::string skeletons;
+            for (const auto& target : own)
+            {
+                skeletons += " " + target.debugName + "(" + std::to_string(target.boneNames.size()) + ")";
+            }
+            Log::Info("PhotoMode: no Photo Mode puppet (vehicle): player entity %p class=%s, %zu skeletons:%s -> %s",
+                      reinterpret_cast<void*>(player), typeName.ToString() ? typeName.ToString() : "?", own.size(),
+                      skeletons.c_str(), human ? "posed as V" : "not a human skeleton, not posed");
+        }
+        if (human)
         {
             targets = std::move(own);
-            if (s_playerSession != g_sessionId.load())
-            {
-                s_playerSession = g_sessionId.load();
-                Log::Info("PhotoMode: no Photo Mode puppet (vehicle): V is the player character itself");
-            }
         }
     }
     // V cannot be posed: said once per session.
@@ -627,6 +708,7 @@ void RefreshTargets(void* aSystem)
         }
         std::vector<Pose::Target> added;
         AddPuppetTargets(added, puppet, i + 1, characterType, animatedCls, config);
+        complete = complete && hasRoot(added);
         if (!IsHumanCharacter(added, puppet))
         {
             continue;
@@ -676,6 +758,8 @@ void RefreshTargets(void* aSystem)
     }
 
     Pose::TargetRegistry::Set(std::move(targets));
+    std::scoped_lock lock(s_rebuildMutex);
+    s_complete = complete;
 }
 
 void ActivateSession();
