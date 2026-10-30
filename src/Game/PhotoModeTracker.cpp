@@ -533,6 +533,7 @@ bool IsMalePuppet(uint64_t aPuppet)
 // Puppet of each character last time (0 = none): a new puppet in a slot is a new character, whose pose starts empty.
 std::array<uint64_t, APM::Pose::Characters::Count> g_characterPuppets{};
 std::atomic<uint64_t> g_playerEntity{0}; // see SetPlayerEntity
+std::atomic<bool> g_playerPosed{false};   // see IsPlayerPosed
 
 // What the targets were built from, read without taking references: the puppets of the player list and of the scene
 // slots, the player entity, and each one's component array. Rebuilding (which locks every component of every
@@ -682,6 +683,14 @@ void RefreshTargets(void* aSystem)
             targets = std::move(own);
         }
     }
+    const bool playerPosed = !players[0].first && !targets.empty();
+    if (g_playerPosed.exchange(playerPosed) != playerPosed)
+    {
+        Pose::LookAtCamera::g_ignored[0] = playerPosed;
+        Log::Info("PhotoMode: V is %s", playerPosed ? "the player in a vehicle: Photo Mode's Look at camera left out, "
+                                                      "animation frozen while the pose is on"
+                                                    : "the Photo Mode puppet");
+    }
     // V cannot be posed: said once per session.
     static uint32_t s_noVSession = 0;
     if (targets.empty() && s_noVSession != g_sessionId.load())
@@ -800,6 +809,8 @@ void Detour_Deactivate(void* aSystem)
 {
     g_active = false;
     g_playerEntity = 0;
+    g_playerPosed = false;
+    APM::Pose::LookAtCamera::g_ignored[0] = false;
     APM::CrashGuard::Guard("Photo Mode end", [] {
         APM::Pose::TargetRegistry::Clear();
         APM::Pose::JointLimits::ResetCache();
@@ -886,6 +897,11 @@ void Uninstall()
 bool IsActive()
 {
     return g_active.load();
+}
+
+bool IsPlayerPosed()
+{
+    return g_active && g_playerPosed;
 }
 
 void SetPlayerEntity(uint64_t aEntity)

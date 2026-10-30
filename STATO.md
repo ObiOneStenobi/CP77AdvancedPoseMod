@@ -349,6 +349,12 @@ Aggiornato: 2026-10-25
   entità e di tutti i componenti (161) a ogni chiamata. FATTO: ricostruzione solo se cambia la firma letta senza
   riferimenti (ReadTargetSignature: puppet della lista, giocatore, slot scena, EngineLayout::ComponentsSignature =
   indirizzo+dimensione dell'array componenti, sessione), finché manca la root (rig in caricamento) o ogni 2 s.
+- Prova 30/10 (veicoli ok: ossa ed espressioni). Problemi: sul veicolo arriva 15=1 (probabilmente una mod che
+  ripristina le impostazioni; il gioco non gira il giocatore) -> la mod girava testa/occhi (KeepLookAt, occhi) e
+  bloccava quelle ossa; V animato sul sedile. FATTO: PhotoModeTracker g_playerPosed / IsPlayerPosed (V = giocatore
+  sul veicolo) -> LookAtCamera::g_ignored[0] (Reach 0, AimsAtCamera/IsCustom false); AnimGraphHook FreezeAnimation:
+  con posa attiva (PoseOverrides::IsEnabled(0)) root/deformations/shadow prendono il fotogramma salvato all'accensione
+  (viso, capelli, seno liberi); g_frozen svuotato a ogni attivazione. Log "V is the player in a vehicle ...".
 - Crash report utente (Desktop\CrashReports, 30/10 02:15): Epic 2.31, DLL 1.4.0 del 25/10, PhotoModeEx 1.4.1,
   RedHotTools; crash 0,6 s dopo l'uscita da Photo Mode su veicolo (Herrera Riptide, MountState Mounted), thread
   redDispatcher, ent::Entity::Detach+0x75, lettura 0xFFFF..., nessun frame di mod (AdvancedCrashReporter). Sul suo

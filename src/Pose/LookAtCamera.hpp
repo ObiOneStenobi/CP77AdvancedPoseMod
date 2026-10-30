@@ -22,6 +22,9 @@ inline std::atomic<int32_t> g_selectedNpc{0};
 // goes up when it changes, so data remembered for one pose is not used on another.
 inline std::array<std::array<std::atomic<int32_t>, 2>, 4> g_pose{};
 inline std::array<std::atomic<uint32_t>, 4> g_poseGeneration{};
+// Look at camera left out for a character: V when the player itself is posed in a vehicle (the menu option is off
+// there, but a mod restoring the last settings can still send it on; the game does not turn the player then).
+inline std::array<std::atomic<bool>, 4> g_ignored{};
 
 inline void SetPose(size_t aCharacter, size_t aField, int32_t aValue)
 {
@@ -47,6 +50,10 @@ inline void Reset()
         ++g_poseGeneration[i];
     }
     g_selectedNpc = 0;
+    for (auto& ignored : g_ignored)
+    {
+        ignored = false;
+    }
 }
 
 inline void OnPhotoModeAttribute(uint32_t aAttribute, float aValue)
@@ -85,7 +92,7 @@ inline bool IsLookAtAttribute(uint32_t aAttribute)
 // 0 nothing, 1 eyes, 2 head and eyes, 3 torso, head and eyes.
 inline int32_t Reach(uint32_t aCharacter)
 {
-    if (aCharacter >= g_mode.size())
+    if (aCharacter >= g_mode.size() || g_ignored[aCharacter])
     {
         return 0;
     }
@@ -106,12 +113,12 @@ inline int32_t Reach(uint32_t aCharacter)
 // user places, which the plugin does not know: those bones are then left as the game animates them.
 inline bool AimsAtCamera(uint32_t aCharacter)
 {
-    return aCharacter < g_mode.size() && g_mode[aCharacter] == 1;
+    return aCharacter < g_mode.size() && !g_ignored[aCharacter] && g_mode[aCharacter] == 1;
 }
 
 inline bool IsCustom(uint32_t aCharacter)
 {
-    return aCharacter < g_mode.size() && g_mode[aCharacter] == 2;
+    return aCharacter < g_mode.size() && !g_ignored[aCharacter] && g_mode[aCharacter] == 2;
 }
 
 // The active camera in a character's model space, sent by the editor every frame (used to turn a full base pose

@@ -362,6 +362,33 @@ void NoteSample(const APM::Pose::Target& aTarget, uint32_t aCount, uint32_t aRig
     note.lastRigCount = aRigCount;
 }
 
+// The player posed in a vehicle (no Photo Mode puppet) keeps its seat animation: while the pose is on, the body takes
+// the frame it had when the pose went on, so it holds still under the edits. The face (expressions go through the
+// facial solver) and the skeletons with physics (hair, breasts, dangles) stay free.
+std::mutex g_frozenMutex;
+std::unordered_map<uintptr_t, std::vector<RED4ext::QsTransform>> g_frozen; // by animated component
+
+void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, bool aOn)
+{
+    if (aTarget.debugName != "root" && aTarget.debugName != "deformations" && aTarget.debugName != "shadow")
+    {
+        return;
+    }
+    std::scoped_lock lock(g_frozenMutex);
+    if (!aOn)
+    {
+        g_frozen.erase(aTarget.animatedComponent);
+        return;
+    }
+    auto& frozen = g_frozen[aTarget.animatedComponent];
+    if (frozen.size() != aCount)
+    {
+        frozen.assign(aBones, aBones + aCount);
+        return;
+    }
+    std::copy(frozen.begin(), frozen.end(), aBones);
+}
+
 void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     uint32_t boneCount = 0;
@@ -408,6 +435,10 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        if (aTarget.photoModeSlot == 0 && APM::PhotoModeTracker::IsPlayerPosed())
+        {
+            FreezeAnimation(aTarget, bones, boneCount, APM::Pose::PoseOverrides::IsEnabled(0));
+        }
         if (applyPose)
         {
             // A frame with invalid values (NaN / infinite, e.g. a degenerate IK case) keeps the game's pose instead.
@@ -1130,6 +1161,10 @@ void Uninstall()
 void OnPhotoModeActivated()
 {
     const auto config = Config::Get();
+    {
+        std::scoped_lock lock(g_frozenMutex);
+        g_frozen.clear();
+    }
 
 
     g_poseInfoLogged = false;

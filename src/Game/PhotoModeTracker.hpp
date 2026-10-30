@@ -21,6 +21,8 @@ uint64_t GetCharacterPuppet(uint32_t aCharacter);
 // The player's own entity (from the scripts while Photo Mode is open). In a vehicle Photo Mode spawns no puppet and
 // shows the player on the seat: then the player is posed as V.
 void SetPlayerEntity(uint64_t aEntity);
+// V is the player itself (Photo Mode in a vehicle): its animation is frozen while the pose is on.
+bool IsPlayerPosed();
 
 // Incremented every time Photo Mode opens; lets other modules reset per-session state.
 uint32_t GetSessionId();
