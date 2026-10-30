@@ -362,7 +362,11 @@ Aggiornato: 2026-10-25
   Photo Mode (e diventava l'arma del veicolo). FATTO (solo script): PlaceProp sul giocatore (IsPlayer) non toglie mai
   oggetti dal suo inventario, ricorda cosa aveva in ogni mano (NotePlayerHand) e gli oggetti dati (m_playerGivenItems);
   RestorePlayerHands all'uscita (OnTryExitPhotomode / OnExitConfirm, riserva in SyncProps): svuota le mani toccate,
-  toglie gli oggetti dati, rimette quelli di prima. Da provare.
+  toglie gli oggetti dati, rimette quelli di prima. Provato: funziona.
+- POSE ON ricordato (deciso con l'utente: stessa logica a piedi e sul veicolo): PhotoModeTracker salva Pose on/off di
+  V all'uscita (RememberPoseOn in OnExitRequested e Deactivate, pref "PoseOn") e lo rimette all'apertura
+  (ActivateSession, PoseOverrides::SetEnabled(0, ...), default acceso). Sul veicolo ferma subito l'animazione; a
+  piedi senza modifiche non cambia la posa. Nativo APM_IsPlayerPosed (per ora non usato). Da provare.
 - Crash report utente (Desktop\CrashReports, 30/10 02:15): Epic 2.31, DLL 1.4.0 del 25/10, PhotoModeEx 1.4.1,
   RedHotTools; crash 0,6 s dopo l'uscita da Photo Mode su veicolo (Herrera Riptide, MountState Mounted), thread
   redDispatcher, ent::Entity::Detach+0x75, lettura 0xFFFF..., nessun frame di mod (AdvancedCrashReporter). Sul suo

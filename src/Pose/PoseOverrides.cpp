@@ -449,6 +449,14 @@ bool IsEnabled(uint32_t aCharacter)
     return aCharacter < Characters::Count && g_states[aCharacter].enabled.load(std::memory_order_relaxed);
 }
 
+void SetEnabled(uint32_t aCharacter, bool aEnabled)
+{
+    if (aCharacter < Characters::Count && g_states[aCharacter].enabled.exchange(aEnabled) != aEnabled)
+    {
+        Log::Info("Custom pose of character %u %s", aCharacter, aEnabled ? "enabled" : "disabled");
+    }
+}
+
 std::shared_ptr<const OverrideSnapshot> GetSnapshot(uint32_t aCharacter)
 {
     std::scoped_lock lock(g_snapshotMutex);

@@ -139,6 +139,7 @@ std::shared_ptr<const OverrideSnapshot> GetSnapshot();
 // Per character (0 = V, 1-3 = added characters), used by the animation hook. Never null.
 std::shared_ptr<const OverrideSnapshot> GetSnapshot(uint32_t aCharacter);
 bool IsEnabled(uint32_t aCharacter);
+void SetEnabled(uint32_t aCharacter, bool aEnabled);
 // Edits, a loaded pose or items in hand.
 bool HasEdits(uint32_t aCharacter);
 // Changes the selected character (between two edits, never during one).

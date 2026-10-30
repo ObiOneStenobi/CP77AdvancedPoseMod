@@ -855,6 +855,13 @@ void FaceRename(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 }
 
 // False when the game was updated and the hooks could not be installed (the panel says so).
+// V is the player itself (Photo Mode in a vehicle).
+void IsPlayerPosed(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::PhotoModeTracker::IsPlayerPosed());
+}
+
 void IsReady(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
@@ -1589,6 +1596,7 @@ void Register()
     ::Register("APM_FaceDelete", &FaceDelete, "Bool", {{"String", "name"}});
     ::Register("APM_FaceRename", &FaceRename, "String", {{"String", "oldName"}, {"String", "newName"}});
     ::Register("APM_IsReady", &IsReady, "Bool", {});
+    ::Register("APM_IsPlayerPosed", &IsPlayerPosed, "Bool", {});
     ::Register("APM_OpenFolder", &OpenFolder, "Bool", {{"Int32", "kind"}, {"String", "folder"}});
     ::Register("APM_SetWheelCapture", &SetWheelCapture, nullptr, {{"Bool", "capture"}});
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});

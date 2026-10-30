@@ -773,6 +773,14 @@ void RefreshTargets(void* aSystem)
 
 void ActivateSession();
 
+constexpr const char* PoseOnPreference = "PoseOn";
+
+// V's Pose on / off when leaving Photo Mode, kept for the next session (see ActivateSession).
+void RememberPoseOn()
+{
+    APM::Ui::PhotoModeUi::SetPreference(PoseOnPreference, APM::Pose::PoseOverrides::IsEnabled(0) ? 1.f : 0.f);
+}
+
 bool Detour_Activate(void* aSystem)
 {
     // Every Photo Mode session starts from the game's pose: nothing from the previous session is kept.
@@ -799,6 +807,9 @@ void ActivateSession()
     g_spawnedCharacters.clear();
     g_characterPuppets = {};
     APM::Pose::PoseOverrides::SelectCharacter(0);
+    // V's Pose on / off as it was when Photo Mode was last left, on foot or in a vehicle (in a vehicle it also stops the
+    // seat animation at once).
+    APM::Pose::PoseOverrides::SetEnabled(0, APM::Ui::PhotoModeUi::GetPreference(PoseOnPreference, 1.f) > 0.5f);
     g_probedLists.clear();
     g_sessionId.fetch_add(1);
     g_active = true;
@@ -807,7 +818,10 @@ void ActivateSession()
 
 void Detour_Deactivate(void* aSystem)
 {
-    g_active = false;
+    if (g_active.exchange(false))
+    {
+        RememberPoseOn();
+    }
     g_playerEntity = 0;
     g_playerPosed = false;
     APM::Pose::LookAtCamera::g_ignored[0] = false;
@@ -924,6 +938,7 @@ void OnExitRequested()
     {
         return;
     }
+    RememberPoseOn();
     for (uint32_t c = 0; c < APM::Pose::Characters::Count; ++c)
     {
         if (c == 0 || g_characterPuppets[c])
