@@ -358,6 +358,11 @@ Aggiornato: 2026-10-25
 - Prova 30/10: Guarda in camera ok; animazione ferma ma la posa non si vedeva (gizmo sì): deformations/shadow
   prendono le ossa della root nei loro grafi, congelarli nascondeva le modifiche -> ora si congela solo la root.
   Sovrascrivi con conferma al secondo clic come Elimina (m_confirmOverwrite, testo APM-Button-ConfirmOverwrite).
+- Prova 30/10: blocco animazione e posa sul veicolo ok. Arma messa in mano sul veicolo restava al giocatore dopo
+  Photo Mode (e diventava l'arma del veicolo). FATTO (solo script): PlaceProp sul giocatore (IsPlayer) non toglie mai
+  oggetti dal suo inventario, ricorda cosa aveva in ogni mano (NotePlayerHand) e gli oggetti dati (m_playerGivenItems);
+  RestorePlayerHands all'uscita (OnTryExitPhotomode / OnExitConfirm, riserva in SyncProps): svuota le mani toccate,
+  toglie gli oggetti dati, rimette quelli di prima. Da provare.
 - Crash report utente (Desktop\CrashReports, 30/10 02:15): Epic 2.31, DLL 1.4.0 del 25/10, PhotoModeEx 1.4.1,
   RedHotTools; crash 0,6 s dopo l'uscita da Photo Mode su veicolo (Herrera Riptide, MountState Mounted), thread
   redDispatcher, ent::Entity::Detach+0x75, lettura 0xFFFF..., nessun frame di mod (AdvancedCrashReporter). Sul suo

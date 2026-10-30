@@ -472,6 +472,12 @@ public class APM_PoseEditor extends IScriptable {
     private let m_shownLeft: Uint64;
     // Item the Photo Mode pose itself put in each hand (hand prop 0 = keep it, 1 = hand emptied on purpose)
     private let m_poseItemRight: ItemID;
+    // Items placed on the player itself (Photo Mode in a vehicle, no puppet): the player keeps them after Photo Mode,
+    // so its hands are given back as they were when leaving. Index 0 left, 1 right.
+    private let m_playerHandTouched: array<Bool>;
+    private let m_playerHandHad: array<Bool>;
+    private let m_playerHandItem: array<ItemID>;
+    private let m_playerGivenItems: array<ItemID>; // given to the player's inventory by the mod
     private let m_poseItemLeft: ItemID;
     private let m_hasPoseItemRight: Bool;
     private let m_hasPoseItemLeft: Bool;
@@ -2702,6 +2708,7 @@ public class APM_PoseEditor extends IScriptable {
     // Puts the chosen items on the Photo Mode puppet (also after loading a pose or undo / redo).
     private func SyncProps(timeDelta: Float) {
         if !APM_IsPhotoModeActive() {
+            this.RestorePlayerHands(); // if leaving did not go through the exit callbacks
             this.m_shownRight = 0ul;
             this.m_shownLeft = 0ul;
             this.m_checkTimer = 0.0;
@@ -2778,7 +2785,11 @@ public class APM_PoseEditor extends IScriptable {
         // The pose's own item stays in the inventory, so that it can be given back.
         let current = transactions.GetItemInSlot(puppet, slot);
         let isPoseItem = hasPose && IsDefined(current) && Equals(current.GetItemID(), poseItem);
-        transactions.RemoveItemFromSlot(puppet, slot, !isPoseItem);
+        let isPlayer = this.IsPlayer(puppet);
+        if isPlayer {
+            this.NotePlayerHand(right, current); // the player's own inventory is never emptied
+        }
+        transactions.RemoveItemFromSlot(puppet, slot, !isPoseItem && !isPlayer);
         if record == 0ul {
             if hasPose {
                 if !transactions.HasItem(puppet, poseItem) {
@@ -2800,6 +2811,9 @@ public class APM_PoseEditor extends IScriptable {
         let itemID = isWeapon ? ItemID.CreateQuery(id) : ItemID.FromTDBID(id);
         if !transactions.HasItem(puppet, itemID) {
             transactions.GiveItem(puppet, itemID, 1);
+            if isPlayer {
+                ArrayPush(this.m_playerGivenItems, itemID);
+            }
         }
         let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
         APM_LogInfo("Items: " + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed in the " : " could not be placed in the ") + (right ? "right" : "left") + " hand");
@@ -2807,6 +2821,71 @@ public class APM_PoseEditor extends IScriptable {
         this.m_checkRight = right;
         this.m_checkRecord = record;
         return true;
+    }
+
+    private func IsPlayer(puppet: ref<GameObject>) -> Bool {
+        let player = this.m_controller.GetPlayerControlledObject();
+        return IsDefined(puppet) && IsDefined(player) && Equals(puppet.GetEntityID(), player.GetEntityID());
+    }
+
+    // First change of a hand of the player: what it held, to give it back when leaving Photo Mode.
+    private func NotePlayerHand(right: Bool, current: ref<ItemObject>) {
+        while ArraySize(this.m_playerHandTouched) < 2 {
+            ArrayPush(this.m_playerHandTouched, false);
+            ArrayPush(this.m_playerHandHad, false);
+            ArrayPush(this.m_playerHandItem, ItemID.None());
+        }
+        let hand = right ? 1 : 0;
+        if this.m_playerHandTouched[hand] {
+            return;
+        }
+        this.m_playerHandTouched[hand] = true;
+        this.m_playerHandHad[hand] = IsDefined(current) && ItemID.IsValid(current.GetItemID());
+        this.m_playerHandItem[hand] = this.m_playerHandHad[hand] ? current.GetItemID() : ItemID.None();
+    }
+
+    // Leaving Photo Mode after items were placed on the player itself: its hands as they were, and the items the mod
+    // gave taken out of its inventory (they would stay equipped as the weapon to use in the vehicle).
+    public func RestorePlayerHands() {
+        let touched = false;
+        let i = 0;
+        while i < ArraySize(this.m_playerHandTouched) {
+            touched = touched || this.m_playerHandTouched[i];
+            i += 1;
+        }
+        if !touched && ArraySize(this.m_playerGivenItems) == 0 {
+            return;
+        }
+        let player = this.m_controller.GetPlayerControlledObject();
+        if IsDefined(player) {
+            let transactions = GameInstance.GetTransactionSystem(player.GetGame());
+            let hand = 0;
+            while hand < ArraySize(this.m_playerHandTouched) {
+                if this.m_playerHandTouched[hand] {
+                    transactions.RemoveItemFromSlot(player, hand == 1 ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft", false);
+                }
+                hand += 1;
+            }
+            i = 0;
+            while i < ArraySize(this.m_playerGivenItems) {
+                if transactions.HasItem(player, this.m_playerGivenItems[i]) {
+                    transactions.RemoveItem(player, this.m_playerGivenItems[i], 1);
+                }
+                i += 1;
+            }
+            hand = 0;
+            while hand < ArraySize(this.m_playerHandTouched) {
+                if this.m_playerHandTouched[hand] && this.m_playerHandHad[hand] && transactions.HasItem(player, this.m_playerHandItem[hand]) {
+                    transactions.AddItemToSlot(player, hand == 1 ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft", this.m_playerHandItem[hand], true, null, ERenderingPlane.RPl_Scene, false, true);
+                }
+                hand += 1;
+            }
+            APM_LogInfo("Items: the player's hands given back as before Photo Mode");
+        }
+        ArrayClear(this.m_playerHandTouched);
+        ArrayClear(this.m_playerHandHad);
+        ArrayClear(this.m_playerHandItem);
+        ArrayClear(this.m_playerGivenItems);
     }
 
     // --- Pose names ----------------------------------------------------------------------------------------------
@@ -5650,6 +5729,9 @@ protected cb func OnTryExitPhotomode() -> Bool {
         this.m_anyOptionChanged = true; // the game asks before leaving: the pose would be lost
     }
     if !this.m_anyOptionChanged {
+        if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.RestorePlayerHands();
+        }
         APM_OnPhotoModeExit();
     }
     return wrappedMethod();
@@ -5659,6 +5741,9 @@ protected cb func OnTryExitPhotomode() -> Bool {
 protected cb func OnExitConfirm(data: ref<inkGameNotificationData>) -> Bool {
     let resultData = data as GenericMessageNotificationCloseData;
     if IsDefined(resultData) && Equals(resultData.result, GenericMessageNotificationResult.Confirm) {
+        if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.RestorePlayerHands();
+        }
         APM_OnPhotoModeExit();
     }
     return wrappedMethod(data);
