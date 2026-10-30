@@ -35,6 +35,10 @@ bool GetIkFrame(size_t aChain, IkFrame& aOut);
 // eyes. Rigs differ in how their bones are oriented, so this is taken from the geometry, not from a fixed axis.
 Math::Vec3 ReferenceFaceForward(const Target& aTarget);
 
+// The plugin's look at the camera still shows on a character (on, or fading out after Look at camera was turned off):
+// its pose is processed until then, also without edits.
+bool ShowsLookAt(uint32_t aCharacter);
+
 // A new character took that slot (Pose/Characters.hpp): its cached IK frames and look-at data are dropped.
 void ResetCharacter(uint32_t aCharacter);
 } // namespace APM::Pose::PoseProcessor

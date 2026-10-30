@@ -46,6 +46,7 @@ std::atomic<bool> g_faceLinked{true};
 std::atomic<bool> g_faceUnlocked{false}; // face rows up to 400% instead of 100%
 // Last focus distance set for the eyes (cm), used when their lines of sight do not cross.
 float g_eyeFocus = 150.f;
+float g_shownEyeFocus = 0.f; // focus distance shown (cm), eased; 0 = not measured yet
 void MirrorCurrentPart();
 void MirrorCurrentChain();
 constexpr const char* ActionLabels[] = {"-", "Apply"};
@@ -461,20 +462,24 @@ bool GetEyeFocus(Math::Vec3& aMiddle, Math::Vec3& aDirection, float& aDistance)
     const Math::Vec3 gr = Math::Normalize(Math::Rotate(rightRotation, rightForward));
     aMiddle = (left + right) * 0.5f;
     aDirection = Math::Normalize(gl + gr);
-    aDistance = g_eyeFocus;
+    aDistance = g_shownEyeFocus > 0.f ? g_shownEyeFocus : g_eyeFocus;
     const Math::Vec3 w = left - right;
     const float b = Math::Dot(gl, gr);
     const float d = Math::Dot(gl, w);
     const float e = Math::Dot(gr, w);
     const float denom = 1.f - b * b;
-    if (denom > 1e-6f)
+    // Only when the lines of sight clearly converge (at least ~1 degree): with nearly parallel eyes the animation's
+    // small eye movements made the meeting point jump (test 31/10); the last distance stays, eased towards the new one.
+    if (denom > 3e-4f)
     {
         const float sl = (b * e - d) / denom;
         const float sr = (e - b * d) / denom;
         if (sl > 0.05f && sr > 0.05f)
         {
             const Math::Vec3 meet = (left + gl * sl + right + gr * sr) * 0.5f;
-            aDistance = std::clamp(Math::Length(meet - aMiddle) * CentimetersPerMeter, EyeFocusMin, EyeFocusMax);
+            const float measured = std::clamp(Math::Length(meet - aMiddle) * CentimetersPerMeter, EyeFocusMin, EyeFocusMax);
+            g_shownEyeFocus = g_shownEyeFocus <= 0.f ? measured : g_shownEyeFocus + (measured - g_shownEyeFocus) * 0.2f;
+            aDistance = g_shownEyeFocus;
         }
     }
     return true;
@@ -504,6 +509,7 @@ void SetEyeFocus(float aCentimeters)
         return;
     }
     g_eyeFocus = std::clamp(aCentimeters, EyeFocusMin, EyeFocusMax);
+    g_shownEyeFocus = g_eyeFocus;
     const Math::Vec3 target = middle + direction * (g_eyeFocus / CentimetersPerMeter);
     const int32_t selected = g_bodyPart;
     const int32_t leftEye = CatalogIndexOf("Left eye");
@@ -1559,6 +1565,7 @@ void ResetSession()
 {
     g_mirror = false;
     g_eyeFocus = 150.f;
+    g_shownEyeFocus = 0.f;
 }
 
 void SetMirror(bool aMirror)

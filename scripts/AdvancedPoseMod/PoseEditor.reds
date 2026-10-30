@@ -443,6 +443,9 @@ public class APM_PoseEditor extends IScriptable {
     private let m_centerDrag: Bool; // Move arrows on: the selected part's marker (their center) is dragged freely
     private let m_dragSwivel: Float;      // elbow / knee direction (degrees) while dragging it
     private let m_lookTarget: Vector4;    // world point the eyes look at while dragging it
+    private let m_eyeLookDistance: Float; // eased distance of the eyes' look marker (0 = not set yet)
+    private let m_eyeLookPinned: Bool;    // the marker stays where it was dropped while the eyes keep that direction
+    private let m_eyeLookPinForward: Vector4; // the eyes' direction then (model space; w = 0 until measured)
     private let m_shiftDown: Bool;        // modifier keys, from the latest input event
     private let m_controlDown: Bool;
     private let m_hint: wref<inkText>;    // what dragging the hovered marker does
@@ -3414,7 +3417,34 @@ public class APM_PoseEditor extends IScriptable {
         }
         gl = APM_Vector(gl.X / ll, gl.Y / ll, gl.Z / ll, 0.0);
         gr = APM_Vector(gr.X / lr, gr.Y / lr, gr.Z / lr, 0.0);
-        // Closest points of the two lines of sight.
+        let mx = (left.X + right.X) * 0.5;
+        let my = (left.Y + right.Y) * 0.5;
+        let mz = (left.Z + right.Z) * 0.5;
+        if this.m_eyeLookDistance <= 0.0 {
+            this.m_eyeLookDistance = this.LookDistance();
+        }
+        // Dropped by the user: it stays at that distance until the eyes turn elsewhere (more than ~5 degrees: reset,
+        // Look at camera, another pose), rather than moving to where the lines of sight meet.
+        let dragging = IsDefined(this.m_dragMarker) && this.m_dragMode == APM_DragEyeLook();
+        if this.m_eyeLookPinned && !dragging {
+            let fx = leftModel.X + rightModel.X;
+            let fy = leftModel.Y + rightModel.Y;
+            let fz = leftModel.Z + rightModel.Z;
+            let fl = SqrtF(fx * fx + fy * fy + fz * fz);
+            if fl > 0.0001 {
+                if this.m_eyeLookPinForward.W < 0.5 {
+                    this.m_eyeLookPinForward = APM_Vector(fx / fl, fy / fl, fz / fl, 1.0);
+                } else {
+                    let p = this.m_eyeLookPinForward;
+                    if (p.X * fx + p.Y * fy + p.Z * fz) / fl < 0.996 {
+                        this.m_eyeLookPinned = false;
+                    }
+                }
+            }
+        }
+        // Closest points of the two lines of sight, only when they clearly converge (at least ~1 degree): nearly
+        // parallel eyes moved by the animation made the meeting point jump by many centimeters (test 31/10). Then
+        // the last distance stays, eased towards the new one.
         let wx = left.X - right.X;
         let wy = left.Y - right.Y;
         let wz = left.Z - right.Z;
@@ -3422,15 +3452,26 @@ public class APM_PoseEditor extends IScriptable {
         let d = gl.X * wx + gl.Y * wy + gl.Z * wz;
         let e = gr.X * wx + gr.Y * wy + gr.Z * wz;
         let denom = 1.0 - b * b;
-        if denom > 0.00001 {
+        if denom > 0.0003 && !this.m_eyeLookPinned {
             let sl = (b * e - d) / denom;
             let sr = (e - b * d) / denom;
             if sl > 0.15 && sr > 0.15 && sl < 4.0 && sr < 4.0 {
-                return APM_Vector((left.X + gl.X * sl + right.X + gr.X * sr) * 0.5, (left.Y + gl.Y * sl + right.Y + gr.Y * sr) * 0.5, (left.Z + gl.Z * sl + right.Z + gr.Z * sr) * 0.5, 1.0);
+                let px = (left.X + gl.X * sl + right.X + gr.X * sr) * 0.5 - mx;
+                let py = (left.Y + gl.Y * sl + right.Y + gr.Y * sr) * 0.5 - my;
+                let pz = (left.Z + gl.Z * sl + right.Z + gr.Z * sr) * 0.5 - mz;
+                let meet = SqrtF(px * px + py * py + pz * pz);
+                this.m_eyeLookDistance += (meet - this.m_eyeLookDistance) * 0.2;
             }
         }
-        let distance = this.LookDistance();
-        return APM_Vector((left.X + right.X) * 0.5 + (gl.X + gr.X) * 0.5 * distance, (left.Y + right.Y) * 0.5 + (gl.Y + gr.Y) * 0.5 * distance, (left.Z + right.Z) * 0.5 + (gl.Z + gr.Z) * 0.5 * distance, 1.0);
+        let dx = gl.X + gr.X;
+        let dy = gl.Y + gr.Y;
+        let dz = gl.Z + gr.Z;
+        let length = SqrtF(dx * dx + dy * dy + dz * dz);
+        if length < 0.0001 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let k = this.m_eyeLookDistance / length;
+        return APM_Vector(mx + dx * k, my + dy * k, mz + dz * k, 1.0);
     }
 
     // Sends the camera to the plugin in V's model space (full poses turn towards it with "Look at camera").
@@ -3488,7 +3529,7 @@ public class APM_PoseEditor extends IScriptable {
             let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
             let world: Vector4;
             if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
-                let eyeDistance = this.LookDistance();
+                let eyeDistance = this.m_eyeLookDistance > 0.0 ? this.m_eyeLookDistance : this.LookDistance();
                 if isDragged && this.m_dragMode == APM_DragEyeLook() {
                     let eye = APM_PartWorldPosition(toWorld, marker.part);
                     eyeDistance = Vector4.Distance(APM_Vector(eye.X, eye.Y, eye.Z, 0.0), APM_Vector(this.m_lookTarget.X, this.m_lookTarget.Y, this.m_lookTarget.Z, 0.0));
@@ -4518,7 +4559,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         if this.m_dragMode == APM_DragEyeLook() {
-            let look = this.IsSingleEye(marker.part) ? this.SingleEyePoint(toWorld, marker.part, this.LookDistance()) : this.EyeLookPoint(toWorld);
+            let look = this.IsSingleEye(marker.part) ? this.SingleEyePoint(toWorld, marker.part, this.m_eyeLookDistance > 0.0 ? this.m_eyeLookDistance : this.LookDistance()) : this.EyeLookPoint(toWorld);
             let lookScreen = this.ProjectToScreen(camera, look);
             if look.W < 0.5 || lookScreen.W < 0.5 {
                 this.m_dragMarker = null;
@@ -4721,6 +4762,20 @@ public class APM_PoseEditor extends IScriptable {
             APM_GizmoAimPart(this.m_rightEyePart, model);
         }
         this.m_lookTarget = target;
+        // The marker stays at this distance once dropped (from the eye, or from between the eyes).
+        let from: Vector4;
+        if this.IsSingleEye(this.m_dragMarker.part) {
+            from = APM_PartWorldPosition(toWorld, this.m_dragMarker.part);
+        } else {
+            let left = APM_PartWorldPosition(toWorld, this.m_leftEyePart);
+            let right = APM_PartWorldPosition(toWorld, this.m_rightEyePart);
+            from = APM_Vector((left.X + right.X) * 0.5, (left.Y + right.Y) * 0.5, (left.Z + right.Z) * 0.5, MinF(left.W, right.W));
+        }
+        if from.W > 0.5 {
+            this.m_eyeLookDistance = Vector4.Distance(APM_Vector(from.X, from.Y, from.Z, 0.0), APM_Vector(target.X, target.Y, target.Z, 0.0));
+            this.m_eyeLookPinned = true;
+            this.m_eyeLookPinForward = APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
         APM_UiSetValue(7701u, Cast<Float>(this.m_dragMarker.part));
     }
 

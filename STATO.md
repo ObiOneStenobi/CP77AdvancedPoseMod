@@ -403,6 +403,24 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
 - Limiti dopo il confronto con CDPR (31/10, posa Azione; da provare): Testa su 35 -> 60 (CDPR alza molto di più);
   Torace lati 120 -> 90 (il nostro girava troppo), su 40 -> 65. Giù invariato (45 / 50). Build 2.5 e 2.31 ok,
   DLL in dist, dist231 e gioco.
+- Accensione/spegnimento graduale (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco): LookBlend
+  per personaggio (peso 0-1 in 0.4 s, smoothstep, reach ricordato durante la dissolvenza). KeepLookAt mescola le ossa
+  della catena tra la posa in ingresso e la girata; occhi (AimEyesAtCamera, AimFaceRigEyesAtCamera), FollowMainNeck,
+  EyesEditedByUs e i link usano HeadLookShare. AnimGraphHook continua a posare finché ShowsLookAt (anche senza
+  modifiche). Warning C4100 aContext sistemato (restano due C4100 'aOut' preesistenti in ScriptApi.cpp 87 e 155).
+  Provato: ok. Scatto Torace <-> Testa corretto (31/10, da provare): LookBlend.torso (0-1 in 0.4 s), catena unica
+  Spine1..Head con le quote della schiena moltiplicate per torso; limiti dal petto (testa) e dal bacino (torace)
+  mescolati per torso, smorzamento sempre nel frame del petto della posa in ingresso.
+- Marker degli occhi che balla con Guarda in camera spento (31/10, corretto, da provare; script e DLL in dist,
+  dist231 e gioco): incrocio usato solo se le linee convergono (denom > 3e-4, ~1 grado), altrimenti resta l'ultima
+  distanza; distanza addolcita (0.2 per frame) in EyeLookPoint (m_eyeLookDistance) e in GetEyeFocus
+  (g_shownEyeFocus, riallineato da SetEyeFocus e dal reset). Provato: ok, ma al rilascio il marker si spostava
+  (31/10, corretto, da provare): MoveEyeLook salva la distanza del punto trascinato (m_eyeLookDistance) e la fissa
+  (m_eyeLookPinned) finché gli occhi non cambiano direzione di oltre ~5 gradi (m_eyeLookPinForward, spazio modello);
+  anche il marker del singolo occhio usa quella distanza invece di 0.6 m. Causa: EyeLookPoint
+  (PoseEditor.reds ~3400) e GetEyeFocus (PhotoModeUi.cpp ~442) lo ricavano ogni frame dall'incrocio delle linee di
+  vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
+  scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.
 - Altri da fare: rendere graduale anche l'accensione/spegnimento di Guarda in camera (ora scatta); controllare se il
   gizmo degli occhi (AimPart / eye edit) ha lo stesso problema della testa del face_rig; attenzione warning
   C4100 'aContext' in AnimGraphHook.cpp:394 (preesistente).

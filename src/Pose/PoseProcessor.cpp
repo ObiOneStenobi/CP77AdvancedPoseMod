@@ -688,6 +688,109 @@ void SmoothLook(size_t aCharacter, size_t aPart, float aSmoothTime, float& aSide
     aPitch = state.pitch;
 }
 
+// A share of a rotation (the same axis, aShare of the angle).
+Quat ScaleRotation(const Quat& aRotation, float aShare)
+{
+    Quat q = APM::Math::Normalize(aRotation);
+    if (q.r < 0.f)
+    {
+        q = {-q.i, -q.j, -q.k, -q.r};
+    }
+    const float s = std::sqrt(q.i * q.i + q.j * q.j + q.k * q.k);
+    if (s < 1e-6f)
+    {
+        return {0.f, 0.f, 0.f, 1.f};
+    }
+    return APM::Math::FromAxisAngle(Vec3{q.i / s, q.j / s, q.k / s}, 2.f * std::atan2(s, q.r) * aShare);
+}
+
+// From aFrom towards aTo, aShare of the way.
+Quat Blend(const Quat& aFrom, const Quat& aTo, float aShare)
+{
+    if (aShare >= 1.f)
+    {
+        return aTo;
+    }
+    return APM::Math::Normalize(
+        APM::Math::Mul(aFrom, ScaleRotation(APM::Math::Mul(APM::Math::Conjugate(aFrom), aTo), aShare)));
+}
+
+// Look at camera turns on and off gradually: per character, how much of the plugin's turn its pose takes (0-1, eased
+// in and out) and the reach it had, kept while it fades out (the hook keeps posing the character until then).
+struct LookBlend
+{
+    float weight = 0.f;
+    float torso = 0.f; // 1 with the torso turning too, 0 the head only: switching between them eases as well
+    int32_t reach = 0;
+    uint64_t lastUs = 0;
+};
+std::mutex g_lookBlendMutex;
+std::array<LookBlend, CharacterCount> g_lookBlends{};
+constexpr float LookFadeSeconds = 0.4f;
+
+// Once per frame of the main skeleton: towards 1 while the plugin aims at the camera, towards 0 otherwise.
+void UpdateLookBlend(size_t aCharacter, bool aOn, int32_t aReach)
+{
+    if (aCharacter >= CharacterCount)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_lookBlendMutex);
+    auto& blend = g_lookBlends[aCharacter];
+    const uint64_t now = NowUs();
+    // At most a frame's step: the hook may not have posed the character for a while (turned on without edits).
+    const float dt = blend.lastUs == 0 ? 0.f : std::min(static_cast<float>(now - blend.lastUs) * 1e-6f, 0.05f);
+    blend.lastUs = now;
+    if (aOn)
+    {
+        if (blend.weight <= 0.f)
+        {
+            blend.torso = aReach >= 3 ? 1.f : 0.f; // turned on: no switch to ease
+        }
+        blend.reach = aReach;
+        blend.torso = std::clamp(blend.torso + (aReach >= 3 ? dt : -dt) / LookFadeSeconds, 0.f, 1.f);
+    }
+    blend.weight = std::clamp(blend.weight + (aOn ? dt : -dt) / LookFadeSeconds, 0.f, 1.f);
+}
+
+// How much the torso takes part in the plugin's look (eased, 0 the head only).
+float TorsoLookShare(size_t aCharacter)
+{
+    if (aCharacter >= CharacterCount)
+    {
+        return 0.f;
+    }
+    std::scoped_lock lock(g_lookBlendMutex);
+    const float torso = g_lookBlends[aCharacter].torso;
+    return torso * torso * (3.f - 2.f * torso);
+}
+
+// The plugin's share of the look at the camera (eased, 0 when off) and the reach it has or had (aReach).
+float LookShare(size_t aCharacter, int32_t& aReach)
+{
+    aReach = 0;
+    if (aCharacter >= CharacterCount)
+    {
+        return 0.f;
+    }
+    std::scoped_lock lock(g_lookBlendMutex);
+    const auto& blend = g_lookBlends[aCharacter];
+    if (blend.weight <= 0.f || NowUs() - blend.lastUs > 500000)
+    {
+        return 0.f; // off, or the character is no longer posed
+    }
+    aReach = blend.reach;
+    return blend.weight * blend.weight * (3.f - 2.f * blend.weight);
+}
+
+// The share for the head and the eyes (0 when Look at camera does not reach the head).
+float HeadLookShare(size_t aCharacter)
+{
+    int32_t reach = 0;
+    const float share = LookShare(aCharacter, reach);
+    return reach >= 2 ? share : 0.f;
+}
+
 // A direction kept within a range around aForward, sideways and up / down separately (degrees). A single angle would
 // turn around an axis that is arbitrary when the direction is behind (the head then bent sideways, test 30/10).
 Vec3 KeepInRange(const Vec3& aWanted, const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp, float aMaxSide,
@@ -718,9 +821,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
     const int32_t head = IndexOf(aTarget, Hash("Head"));
     const size_t character = CharacterOf(aTarget);
-    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
-        !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)) || !camera.valid || head < 0 ||
-        static_cast<uint32_t>(head) >= aCount ||
+    const float share = HeadLookShare(character);
+    if (share <= 0.f || !camera.valid || head < 0 || static_cast<uint32_t>(head) >= aCount ||
         static_cast<size_t>(head) >= aTarget.refRotationsMS.size())
     {
         std::scoped_lock lock(g_cameraEyeMutex);
@@ -766,7 +868,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
         {
             model = APM::Math::Mul(APM::Math::FromAxisAngle(axis, angle), model);
         }
-        locals[e] = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+        locals[e] = Blend(GetRotation(aBones[eye]),
+                          APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model)), share);
         SetRotation(aBones[eye], locals[e]);
     }
     std::scoped_lock lock(g_cameraEyeMutex);
@@ -793,8 +896,8 @@ void AimEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
 void FollowMainNeck(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     const size_t character = CharacterOf(aTarget);
-    if (APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
-        !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
+    const float share = HeadLookShare(character);
+    if (share <= 0.f)
     {
         return;
     }
@@ -819,22 +922,22 @@ void FollowMainNeck(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBon
         }
         const Quat parentRotation = current.rotations[parent];
         const Vec3 parentPosition = current.positions[parent];
-        SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(parentRotation), main.rotations[i]));
+        const Quat local = Blend(GetRotation(aBones[bone]),
+                                 APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(parentRotation), main.rotations[i])),
+                                 share);
+        SetRotation(aBones[bone], local);
         if (i == 0)
         {
             // The chain's root also takes the main skeleton's position (the rest keep their lengths).
-            const Vec3 local = APM::Math::Rotate(APM::Math::Conjugate(parentRotation), main.positions[i] - parentPosition);
-            aBones[bone].Translation.X = local.x;
-            aBones[bone].Translation.Y = local.y;
-            aBones[bone].Translation.Z = local.z;
-            current.positions[bone] = main.positions[i];
+            const Vec3 wanted = APM::Math::Rotate(APM::Math::Conjugate(parentRotation), main.positions[i] - parentPosition);
+            auto& t = aBones[bone].Translation;
+            t.X += (wanted.x - t.X) * share;
+            t.Y += (wanted.y - t.Y) * share;
+            t.Z += (wanted.z - t.Z) * share;
         }
-        else
-        {
-            const auto& t = aBones[bone].Translation;
-            current.positions[bone] = parentPosition + APM::Math::Rotate(parentRotation, Vec3{t.X, t.Y, t.Z});
-        }
-        current.rotations[bone] = main.rotations[i];
+        const auto& t = aBones[bone].Translation;
+        current.positions[bone] = parentPosition + APM::Math::Rotate(parentRotation, Vec3{t.X, t.Y, t.Z});
+        current.rotations[bone] = APM::Math::Mul(parentRotation, local);
     }
 }
 
@@ -845,8 +948,7 @@ bool EyesEditedByUs(const APM::Pose::Target& aTarget, const APM::Pose::OverrideS
     const size_t character = CharacterOf(aTarget);
     {
         std::scoped_lock lock(g_cameraEyeMutex);
-        if (g_cameraEyesValid[character] && APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) >= 2 &&
-            APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
+        if (g_cameraEyesValid[character] && HeadLookShare(character) > 0.f)
         {
             return true;
         }
@@ -864,7 +966,7 @@ bool EyesEditedByUs(const APM::Pose::Target& aTarget, const APM::Pose::OverrideS
 // The eye meshes are skinned to the face rig, whose head the game turns on its own for Look at camera (30-65 degrees
 // away from the main skeleton's head on a saved pose, test 30/10): its eyeballs are aimed from its own head, each
 // along the way it looks at rest (eyeball -> pupil). False when the rig has no pupils.
-bool AimFaceRigEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
+bool AimFaceRigEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, float aShare)
 {
     const auto camera = APM::Pose::LookAtCamera::GetCamera(static_cast<uint32_t>(CharacterOf(aTarget)));
     const int32_t head = IndexOf(aTarget, Hash("Head"));
@@ -919,7 +1021,10 @@ bool AimFaceRigEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
         {
             model = APM::Math::Mul(APM::Math::FromAxisAngle(axis, angle), model);
         }
-        SetRotation(aBones[eyes[e]], APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parents[e]]), model)));
+        SetRotation(aBones[eyes[e]],
+                    Blend(GetRotation(aBones[eyes[e]]),
+                          APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parents[e]]), model)),
+                          aShare));
     }
     return true;
 }
@@ -929,17 +1034,17 @@ bool AimFaceRigEyesAtCamera(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
 void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     std::array<Quat, 2> locals{};
+    const float share = HeadLookShare(CharacterOf(aTarget));
     {
         std::scoped_lock lock(g_cameraEyeMutex);
         const size_t character = CharacterOf(aTarget);
-        if (!g_cameraEyesValid[character] || APM::Pose::LookAtCamera::Reach(static_cast<uint32_t>(character)) < 2 ||
-            !APM::Pose::LookAtCamera::AimsAtCamera(static_cast<uint32_t>(character)))
+        if (!g_cameraEyesValid[character] || share <= 0.f)
         {
             return;
         }
         locals = g_cameraEyeLocals[character];
     }
-    if (AimFaceRigEyesAtCamera(aTarget, aBones, aCount))
+    if (AimFaceRigEyesAtCamera(aTarget, aBones, aCount, share))
     {
         return;
     }
@@ -956,22 +1061,6 @@ void ApplyCameraEyesToLinks(const APM::Pose::Target& aTarget, RED4ext::QsTransfo
         const Quat converted = APM::Math::Mul(APM::Math::Mul(link.pre, change), link.post);
         SetRotation(aBones[link.targetIndex], APM::Math::Normalize(APM::Math::Mul(link.targetReferenceLocal, converted)));
     }
-}
-
-// A share of a rotation (the same axis, aShare of the angle).
-Quat ScaleRotation(const Quat& aRotation, float aShare)
-{
-    Quat q = APM::Math::Normalize(aRotation);
-    if (q.r < 0.f)
-    {
-        q = {-q.i, -q.j, -q.k, -q.r};
-    }
-    const float s = std::sqrt(q.i * q.i + q.j * q.j + q.k * q.k);
-    if (s < 1e-6f)
-    {
-        return {0.f, 0.f, 0.f, 1.f};
-    }
-    return APM::Math::FromAxisAngle(Vec3{q.i / s, q.j / s, q.k / s}, 2.f * std::atan2(s, q.r) * aShare);
 }
 
 // Model-space turn of the head so that its face looks along aWanted with its top towards the chest's top (no tilt
@@ -1015,11 +1104,15 @@ bool TakesOverLookAt(const APM::Pose::Target& aTarget)
 void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
-    const int32_t reach = APM::Pose::LookAtCamera::Reach(character);
     const auto camera = APM::Pose::LookAtCamera::GetCamera(character);
-    if (!TakesOverLookAt(aTarget))
+    UpdateLookBlend(character, TakesOverLookAt(aTarget), APM::Pose::LookAtCamera::Reach(character));
+    // Off (or "custom": the game's own turn stays) once the turn has faded out; while it fades in or out, the pose takes
+    // that share of it.
+    int32_t reach = 0;
+    const float share = LookShare(character, reach);
+    if (share <= 0.f || reach < 2 || !camera.valid)
     {
-        return; // "custom": the game's own turn stays (the base pose leaves those bones alone)
+        return;
     }
     struct Share
     {
@@ -1027,11 +1120,12 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         float weight; // part of the remaining turn
         bool yawOnly; // spine: turns around the vertical only
     };
-    static constexpr Share TorsoChain[] = {{"Spine1", 0.2f, true}, {"Spine2", 0.25f, true}, {"Spine3", 0.33f, true},
-                                           {"Neck", 0.35f, false}, {"Neck1", 0.5f, false},  {"Head", 1.f, false}};
-    static constexpr Share HeadChain[] = {{"Neck", 0.35f, false}, {"Neck1", 0.5f, false}, {"Head", 1.f, false}};
-    const Share* chain = reach >= 3 ? TorsoChain : HeadChain;
-    const size_t chainSize = reach >= 3 ? std::size(TorsoChain) : std::size(HeadChain);
+    // The spine takes its shares as far as the torso takes part (Torso <-> Head eases from one to the other).
+    static constexpr Share Chain[] = {{"Spine1", 0.2f, true}, {"Spine2", 0.25f, true}, {"Spine3", 0.33f, true},
+                                      {"Neck", 0.35f, false}, {"Neck1", 0.5f, false},  {"Head", 1.f, false}};
+    const Share* chain = Chain;
+    const size_t chainSize = std::size(Chain);
+    const float torso = TorsoLookShare(character);
 
     const int32_t head = IndexOf(aTarget, Hash("Head"));
     const size_t refCount = std::min(aTarget.refRotationsMS.size(), aTarget.refTranslationsLS.size());
@@ -1065,34 +1159,56 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     Vec3 chestLeft{};
     Vec3 chestUp{};
     const bool hasChest = BodyAxes(aTarget, current, aCount, false, face, chestForward, chestLeft, chestUp);
+    if (hasChest)
     {
-        // Never more than a natural turn away from the body: the chest for the head, the hips for the torso. Not from
-        // the head as it comes, which the game's own Look at camera may have turned already (a pose without edits).
-        // Sideways and up / down separately, eased towards the target.
-        Vec3 bodyForward = chestForward;
-        Vec3 bodyLeft = chestLeft;
-        Vec3 bodyUp = chestUp;
-        const bool hasBody = reach >= 3 ? BodyAxes(aTarget, current, aCount, true, face, bodyForward, bodyLeft, bodyUp) : hasChest;
-        if (hasBody)
-        {
-            // The head: ~60 degrees sideways, past which the neck mesh twists (test 30/10); the eyes do the rest.
-            // Upwards as far as the game's (test 31/10); the torso turns less sideways than ours did, as the game's.
-            const float maxSide = (reach >= 3 ? 90.f : 60.f) / 57.2958f;
-            const float maxUp = (reach >= 3 ? 65.f : 60.f) / 57.2958f;
-            const float maxDown = (reach >= 3 ? 50.f : 45.f) / 57.2958f;
+        // Never more than a natural turn away from the body: the chest for the head, the hips for the torso (between
+        // the two while switching). Not from the head as it comes, which the game's own Look at camera may have turned
+        // already (a pose without edits). Sideways and up / down separately, eased towards the target in the chest's
+        // frame as the pose comes (the same for both, so a switch does not jump).
+        // The head: ~60 degrees sideways, past which the neck mesh twists (test 30/10); the eyes do the rest. Upwards
+        // as far as the game's (test 31/10); the torso turns less sideways than ours did, as the game's.
+        const auto limit = [&](const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp, float aMaxSide, float aMaxUp,
+                               float aMaxDown) {
             float side = 0.f;
             float pitch = 0.f;
-            ToAngles(wanted, bodyForward, bodyLeft, bodyUp, side, pitch);
-            side = std::clamp(side, -maxSide, maxSide);
-            pitch = std::clamp(pitch, -maxDown, maxUp);
-            SmoothLook(character, 0, 0.4f, side, pitch);
-            wanted = FromAngles(side, pitch, bodyForward, bodyLeft, bodyUp);
+            ToAngles(wanted, aForward, aLeft, aUp, side, pitch);
+            side = std::clamp(side, -aMaxSide / 57.2958f, aMaxSide / 57.2958f);
+            pitch = std::clamp(pitch, -aMaxDown / 57.2958f, aMaxUp / 57.2958f);
+            return FromAngles(side, pitch, aForward, aLeft, aUp);
+        };
+        Vec3 limited = limit(chestForward, chestLeft, chestUp, 60.f, 60.f, 45.f);
+        Vec3 hipsForward{};
+        Vec3 hipsLeft{};
+        Vec3 hipsUp{};
+        if (torso > 0.f && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
+        {
+            const Vec3 fromHips = limit(hipsForward, hipsLeft, hipsUp, 90.f, 65.f, 50.f);
+            const Vec3 mixed = limited * (1.f - torso) + fromHips * torso;
+            if (APM::Math::Length(mixed) > 1e-3f)
+            {
+                limited = APM::Math::Normalize(mixed);
+            }
+        }
+        float side = 0.f;
+        float pitch = 0.f;
+        ToAngles(limited, chestForward, chestLeft, chestUp, side, pitch);
+        SmoothLook(character, 0, 0.4f, side, pitch);
+        wanted = FromAngles(side, pitch, chestForward, chestLeft, chestUp);
+    }
+    // The chain as it comes, for a turn fading in or out.
+    std::array<Quat, std::size(Chain)> before{};
+    for (size_t c = 0; c < chainSize; ++c)
+    {
+        const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
+        if (bone >= 0 && static_cast<uint32_t>(bone) < aCount)
+        {
+            before[c] = GetRotation(aBones[bone]);
         }
     }
     for (size_t c = 0; c < chainSize; ++c)
     {
         const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
-        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount)
+        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount || (chain[c].yawOnly && torso <= 0.f))
         {
             continue;
         }
@@ -1157,9 +1273,20 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         {
             continue;
         }
-        const Quat turn = APM::Math::FromAxisAngle(axis, angle * chain[c].weight);
+        const Quat turn = APM::Math::FromAxisAngle(axis, angle * chain[c].weight * (chain[c].yawOnly ? torso : 1.f));
         const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
         SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+    }
+    if (share < 1.f)
+    {
+        for (size_t c = 0; c < chainSize; ++c)
+        {
+            const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
+            if (bone >= 0 && static_cast<uint32_t>(bone) < aCount)
+            {
+                SetRotation(aBones[bone], Blend(before[c], GetRotation(aBones[bone]), share));
+            }
+        }
     }
 }
 
@@ -1338,6 +1465,12 @@ Math::Vec3 ReferenceFaceForward(const Target& aTarget)
     return FaceForward(aTarget);
 }
 
+bool ShowsLookAt(uint32_t aCharacter)
+{
+    int32_t reach = 0;
+    return LookShare(aCharacter, reach) > 0.f;
+}
+
 void ResetCharacter(uint32_t aCharacter)
 {
     if (aCharacter >= CharacterCount)
@@ -1356,6 +1489,10 @@ void ResetCharacter(uint32_t aCharacter)
     {
         std::scoped_lock lock(g_noLookAtMutex);
         g_noLookAtCaches[aCharacter].valid = false;
+    }
+    {
+        std::scoped_lock lock(g_lookBlendMutex);
+        g_lookBlends[aCharacter] = {};
     }
     {
         std::scoped_lock lock(g_animatedEyeMutex);

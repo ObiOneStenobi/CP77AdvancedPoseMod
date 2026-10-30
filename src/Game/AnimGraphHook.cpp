@@ -391,7 +391,7 @@ void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
     std::copy(frozen.begin(), frozen.end(), aBones);
 }
 
-void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
+void ApplyOverrides(void* aNode, [[maybe_unused]] uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
 {
     uint32_t boneCount = 0;
     uint64_t bonesAddress = 0;
@@ -405,9 +405,10 @@ void ApplyOverrides(void* aNode, uintptr_t aContext, const SampleOutput* aOut, u
         // Each character (V, added characters) has its own pose.
         const auto snapshot = APM::Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
         // Photo Mode's Look at camera is taken over on every pose (the game stops the head and the eyes short of the
-        // camera, and turns the face rig apart from the body): also without edits.
-        const bool aimsAtCamera = APM::Pose::LookAtCamera::Reach(aTarget.photoModeSlot) >= 2 &&
-                                  APM::Pose::LookAtCamera::AimsAtCamera(aTarget.photoModeSlot);
+        // camera, and turns the face rig apart from the body): also without edits, and until it has faded out.
+        const bool aimsAtCamera = (APM::Pose::LookAtCamera::Reach(aTarget.photoModeSlot) >= 2 &&
+                                   APM::Pose::LookAtCamera::AimsAtCamera(aTarget.photoModeSlot)) ||
+                                  APM::Pose::PoseProcessor::ShowsLookAt(aTarget.photoModeSlot);
         const bool applyPose =
             APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot) && (!snapshot->IsEmpty() || aimsAtCamera);
         uint32_t rigBoneCount = 0;
