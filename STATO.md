@@ -373,7 +373,7 @@ Aggiornato: 2026-10-30
   gioco Photo Mode su veicolo AVEVA il puppet (targets registrati). Simile al crash del 25/10 dopo l'uscita.
 - Veicoli: log "PhotoMode: player list slot N puppet=... type=..." (Verbose, quando cambia) e "V has no puppet / no
   animated components" (Info, una volta per sessione); RESEARCH.md "Vehicles" aggiornato. Prova in gioco da fare.
-## Guarda in camera: occhi e testa (sessione 30/10 sera, NON committato)
+## Guarda in camera: occhi e testa (30-31/10, committato e pushato, provato in gioco: ok)
 Gioco installato: 2.31 (3.0.80) -> copiare build231 nel gioco (la DLL 2.5 lo fa crashare all'avvio).
 File toccati: src/Pose/PoseProcessor.cpp, src/Game/AnimGraphHook.cpp.
 DLL copiate in dist, dist231 e nel gioco. Script invariati.
@@ -408,7 +408,6 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   C4100 'aContext' in AnimGraphHook.cpp:394 (preesistente).
 
 ## Prossimi passi
-- Guarda in camera: provare in gioco il fix del collo torto (sezione sopra), poi commit.
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
 - Dopo il downgrade a 2.31: check_scripts.ps1 (bundle 2.31), test in gioco di dist231 (editor espressioni, FacePoses).
