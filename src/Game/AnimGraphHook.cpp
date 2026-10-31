@@ -363,12 +363,38 @@ void NoteSample(const APM::Pose::Target& aTarget, uint32_t aCount, uint32_t aRig
     note.lastRigCount = aRigCount;
 }
 
-// The player posed in a vehicle (no Photo Mode puppet) keeps its seat animation: while the pose is on, the body takes
-// the frame it had when the pose went on, so it holds still under the edits. Only the main skeleton: the others take
-// its bones in their own graphs (freezing deformations / shadow hid the edits, test 30/10), the face goes through the
-// facial solver and hair, breasts and dangles have physics.
+// While the pose is on, the body takes the frame it had when the pose went on, so it holds still under the edits: the
+// player posed in a vehicle (no Photo Mode puppet) keeps its seat animation, and Photo Mode poses loop an idle
+// (breathing, small moves of the chest and arms). Only the main skeleton: the others take its bones in their own graphs
+// (freezing deformations / shadow hid the edits, test 30/10), the face goes through the facial solver and hair,
+// breasts and dangles have physics.
+struct FrozenPose
+{
+    std::vector<RED4ext::QsTransform> bones;
+    uint32_t generation = 0; // Photo Mode pose the frame belongs to (LookAtCamera::PoseGeneration)
+    uint64_t since = 0;      // when that pose was chosen (ms)
+};
 std::mutex g_frozenMutex;
-std::unordered_map<uintptr_t, std::vector<RED4ext::QsTransform>> g_frozen; // by animated component
+std::unordered_map<uintptr_t, FrozenPose> g_frozen; // by animated component
+
+// Bones the game's own Look at camera turns while it does (eyes only, or "custom" towards a point the user places):
+// they keep moving. With "camera" on the head or the torso the plugin turns them itself (KeepLookAt).
+bool IsGameLookAtBone(const APM::Pose::Target& aTarget, uint64_t aHash)
+{
+    const uint32_t character = aTarget.photoModeSlot;
+    const int32_t reach = APM::Pose::LookAtCamera::Reach(character);
+    if (reach == 0 || (reach >= 2 && APM::Pose::LookAtCamera::AimsAtCamera(character)))
+    {
+        return false;
+    }
+    static const std::array<uint64_t, 12> Bones = {
+        RED4ext::CName("Hips").hash,   RED4ext::CName("LeftUpLeg").hash, RED4ext::CName("RightUpLeg").hash,
+        RED4ext::CName("Spine").hash,  RED4ext::CName("Spine1").hash,    RED4ext::CName("Spine2").hash,
+        RED4ext::CName("Spine3").hash, RED4ext::CName("Neck").hash,      RED4ext::CName("Neck1").hash,
+        RED4ext::CName("Head").hash,   RED4ext::CName("LeftEye").hash,   RED4ext::CName("RightEye").hash};
+    const size_t from = reach == 1 ? Bones.size() - 2 : 0; // eyes only
+    return std::find(Bones.begin() + from, Bones.end(), aHash) != Bones.end();
+}
 
 void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount, bool aOn)
 {
@@ -382,13 +408,38 @@ void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
         g_frozen.erase(aTarget.animatedComponent);
         return;
     }
-    auto& frozen = g_frozen[aTarget.animatedComponent];
-    if (frozen.size() != aCount)
+    const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(aTarget.photoModeSlot);
+    const auto [it, added] = g_frozen.try_emplace(aTarget.animatedComponent);
+    auto& frozen = it->second;
+    if (added)
     {
-        frozen.assign(aBones, aBones + aCount);
+        // Turned on: the seat animation at once; a Photo Mode puppet a moment later (it may still be blending into its
+        // pose when Photo Mode starts).
+        frozen.generation = generation;
+        frozen.since = aTarget.photoModeSlot == 0 && APM::PhotoModeTracker::IsPlayerPosed() ? 0 : GetTickCount64();
+    }
+    else if (frozen.generation != generation)
+    {
+        // Another Photo Mode pose: the game blends into it, so its frame is taken a moment later.
+        frozen.generation = generation;
+        frozen.since = GetTickCount64();
+        frozen.bones.clear();
+    }
+    if (frozen.bones.size() != aCount)
+    {
+        if (GetTickCount64() - frozen.since >= 600)
+        {
+            frozen.bones.assign(aBones, aBones + aCount);
+        }
         return;
     }
-    std::copy(frozen.begin(), frozen.end(), aBones);
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        if (i >= aTarget.boneNames.size() || !IsGameLookAtBone(aTarget, aTarget.boneNames[i]))
+        {
+            aBones[i] = frozen.bones[i];
+        }
+    }
 }
 
 void ApplyOverrides(void* aNode, [[maybe_unused]] uintptr_t aContext, const SampleOutput* aOut, uintptr_t aTargetPointer)
@@ -443,10 +494,7 @@ void ApplyOverrides(void* aNode, [[maybe_unused]] uintptr_t aContext, const Samp
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
-        if (aTarget.photoModeSlot == 0 && APM::PhotoModeTracker::IsPlayerPosed())
-        {
-            FreezeAnimation(aTarget, bones, boneCount, APM::Pose::PoseOverrides::IsEnabled(0));
-        }
+        FreezeAnimation(aTarget, bones, boneCount, APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot));
         if (applyPose)
         {
             // A frame with invalid values (NaN / infinite, e.g. a degenerate IK case) keeps the game's pose instead.

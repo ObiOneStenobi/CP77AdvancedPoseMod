@@ -417,7 +417,14 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   (g_shownEyeFocus, riallineato da SetEyeFocus e dal reset). Provato: ok, ma al rilascio il marker si spostava
   (31/10, corretto, da provare): MoveEyeLook salva la distanza del punto trascinato (m_eyeLookDistance) e la fissa
   (m_eyeLookPinned) finché gli occhi non cambiano direzione di oltre ~5 gradi (m_eyeLookPinForward, spazio modello);
-  anche il marker del singolo occhio usa quella distanza invece di 0.6 m. Causa: EyeLookPoint
+  anche il marker del singolo occhio usa quella distanza invece di 0.6 m. Provato: ok.
+- Animazione ferma anche a piedi con POSE ON (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco):
+  FreezeAnimation (AnimGraphHook.cpp) per ogni personaggio con POSE ON, solo lo scheletro "root" (shadow e
+  deformations prendono le sue ossa; viso, capelli, giacca restano animati/fisica). Cambio di posa di Photo Mode
+  (PoseGeneration): fotogramma preso dopo 0.6 s (anche all'accensione a piedi; nel veicolo subito). Le ossa del Look at
+  camera del gioco (custom: anca, cosce, schiena, collo, testa, occhi; solo occhi: occhi) restano animate.
+  POSE ON: V parte acceso la prima volta (preferenza PoseOn, default 1) poi resta com'era; i personaggi aggiunti si
+  accendono con la prima modifica o posa caricata. Causa: EyeLookPoint
   (PoseEditor.reds ~3400) e GetEyeFocus (PhotoModeUi.cpp ~442) lo ricavano ogni frame dall'incrocio delle linee di
   vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
   scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.
