@@ -502,7 +502,7 @@ public class APM_PoseEditor extends IScriptable {
         this.m_classicModelAxes = APM_PrefGet("ClassicGizmoModelAxes", 0.0) > 0.5;
         this.m_hoverAxis = -1;
         this.m_propRight = true;
-        this.m_posesOpen = APM_SessionGet("PosesOpen", 0.0) > 0.5; // closed when the game starts
+        this.m_posesOpen = APM_SessionGet("PosesOpen", 1.0) > 0.5; // open when the game starts
         this.m_faceMode = APM_SessionGet("FaceMode", 0.0) > 0.5;
         this.m_faceZone = Cast<Int32>(APM_SessionGet("FaceZone", 4.0) + 0.5); // lips
         this.m_faceLinked = APM_PrefGet("FaceLinked", 1.0) > 0.5;

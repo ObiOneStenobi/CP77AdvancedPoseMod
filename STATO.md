@@ -456,8 +456,8 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
   scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.
 - Altri da fare: rendere graduale anche l'accensione/spegnimento di Guarda in camera (ora scatta); controllare se il
-  gizmo degli occhi (AimPart / eye edit) ha lo stesso problema della testa del face_rig; attenzione warning
-  C4100 'aContext' in AnimGraphHook.cpp:394 (preesistente).
+  gizmo degli occhi (AimPart / eye edit) ha lo stesso problema della testa del face_rig. (Warning C4100 'aContext'
+  già tolto in 8def3f5 con [[maybe_unused]] su ApplyOverrides.)
 
 - Torace solo dalla schiena, assi di CDPR (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco 2.31).
   Deciso con l'utente: anca e gambe fuori dal Guarda in camera (restano della posa e modificabili). Gli assi di CDPR
@@ -483,8 +483,11 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   74 = 1 (Testa) dopo ~60 ms -> la mod passava a Testa per quel secondo (torace che sparisce e torna). FATTO: 74/78 dal
   menu ignorati mentre la svolta del gioco è spenta da noi; attesa = ossa ferme (WatchPoseSettling: < 15 gradi/s per
   0,25 s, minimo 1 s, massimo 5 s; GameLookAtOffMaxMs 6 s); FreezeAnimation non tiene il corpo fermo nell'attesa.
-  Log "back on after N ms (pose remembered, held still / still moving / timeout)". Build ok, DLL in dist e dist231;
-  NON nel gioco (era aperto).
+  Log "back on after N ms (pose remembered, held still / still moving / timeout)". Build ok, DLL in dist, dist231 e
+  gioco (2.31).
+
+- Libreria delle pose aperta di default all'avvio del gioco (PoseEditor.reds, pref di sessione "PosesOpen" 1.0;
+  poi resta come la lascia l'utente). Script ok, dist e dist231 aggiornati.
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
