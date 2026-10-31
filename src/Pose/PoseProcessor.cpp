@@ -659,8 +659,13 @@ float SmoothDamp(float aValue, float aTarget, float& aSpeed, float aSmoothTime, 
     return aTarget + (change + temp) * decay;
 }
 
+// How long the head and the torso take to follow the camera (smooth time of the spring, seconds; the eyes 0.12).
+constexpr float LookTurnSeconds = 0.6f;
+
 // The target angles eased from the last ones (starting at the target after a pause, e.g. Look at camera just on).
-void SmoothLook(size_t aCharacter, size_t aPart, float aSmoothTime, float& aSide, float& aPitch)
+// aBehind: sideways angles all around (the camera behind the character): the turn stays on its side until the camera
+// is 25 degrees past straight behind, then goes across the front, instead of flipping as the camera crosses behind.
+void SmoothLook(size_t aCharacter, size_t aPart, float aSmoothTime, float& aSide, float& aPitch, bool aBehind = false)
 {
     if (aCharacter >= CharacterCount)
     {
@@ -674,6 +679,19 @@ void SmoothLook(size_t aCharacter, size_t aPart, float aSmoothTime, float& aSide
     {
         state = {aSide, aPitch, 0.f, 0.f, now, true};
         return;
+    }
+    if (aBehind)
+    {
+        constexpr float Pi = 3.14159265f;
+        constexpr float Past = 25.f / 57.2958f;
+        if (state.side > Pi / 2.f && aSide < -(Pi - Past))
+        {
+            aSide += 2.f * Pi;
+        }
+        else if (state.side < -Pi / 2.f && aSide > Pi - Past)
+        {
+            aSide -= 2.f * Pi;
+        }
     }
     state.lastUs = now;
     if (dt <= 0.f)
@@ -1163,15 +1181,17 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     Vec3 chestLeft{};
     Vec3 chestUp{};
     const bool hasChest = BodyAxes(aTarget, current, aCount, false, face, chestForward, chestLeft, chestUp);
+    // Eased towards the camera as sideways / up-down angles from the chest as the pose comes (Look at camera turns
+    // gradually, as the game's). The limits come after, from these same angles shifted by how the chest sits on the
+    // hips and by its turn: measuring the direction again in another frame put "just behind" on the other side there,
+    // and the torso and head jumped across with the camera behind (test 31/10).
+    float lookSide = 0.f;
+    float lookPitch = 0.f;
     if (hasChest)
     {
-        // Eased towards the camera in the chest's frame as the pose comes (Look at camera turns gradually, as the
-        // game's); the limits come after, from the body as it is turned.
-        float side = 0.f;
-        float pitch = 0.f;
-        ToAngles(wanted, chestForward, chestLeft, chestUp, side, pitch);
-        SmoothLook(character, 0, 0.4f, side, pitch);
-        wanted = FromAngles(side, pitch, chestForward, chestLeft, chestUp);
+        ToAngles(wanted, chestForward, chestLeft, chestUp, lookSide, lookPitch);
+        SmoothLook(character, 0, LookTurnSeconds, lookSide, lookPitch, true);
+        wanted = FromAngles(lookSide, lookPitch, chestForward, chestLeft, chestUp);
     }
 
     // The bones as they come, for a turn fading in or out.
@@ -1199,13 +1219,13 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     Vec3 hipsForward{};
     Vec3 hipsLeft{};
     Vec3 hipsUp{};
+    float chestTurned = 0.f; // how far the back turned the chest (radians, + to the left)
     if (torso > 0.f && hasChest && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
     {
         float chestSide = 0.f;
-        float wantedSide = 0.f;
         float unused = 0.f;
         ToAngles(chestForward, hipsForward, hipsLeft, hipsUp, chestSide, unused);
-        ToAngles(wanted, hipsForward, hipsLeft, hipsUp, wantedSide, unused);
+        const float wantedSide = lookSide + chestSide; // from the hips
         const float maxChest = 45.f / 57.2958f;
         const float chestTurn =
             (std::clamp(wantedSide, std::min(-maxChest, chestSide), std::max(maxChest, chestSide)) - chestSide) * torso;
@@ -1223,6 +1243,16 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
             SetRotation(aBones[bone], APM::Pose::JointLimits::LimitLocal(character, Back[i].bone, local, turned[i].before, false));
         }
         ComputeModelPose(aTarget, aBones, aCount, current);
+        // The turn the chest really took (the joint limits may have kept part of it).
+        Vec3 nowForward{};
+        Vec3 nowLeft{};
+        Vec3 nowUp{};
+        if (BodyAxes(aTarget, current, aCount, false, face, nowForward, nowLeft, nowUp))
+        {
+            float nowSide = 0.f;
+            ToAngles(nowForward, hipsForward, hipsLeft, hipsUp, nowSide, unused);
+            chestTurned = std::remainder(nowSide - chestSide, 2.f * 3.14159265f);
+        }
     }
 
     // The head: never more than a natural turn away from the chest as it now is (~60 degrees sideways, past which the
@@ -1230,13 +1260,10 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     Vec3 neckForward{};
     Vec3 neckLeft{};
     Vec3 neckUp{};
-    if (BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
+    if (hasChest && BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
     {
-        float side = 0.f;
-        float pitch = 0.f;
-        ToAngles(wanted, neckForward, neckLeft, neckUp, side, pitch);
-        side = std::clamp(side, -60.f / 57.2958f, 60.f / 57.2958f);
-        pitch = std::clamp(pitch, -45.f / 57.2958f, 60.f / 57.2958f);
+        const float side = std::clamp(lookSide - chestTurned, -60.f / 57.2958f, 60.f / 57.2958f);
+        const float pitch = std::clamp(lookPitch, -45.f / 57.2958f, 60.f / 57.2958f);
         wanted = FromAngles(side, pitch, neckForward, neckLeft, neckUp);
     }
     for (size_t n = 0; n < std::size(Neck); ++n)
