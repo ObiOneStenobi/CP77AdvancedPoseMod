@@ -435,7 +435,14 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   rimisurata nel frame del bacino / del petto girato cambiava lato prima): ora i limiti partono dagli stessi angoli
   smorzati (lookSide + lato del petto sul bacino; testa: lookSide - giro reale del petto). SmoothLook con aBehind:
   resta dal suo lato finché la camera non supera di 25 gradi il dietro, poi passa davanti. Giro più lento:
-  LookTurnSeconds 0.4 -> 0.6 s (occhi 0.12, accensione / spegnimento e cambio Torace-Testa restano 0.4 s). Causa: EyeLookPoint
+  LookTurnSeconds 0.4 -> 0.6 s (occhi 0.12, accensione / spegnimento e cambio Torace-Testa restano 0.4 s).
+  Provato: ok. Poi (31/10, da provare): dal basso CDPR si muove molto di più -> la schiena si piega anche su / giù
+  verso la camera (max 15 su / 20 giù dal bacino, attorno all'asse laterale del bacino, stesse quote e limiti),
+  testa giù 45 -> 55. Dall'alto il torace girava di lato con la camera davanti (angolo laterale da un offset
+  orizzontale minuscolo): lookSide ridotto di cos(pitch) / cos(pitch raggiungibile), quasi zero con la camera
+  sopra. Lower back (Spine) ora bloccato nell'editor con Guarda in camera Torace (IsLookAtLockedBone).
+  Piedi diversi con POSE ON / OFF: probabile giro di anca e cosce del Look at camera Torace di CDPR (4-10 gradi),
+  che la mod toglie; da verificare con Guarda in camera spento. Causa: EyeLookPoint
   (PoseEditor.reds ~3400) e GetEyeFocus (PhotoModeUi.cpp ~442) lo ricavano ogni frame dall'incrocio delle linee di
   vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
   scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.

@@ -142,7 +142,7 @@ bool IsPinnedChainEnd(std::string_view aBone)
 }
 
 // Photo Mode's "Look at camera" turns these bones itself: they cannot be edited while it is on (eyes; head and neck;
-// the back and chest for the torso).
+// the back, from the lower back, and chest for the torso).
 bool IsLookAtLockedBone(std::string_view aBone)
 {
     const int32_t reach = Pose::LookAtCamera::Reach(Pose::Characters::Selected());
@@ -154,7 +154,7 @@ bool IsLookAtLockedBone(std::string_view aBone)
     {
         return true;
     }
-    return reach >= 3 && (aBone == "Spine1" || aBone == "Spine2" || aBone == "Spine3");
+    return reach >= 3 && (aBone == "Spine" || aBone == "Spine1" || aBone == "Spine2" || aBone == "Spine3");
 }
 
 bool IsLookAtLockedEntry(const Ui::CatalogEntry& aEntry)

@@ -1192,6 +1192,14 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         ToAngles(wanted, chestForward, chestLeft, chestUp, lookSide, lookPitch);
         SmoothLook(character, 0, LookTurnSeconds, lookSide, lookPitch, true);
         wanted = FromAngles(lookSide, lookPitch, chestForward, chestLeft, chestUp);
+        // A camera nearly straight above or below: its sideways angle comes from a tiny horizontal offset (a few
+        // centimeters made tens of degrees, or "behind"), and with the up / down angle cut at the limits it turned the
+        // torso and the head to one side (test 31/10). The sideways turn shrinks as far as the limits cut the up / down
+        // angle (to nothing straight above).
+        const float maxUp = (60.f + 15.f * torso) / 57.2958f;
+        const float maxDown = (55.f + 20.f * torso) / 57.2958f;
+        const float reachable = std::cos(std::clamp(lookPitch, -maxDown, maxUp));
+        lookSide *= std::min(1.f, std::cos(lookPitch) / std::max(reachable, 0.05f));
     }
 
     // The bones as they come, for a turn fading in or out.
@@ -1212,33 +1220,44 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         }
     }
 
-    // The torso: the chest turns towards the camera, at most 45 degrees from the hips (sideways, around the back's
-    // axis), and never back from where the pose already has it. From the chest, not from the head: a pose with the head
-    // already turned (CDPR's "Action") twisted the middle back far past its range (test 31/10). Each back bone within
-    // its natural range (as the edits).
+    // The torso: the chest turns towards the camera, at most 45 degrees sideways from the hips (around the back's axis)
+    // and bends towards it, at most 15 degrees up / 20 down (around the hips' side axis: CDPR's moves much more with
+    // the camera below, test 31/10), never back from where the pose already has it. From the chest, not from the head:
+    // a pose with the head already turned (CDPR's "Action") twisted the middle back far past its range (test 31/10).
+    // Each back bone within its natural range (as the edits).
     Vec3 hipsForward{};
     Vec3 hipsLeft{};
     Vec3 hipsUp{};
-    float chestTurned = 0.f; // how far the back turned the chest (radians, + to the left)
+    float chestTurned = 0.f;  // how far the back turned the chest (radians, + to the left)
+    float chestPitched = 0.f; // how far it bent it (radians, + up)
     if (torso > 0.f && hasChest && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
     {
         float chestSide = 0.f;
-        float unused = 0.f;
-        ToAngles(chestForward, hipsForward, hipsLeft, hipsUp, chestSide, unused);
-        const float wantedSide = lookSide + chestSide; // from the hips
+        float chestPitch = 0.f;
+        ToAngles(chestForward, hipsForward, hipsLeft, hipsUp, chestSide, chestPitch);
+        const float wantedSide = lookSide + chestSide;   // from the hips
+        const float wantedPitch = lookPitch + chestPitch;
         const float maxChest = 45.f / 57.2958f;
+        const float maxChestUp = 15.f / 57.2958f;
+        const float maxChestDown = 20.f / 57.2958f;
         const float chestTurn =
             (std::clamp(wantedSide, std::min(-maxChest, chestSide), std::max(maxChest, chestSide)) - chestSide) * torso;
+        const float chestBend =
+            (std::clamp(wantedPitch, std::min(-maxChestDown, chestPitch), std::max(maxChestUp, chestPitch)) - chestPitch) *
+            torso;
         for (size_t i = 0; i < std::size(Back); ++i)
         {
             const int32_t bone = turned[i].bone;
-            if (bone < 0 || std::abs(chestTurn) < 1e-4f)
+            if (bone < 0 || (std::abs(chestTurn) < 1e-4f && std::abs(chestBend) < 1e-4f))
             {
                 continue;
             }
             const int16_t parent = aTarget.parents[bone];
             ComputeModelPose(aTarget, aBones, aCount, current);
-            const Quat model = APM::Math::Mul(APM::Math::FromAxisAngle(hipsUp, chestTurn * Back[i].weight), current.rotations[bone]);
+            // A positive turn around the side axis tips the front down, so bending up turns the other way.
+            const Quat turn = APM::Math::Mul(APM::Math::FromAxisAngle(hipsUp, chestTurn * Back[i].weight),
+                                             APM::Math::FromAxisAngle(hipsLeft, -chestBend * Back[i].weight));
+            const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
             const Quat local = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
             SetRotation(aBones[bone], APM::Pose::JointLimits::LimitLocal(character, Back[i].bone, local, turned[i].before, false));
         }
@@ -1250,8 +1269,10 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         if (BodyAxes(aTarget, current, aCount, false, face, nowForward, nowLeft, nowUp))
         {
             float nowSide = 0.f;
-            ToAngles(nowForward, hipsForward, hipsLeft, hipsUp, nowSide, unused);
+            float nowPitch = 0.f;
+            ToAngles(nowForward, hipsForward, hipsLeft, hipsUp, nowSide, nowPitch);
             chestTurned = std::remainder(nowSide - chestSide, 2.f * 3.14159265f);
+            chestPitched = nowPitch - chestPitch;
         }
     }
 
@@ -1263,7 +1284,7 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     if (hasChest && BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
     {
         const float side = std::clamp(lookSide - chestTurned, -60.f / 57.2958f, 60.f / 57.2958f);
-        const float pitch = std::clamp(lookPitch, -45.f / 57.2958f, 60.f / 57.2958f);
+        const float pitch = std::clamp(lookPitch - chestPitched, -55.f / 57.2958f, 60.f / 57.2958f);
         wanted = FromAngles(side, pitch, neckForward, neckLeft, neckUp);
     }
     for (size_t n = 0; n < std::size(Neck); ++n)
