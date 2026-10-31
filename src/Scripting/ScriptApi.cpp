@@ -4,6 +4,7 @@
 #include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/FacePoses.hpp"
@@ -674,6 +675,7 @@ void SetCameraModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     APM::Pose::LookAtCamera::SetCamera(static_cast<uint32_t>(std::max(character, 0)), {position.X, position.Y, position.Z},
                                        {forward.X, forward.Y, forward.Z},
                                        {up.X, up.Y, up.Z});
+    APM::PhotoModeMenuGuard::UpdateGameLookAt(); // sent every frame from the game thread
 }
 
 // --- Face ------------------------------------------------------------------------------------------------------

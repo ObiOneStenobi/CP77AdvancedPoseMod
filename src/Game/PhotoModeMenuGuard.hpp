@@ -5,4 +5,9 @@ namespace APM::PhotoModeMenuGuard
 {
 bool Install();
 void Uninstall();
+// Game thread, every frame: switches Photo Mode's own Look at camera off and on again in the game when a pose without
+// it is needed (Pose/LookAtCamera.hpp).
+void UpdateGameLookAt();
+// Photo Mode ended: its menu is gone.
+void ForgetMenu();
 } // namespace APM::PhotoModeMenuGuard

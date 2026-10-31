@@ -9,6 +9,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/AddressHashes.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/EngineLayout.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/FacePoses.hpp"
@@ -824,6 +825,7 @@ void Detour_Deactivate(void* aSystem)
     }
     g_playerEntity = 0;
     g_playerPosed = false;
+    APM::PhotoModeMenuGuard::ForgetMenu();
     APM::Pose::LookAtCamera::g_ignored[0] = false;
     APM::CrashGuard::Guard("Photo Mode end", [] {
         APM::Pose::TargetRegistry::Clear();

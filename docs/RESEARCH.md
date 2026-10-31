@@ -241,6 +241,12 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
   - Since 1.4.0 the plugin turns only Spine..Spine3 this way (around the character's vertical and level side axis,
     accumulated); the hips and legs stay as the pose has them (editable), the game's own hips turn / shift and leg IK
     are taken out with the rest of its look-at.
+  - Taking the game's turn out needs the pose without it, remembered while Look at camera is off. For a Photo Mode
+    pose chosen with it on (or Photo Mode opened with it on) the plugin switches the game's Look at camera off for a
+    moment: `PhotoModeMenuGuard::UpdateGameLookAt` (game thread, every frame) calls the menu's forward target directly
+    (bypassing the hook, so the plugin's own state stays) with 15 = 0 (added characters: 68 = character, 58 = 0, 68
+    back), waits 1 s for the game's turn to fade out (and the pose to blend in), remembers the pose (and the frozen
+    frame with Pose on), then sends 15 / 74 (58 / 78) as the plugin has them (back on anyway after 3 s).
   - Head / neck from the chest aim: Neck = 25% of chest aim -> head aim, Neck1 50%, Head 100%; limits Head 16 / 8 / 16,
     Neck1 8 / 8 / 16, Neck 8 / 4 / 8 (X / Y / Z, eased clamps). The plugin keeps its own head and eyes (they matched
     the game better in tests).

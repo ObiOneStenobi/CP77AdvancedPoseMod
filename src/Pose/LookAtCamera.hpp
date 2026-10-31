@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 
@@ -39,6 +40,47 @@ inline uint32_t PoseGeneration(uint32_t aCharacter)
     return aCharacter < g_poseGeneration.size() ? g_poseGeneration[aCharacter].load() : 0;
 }
 
+// The pose without the game's own turn (PoseProcessor's RemoveGameLookAt) is remembered while Look at camera is off. A
+// Photo Mode pose chosen with it on (or Photo Mode opened with it on) never showed that: Photo Mode's own Look at camera
+// is then switched off in the game for a moment (PhotoModeMenuGuard::UpdateGameLookAt, the plugin's state stays as it
+// is), the pose is remembered once the game's turn has faded out, and the game's Look at camera goes back on.
+constexpr uint64_t GameLookAtFadeMs = 1000; // the game's turn fading out (preset speed 140 degrees/s) and the pose blend
+constexpr uint64_t GameLookAtOffMaxMs = 3000; // back on anyway (the character's pose may not be processed)
+inline std::array<std::atomic<bool>, 4> g_wantsCleanFrame{};  // anim thread: no pose without the game's turn yet
+inline std::array<std::atomic<uint64_t>, 4> g_gameOffSince{}; // when the game's turn was switched off (ms, 0 = on)
+inline std::array<std::atomic<uint32_t>, 4> g_gameOffGeneration{}; // Photo Mode pose it was switched off for
+inline std::array<std::atomic<bool>, 4> g_cleanFrameTaken{};  // anim thread: remembered, the game's turn can go back on
+
+inline uint64_t NowMs()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+// The game's turn is off and has faded out on the current Photo Mode pose: this frame is the pose without it.
+inline bool GameLookAtClean(uint32_t aCharacter)
+{
+    if (aCharacter >= g_gameOffSince.size())
+    {
+        return false;
+    }
+    const uint64_t since = g_gameOffSince[aCharacter];
+    return since != 0 && NowMs() - since >= GameLookAtFadeMs && g_gameOffGeneration[aCharacter] == PoseGeneration(aCharacter);
+}
+
+// The game's turn is off but still fading out (or the pose still blending in): wait for the clean frame.
+inline bool AwaitsCleanFrame(uint32_t aCharacter)
+{
+    return aCharacter < g_gameOffSince.size() && g_gameOffSince[aCharacter] != 0 && !GameLookAtClean(aCharacter);
+}
+
+inline void ResetCleanFrame(uint32_t aCharacter)
+{
+    g_wantsCleanFrame[aCharacter] = false;
+    g_gameOffSince[aCharacter] = 0;
+    g_cleanFrameTaken[aCharacter] = false;
+}
+
 inline void Reset()
 {
     for (size_t i = 0; i < g_mode.size(); ++i)
@@ -50,6 +92,10 @@ inline void Reset()
         ++g_poseGeneration[i];
     }
     g_selectedNpc = 0;
+    for (uint32_t i = 0; i < g_wantsCleanFrame.size(); ++i)
+    {
+        ResetCleanFrame(i);
+    }
     for (auto& ignored : g_ignored)
     {
         ignored = false;
@@ -172,6 +218,7 @@ inline void ResetCharacter(uint32_t aCharacter)
     g_pose[aCharacter][0] = -1;
     g_pose[aCharacter][1] = -1;
     ++g_poseGeneration[aCharacter];
+    ResetCleanFrame(aCharacter);
     std::scoped_lock lock(g_cameraMutex);
     g_cameras[aCharacter].valid = false;
 }

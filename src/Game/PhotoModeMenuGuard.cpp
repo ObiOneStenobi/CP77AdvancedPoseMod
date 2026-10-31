@@ -27,6 +27,10 @@ using Forward_t = void (*)(void* aCallback, uint32_t aAttribute, float aValue, b
 
 void* g_addrForward = nullptr;
 Forward_t g_origForward = nullptr;
+// The menu's forward target and its last "apply" flag, to send the game Look at camera values of our own (game thread
+// only: the menu forwards and UpdateGameLookAt run there). Dropped when Photo Mode ends (the menu goes away).
+void* g_menuCallback = nullptr;
+bool g_menuApply = true;
 
 void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aApply)
 {
@@ -34,6 +38,8 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
     {
         return;
     }
+    g_menuCallback = aCallback;
+    g_menuApply = aApply;
     APM::CrashGuard::Guard("Photo Mode menu attribute", [&] {
         if (aAttribute == 15 || aAttribute == 74)
         {
@@ -100,10 +106,81 @@ uintptr_t FindForwardCall(uintptr_t aHandler)
     }
     return 0;
 }
+// Photo Mode's Look at camera of a character, as the game sees it (the plugin's state is not touched). An added
+// character's values go through the NPC page's character selector, put back after.
+void SendGameLookAt(uint32_t aCharacter, int32_t aMode, int32_t aTarget, bool aWithTarget)
+{
+    if (aCharacter == 0)
+    {
+        g_origForward(g_menuCallback, 15, static_cast<float>(aMode), g_menuApply);
+        if (aWithTarget)
+        {
+            g_origForward(g_menuCallback, 74, static_cast<float>(aTarget), g_menuApply);
+        }
+        return;
+    }
+    const int32_t selected = APM::Pose::LookAtCamera::g_selectedNpc;
+    g_origForward(g_menuCallback, 68, static_cast<float>(aCharacter - 1), g_menuApply);
+    g_origForward(g_menuCallback, 58, static_cast<float>(aMode), g_menuApply);
+    if (aWithTarget)
+    {
+        g_origForward(g_menuCallback, 78, static_cast<float>(aTarget), g_menuApply);
+    }
+    g_origForward(g_menuCallback, 68, static_cast<float>(selected), g_menuApply);
+}
 } // namespace
 
 namespace APM::PhotoModeMenuGuard
 {
+void UpdateGameLookAt()
+{
+    namespace LookAt = APM::Pose::LookAtCamera;
+    if (!g_origForward || !g_menuCallback)
+    {
+        return;
+    }
+    CrashGuard::Guard("Photo Mode look at camera (clean pose)", [] {
+        for (uint32_t c = 0; c < static_cast<uint32_t>(LookAt::g_gameOffSince.size()); ++c)
+        {
+            const uint64_t since = LookAt::g_gameOffSince[c];
+            const uint32_t generation = LookAt::PoseGeneration(c);
+            if (since == 0)
+            {
+                if (!LookAt::g_wantsCleanFrame[c].exchange(false) || LookAt::Reach(c) < 2 || !LookAt::AimsAtCamera(c))
+                {
+                    continue;
+                }
+                LookAt::g_cleanFrameTaken[c] = false;
+                LookAt::g_gameOffGeneration[c] = generation;
+                LookAt::g_gameOffSince[c] = LookAt::NowMs();
+                SendGameLookAt(c, 0, 0, false);
+                Log::Verbose("Character %u: game's Look at camera off for a moment (pose without it)", c);
+                continue;
+            }
+            if (LookAt::g_gameOffGeneration[c] != generation)
+            {
+                // Another Photo Mode pose meanwhile: wait for that one.
+                LookAt::g_gameOffGeneration[c] = generation;
+                LookAt::g_gameOffSince[c] = LookAt::NowMs();
+                continue;
+            }
+            if (LookAt::g_cleanFrameTaken[c] || LookAt::NowMs() - since >= LookAt::GameLookAtOffMaxMs)
+            {
+                const bool taken = LookAt::g_cleanFrameTaken[c];
+                LookAt::ResetCleanFrame(c);
+                // As the plugin has it now (the user may have changed it meanwhile).
+                SendGameLookAt(c, LookAt::g_mode[c], LookAt::g_target[c], true);
+                Log::Verbose("Character %u: game's Look at camera back on (%s)", c, taken ? "pose remembered" : "timeout");
+            }
+        }
+    });
+}
+
+void ForgetMenu()
+{
+    g_menuCallback = nullptr;
+}
+
 bool Install()
 {
     auto* rtti = RED4ext::CRTTISystem::Get();

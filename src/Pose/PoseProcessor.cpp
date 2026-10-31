@@ -1391,6 +1391,8 @@ std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
 // Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,
 // puts them back in aBones (a copy) if the Photo Mode pose is still the same one (its pose selector did not change).
+// Without them (a pose chosen with Look at camera on), asks for the game's turn to be switched off for a moment
+// (LookAtCamera::g_wantsCleanFrame) and remembers the pose once it has faded out.
 bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     std::array<int32_t, std::size(LookAtChain)> chain{};
@@ -1404,7 +1406,8 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     }
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
     const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(character);
-    if (APM::Pose::LookAtCamera::Reach(character) < 2)
+    const bool clean = APM::Pose::LookAtCamera::GameLookAtClean(character);
+    if (APM::Pose::LookAtCamera::Reach(character) < 2 || clean)
     {
         std::array<RED4ext::QsTransform, std::size(LookAtChain)> transforms{};
         for (size_t i = 0; i < chain.size(); ++i)
@@ -1416,21 +1419,28 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
         g_noLookAt.chain = transforms;
         g_noLookAt.poseGeneration = generation;
         g_noLookAt.valid = true;
+        if (clean)
+        {
+            APM::Pose::LookAtCamera::g_cleanFrameTaken[character] = true;
+        }
         return false;
     }
     std::array<RED4ext::QsTransform, std::size(LookAtChain)> transforms{};
     {
         std::scoped_lock lock(g_noLookAtMutex);
         auto& g_noLookAt = g_noLookAtCaches[character];
-        if (!g_noLookAt.valid)
-        {
-            return false;
-        }
-        if (g_noLookAt.poseGeneration != generation)
+        if (g_noLookAt.valid && g_noLookAt.poseGeneration != generation)
         {
             g_noLookAt.valid = false; // another Photo Mode pose: the remembered bones belong to the old one
             APM::Log::Verbose("Character %u: Photo Mode pose changed while Look at camera is on; remembered pose dropped",
                               character);
+        }
+        if (!g_noLookAt.valid)
+        {
+            if (APM::Pose::LookAtCamera::AimsAtCamera(character) && APM::Pose::LookAtCamera::g_gameOffSince[character] == 0)
+            {
+                APM::Pose::LookAtCamera::g_wantsCleanFrame[character] = true;
+            }
             return false;
         }
         transforms = g_noLookAt.chain;

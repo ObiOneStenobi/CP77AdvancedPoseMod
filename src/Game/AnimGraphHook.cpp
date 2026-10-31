@@ -428,9 +428,14 @@ void FreezeAnimation(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBo
         frozen.since = GetTickCount64();
         frozen.bones.clear();
     }
-    if (frozen.bones.size() != aCount)
+    if (APM::Pose::LookAtCamera::GameLookAtClean(aTarget.photoModeSlot))
     {
-        if (GetTickCount64() - frozen.since >= 600)
+        // The game's Look at camera switched off for a moment: the pose without its turn (LookAtCamera.hpp).
+        frozen.bones.assign(aBones, aBones + aCount);
+    }
+    else if (frozen.bones.size() != aCount)
+    {
+        if (GetTickCount64() - frozen.since >= 600 && !APM::Pose::LookAtCamera::AwaitsCleanFrame(aTarget.photoModeSlot))
         {
             frozen.bones.assign(aBones, aBones + aCount);
         }

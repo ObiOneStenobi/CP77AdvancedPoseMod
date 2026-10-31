@@ -470,6 +470,15 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   ginocchia e piedi restano animati. Limite: posa di Photo Mode scelta con Guarda in camera già acceso -> nessun
   fotogramma pulito, la svolta del gioco resta. Da provare: Flex Down camera bassa/alta, POSE OFF/ON con camera bassa,
   piedi uguali con POSE ON/OFF, pose in piedi (Azione), custom.
+- Fotogramma pulito anche con Guarda in camera già acceso (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist,
+  dist231 e gioco 2.31). Se manca la posa senza la svolta del gioco (RemoveGameLookAt: cache non valida, Torace/Testa
+  su camera) -> LookAtCamera::g_wantsCleanFrame; PhotoModeMenuGuard::UpdateGameLookAt (da APM_SetCameraModel, thread
+  del gioco) manda al gioco 15 = 0 (NPC: 68, 58 = 0, 68 di nuovo) con g_origForward (stato della mod invariato);
+  dopo 1 s (GameLookAtFadeMs; ricomincia se cambia la posa) la cache e il fotogramma congelato (FreezeAnimation non
+  congela prima) si prendono, poi rimanda 15/74 (58/78) come li ha la mod; massimo 3 s. ForgetMenu all'uscita.
+  Log Verbose "game's Look at camera off for a moment" / "back on". Da provare: cambio posa con Guarda in camera
+  Torace e Testa acceso, apertura di Photo Mode con Guarda in camera già acceso, personaggio aggiunto (la pagina NPC
+  non deve cambiare selezione), se 1 s basta (svolta residua nella posa).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
