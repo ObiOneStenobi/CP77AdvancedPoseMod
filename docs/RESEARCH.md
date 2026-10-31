@@ -213,6 +213,23 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
 - **Look at camera on the torso** also turns the hips and thighs (`Hips`, `LeftUpLeg`, `RightUpLeg`) by ~4-10 degrees,
   depending on the camera (V and added characters). `RemoveGameLookAt` remembers and puts back those bones too, and
   tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 57), not by the bones.
+- **How Photo Mode's Look at camera is built** (game 2.31, read 31/10 from `base\gameplay\anim_graphs\
+  player_photomode.animgraph` in basegame_4_animation and from tweakdb.bin; the choice of preset is native code):
+  - Presets: `LookatPreset.PhotoMode_LookAtCamera` (soft limit 150, back limit 270, transition speed 140; parts Head
+    weight 0 suppress 1, Chest weight 0.1 suppress 0.5) and `LookatPreset.PhotoMode_LookAtCamera_Head_Only` (soft 180,
+    Head only). Torso / head mapping inferred (no other photo mode presets).
+  - `animAnimNode_LookAtController` (Eyes -> Head -> Chest) moves target bones `pla_*_tgt`; `AimConstraint`
+    `pla_chest_aim` / `pla_head_aim` aim at them; `TwistConstraint` nodes measure the chest's angles from
+    `pla_trajectory` (horizontal; vertical positive / negative apart) into float tracks.
+  - Back offsets (`pla_*_off`, children of the real bones) = track x factor, then `animAnimNode_RotationLimit`:
+    sideways Hips 0.3, Spine / Spine1 / Spine2 0.2, Spine3 the chest aim; limits Z (sideways) Spine 7.5, Spine1 15,
+    Spine2 15, Spine3 7.5 (45 in all). Up / down (positive factor / negative factor; X limits min / max): Hips 0.2 /
+    0.2; Spine 0.05 / 0.2, -25 / 10; Spine1 0.1 / 0.4, -20 / 5; Spine2 0.2 / 0.2, -15 / 2.5; Spine3 0.1 / 0,
+    -10 / 1.25 (sign of up not verified; the plugin takes the large range as down). Looking up / down also moves the
+    hips (Y +-0.16, Z -0.04 at 90 degrees) with leg IK (`AddIkRequest` ikLeftLeg / ikRightLeg).
+  - Head / neck from the chest aim: Neck = 25% of chest aim -> head aim, Neck1 50%, Head 100%; limits Head 16 / 8 / 16,
+    Neck1 8 / 8 / 16, Neck 8 / 4 / 8 (X / Y / Z, eased clamps). The plugin keeps its own head and eyes (they matched
+    the game better in tests).
 - **NPC page facial expressions (attribute 56) show only on some characters** (Wakako yes, most others no), also
   without the mod: the game. The eyelids still follow the expression chosen there.
 - **Rogue (white hair): a piece of the jacket stays still in space**, also with the pose off and without other Photo

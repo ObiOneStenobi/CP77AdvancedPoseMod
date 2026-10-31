@@ -442,7 +442,16 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   orizzontale minuscolo): lookSide ridotto di cos(pitch) / cos(pitch raggiungibile), quasi zero con la camera
   sopra. Lower back (Spine) ora bloccato nell'editor con Guarda in camera Torace (IsLookAtLockedBone).
   Piedi diversi con POSE ON / OFF: probabile giro di anca e cosce del Look at camera Torace di CDPR (4-10 gradi),
-  che la mod toglie; da verificare con Guarda in camera spento. Causa: EyeLookPoint
+  che la mod toglie; da verificare con Guarda in camera spento.
+- Torace rifatto come quello di CDPR (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco). Dati
+  dal grafo player_photomode.animgraph e dai preset TweakDB: vedi docs/RESEARCH.md ("How Photo Mode's Look at camera
+  is built"). Angoli della camera visti dal personaggio (avanti del modello, in piano), non dal petto (con il petto già
+  girato nella posa lo giravamo ancora, anche con la camera davanti). Anca 0.3 lati / 0.2 su-giù con le cosce tenute
+  ferme nello spazio modello (gambe e piedi restano); schiena con quote e limiti di CDPR (lati Spine/1/2 0.2, Spine3
+  il resto; limiti 7.5/15/15/7.5; su/giù fattori e limiti separati, giù fino a 70 in tutto), peso generale 0.5
+  (suppress del preset; anca 4-10 gradi misurati). Lato che svanisce da 60 gradi su/giù. Niente spostamento
+  dell'anca di 16 cm. Testa e occhi restano i nostri. Smorzamento del torace: SmoothLook parte 3.
+  File di ricerca in %TEMP%\apm_lookat_research (da cancellare a fine lavoro, chiedere all'utente). Causa: EyeLookPoint
   (PoseEditor.reds ~3400) e GetEyeFocus (PhotoModeUi.cpp ~442) lo ricavano ogni frame dall'incrocio delle linee di
   vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
   scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.
