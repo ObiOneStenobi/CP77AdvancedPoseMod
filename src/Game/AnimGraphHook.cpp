@@ -387,8 +387,11 @@ bool IsGameLookAtBone(const APM::Pose::Target& aTarget, uint64_t aHash)
     {
         return false;
     }
-    static const std::array<uint64_t, 12> Bones = {
+    // The hips move with it and leg IK keeps the feet: the legs too.
+    static const std::array<uint64_t, 16> Bones = {
         RED4ext::CName("Hips").hash,   RED4ext::CName("LeftUpLeg").hash, RED4ext::CName("RightUpLeg").hash,
+        RED4ext::CName("LeftLeg").hash, RED4ext::CName("RightLeg").hash, RED4ext::CName("LeftFoot").hash,
+        RED4ext::CName("RightFoot").hash,
         RED4ext::CName("Spine").hash,  RED4ext::CName("Spine1").hash,    RED4ext::CName("Spine2").hash,
         RED4ext::CName("Spine3").hash, RED4ext::CName("Neck").hash,      RED4ext::CName("Neck1").hash,
         RED4ext::CName("Head").hash,   RED4ext::CName("LeftEye").hash,   RED4ext::CName("RightEye").hash};

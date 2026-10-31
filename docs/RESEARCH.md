@@ -211,7 +211,8 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
   Possible fix: when the animated `WeaponRight` / `WeaponLeft` is more than ~20 cm from its hand, start from the
   reference local transform (the user's item offset applies on top as now).
 - **Look at camera on the torso** also turns the hips and thighs (`Hips`, `LeftUpLeg`, `RightUpLeg`) by ~4-10 degrees,
-  depending on the camera (V and added characters). `RemoveGameLookAt` remembers and puts back those bones too, and
+  depending on the camera (V and added characters), moves them up to ~16 cm looking up / down and bends the legs with
+  IK. `RemoveGameLookAt` remembers and puts back those bones too (whole transforms, knees and feet included), and
   tells a new Photo Mode pose apart by its pose selector (attributes 5 / 6, 57), not by the bones.
 - **How Photo Mode's Look at camera is built** (game 2.31, read 31/10 from `base\gameplay\anim_graphs\
   player_photomode.animgraph` in basegame_4_animation and from tweakdb.bin; the choice of preset is native code):
@@ -227,6 +228,19 @@ Found with the diagnostics of 1.2.0 (game 2.31). Every added human character so 
     0.2; Spine 0.05 / 0.2, -25 / 10; Spine1 0.1 / 0.4, -20 / 5; Spine2 0.2 / 0.2, -15 / 2.5; Spine3 0.1 / 0,
     -10 / 1.25 (sign of up not verified; the plugin takes the large range as down). Looking up / down also moves the
     hips (Y +-0.16, Z -0.04 at 90 degrees) with leg IK (`AddIkRequest` ikLeftLeg / ikRightLeg).
+  - Axes of the back turn: each bone has three helper transforms `pla_*_off` -> `pla_*_ref` -> `pla_*_dir`. The
+    `_off` ones form their own chain (`pla_hips_off` child of `pla_trajectory`, each next one child of the previous)
+    at the bones' positions (translation copied from the bone) with no rotation of their own, so they start on the
+    character's level axes (Z vertical, X sideways), not on the posed bones'. `FloatTrackDirectConnConstraint` writes
+    `RotZ` (horizontal angle x factor) and `RotX` (`pla_chest_angle`, the up / down share) into each `_off`; the turns
+    add up along the chain (a bone's side axis is already turned by the bones below). `_ref` holds the bone's rotation
+    (an `OrientConstraint` of the reference and the current hips at 0.5 each: the preset's "suppress"), `_dir` the
+    bone's current rotation; `SetBoneTransform` copies `_dir` back (Hips whole transform, with the
+    `pla_chest_hips_off_x/y/z` shift; Spine..Spine3 rotation only). The feet stay through leg IK effectors
+    (`left_leg_eff` / `left_leg_pv`, pole 0.25 m from the knee).
+  - Since 1.4.0 the plugin turns only Spine..Spine3 this way (around the character's vertical and level side axis,
+    accumulated); the hips and legs stay as the pose has them (editable), the game's own hips turn / shift and leg IK
+    are taken out with the rest of its look-at.
   - Head / neck from the chest aim: Neck = 25% of chest aim -> head aim, Neck1 50%, Head 100%; limits Head 16 / 8 / 16,
     Neck1 8 / 8 / 16, Neck 8 / 4 / 8 (X / Y / Z, eased clamps). The plugin keeps its own head and eyes (they matched
     the game better in tests).

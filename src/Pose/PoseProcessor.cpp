@@ -1133,9 +1133,9 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         return;
     }
     // The torso (Torso, as far as it takes part while switching) as Photo Mode's own (player_photomode.animgraph, see
-    // docs/RESEARCH.md): the hips and each back bone add a fixed share of the camera's angles seen from the character
-    // (sideways; up and down apart), each within its own range; the neck and the head take the rest, each a part of
-    // what remains.
+    // docs/RESEARCH.md): each back bone adds a fixed share of the camera's angles seen from the character (sideways; up
+    // and down apart), each within its own range; the neck and the head take the rest, each a part of what remains.
+    // The hips and the legs stay as the pose has them (the game also turns the hips, with leg IK: they stay editable).
     struct BackShare
     {
         const char* bone;
@@ -1150,9 +1150,6 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
                                          {"Spine1", 0.2f, 15.f, 0.1f, 5.f, 0.4f, 20.f},
                                          {"Spine2", 0.2f, 15.f, 0.2f, 2.5f, 0.2f, 15.f},
                                          {"Spine3", 0.f, 7.5f, 0.1f, 1.25f, 0.f, 10.f}};
-    // The hips: 0.3 of the sideways angle, 0.2 up and down (the thighs keep their direction, so the legs stay).
-    constexpr float HipsSide = 0.3f;
-    constexpr float HipsPitch = 0.2f;
     // Photo Mode's preset weighs its chest at half ("suppress" 0.5): its hips turned 4-10 degrees (test 30/10).
     constexpr float TorsoWeight = 0.5f;
     struct NeckShare
@@ -1216,10 +1213,8 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         lookSide *= std::min(1.f, std::cos(lookPitch) / std::max(reachable, 0.05f));
     }
 
-    // The bones as they come, for a turn fading in or out: the hips and the thighs, the back, the neck and the head.
-    static constexpr const char* HipsBones[] = {"Hips", "LeftUpLeg", "RightUpLeg"};
-    constexpr size_t BackFirst = std::size(HipsBones);
-    constexpr size_t NeckFirst = BackFirst + std::size(Back);
+    // The bones as they come, for a turn fading in or out: the back, the neck and the head.
+    constexpr size_t NeckFirst = std::size(Back);
     struct Turned
     {
         int32_t bone = -1;
@@ -1228,7 +1223,7 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     std::array<Turned, NeckFirst + std::size(Neck)> turned{};
     for (size_t i = 0; i < turned.size(); ++i)
     {
-        const char* name = i < BackFirst ? HipsBones[i] : (i < NeckFirst ? Back[i - BackFirst].bone : Neck[i - NeckFirst].bone);
+        const char* name = i < NeckFirst ? Back[i].bone : Neck[i - NeckFirst].bone;
         const int32_t bone = IndexOf(aTarget, Hash(name));
         const int16_t parent = bone >= 0 && static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
         if (bone >= 0 && static_cast<uint32_t>(bone) < aCount && parent >= 0 && static_cast<uint32_t>(parent) < aCount)
@@ -1241,13 +1236,9 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     // chest already turned (CDPR's "Action") was turned further to "aim" it, also with the camera in front (test 31/10).
     // Sideways and up / down eased like the head's; the sideways angle fades out from 60 degrees up or down (straight
     // above it comes from a tiny horizontal offset).
-    Vec3 hipsForward{};
-    Vec3 hipsLeft{};
-    Vec3 hipsUp{};
     float chestTurned = 0.f;  // how far the torso turned the chest (radians, + to the left)
     float chestPitched = 0.f; // how far it bent it (radians, + up)
-    const int32_t hips = turned[0].bone;
-    if (torso > 0.f && hasChest && hips >= 0 && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
+    if (torso > 0.f && hasChest)
     {
         const Vec3 rootUp{0.f, 0.f, 1.f};
         const Vec3 rootForward = APM::Math::Normalize(Vec3{face.x, face.y, 0.f});
@@ -1264,41 +1255,25 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
         float chestPitch = 0.f;
         ToAngles(chestForward, rootForward, rootLeft, rootUp, chestSide, chestPitch);
 
-        // Around the body's own axes (the hips' up and side), a bone at a time; a positive turn around the side axis
-        // tips the front down, so up turns the other way.
+        // As Photo Mode's chain of offsets (pla_*_off on pla_trajectory): each bone turns around the character's
+        // vertical and its level side axis, both as the bones below have already turned them, whatever the pose does
+        // with the hips (their own axes tilted with a crouching / bent pose and twisted the torso, test 31/10). A
+        // positive turn around the side axis tips the front down, so up turns the other way.
+        Quat below{}; // what the bones below added, in model space
         const auto turnBone = [&](int32_t aBone, float aSide, float aPitch) {
             ComputeModelPose(aTarget, aBones, aCount, current);
             const int16_t parent = aTarget.parents[aBone];
-            const Quat turn = APM::Math::Mul(APM::Math::FromAxisAngle(hipsUp, aSide), APM::Math::FromAxisAngle(hipsLeft, -aPitch));
+            const Quat own = APM::Math::Mul(APM::Math::FromAxisAngle(rootUp, aSide), APM::Math::FromAxisAngle(rootLeft, -aPitch));
+            const Quat turn = APM::Math::Mul(APM::Math::Mul(below, own), APM::Math::Conjugate(below));
+            below = APM::Math::Normalize(APM::Math::Mul(below, own));
             const Quat model = APM::Math::Mul(turn, current.rotations[aBone]);
             SetRotation(aBones[aBone], APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model)));
         };
-        // The hips, with the thighs kept as they were in model space (the legs and the feet stay; Photo Mode holds them
-        // with leg IK).
-        std::array<Quat, 2> thighs{};
-        for (size_t t = 0; t < 2; ++t)
-        {
-            if (turned[1 + t].bone >= 0)
-            {
-                thighs[t] = current.rotations[turned[1 + t].bone];
-            }
-        }
-        float used = side * HipsSide * weight;
-        turnBone(hips, used, pitch * HipsPitch * weight);
-        ComputeModelPose(aTarget, aBones, aCount, current);
-        for (size_t t = 0; t < 2; ++t)
-        {
-            const int32_t thigh = turned[1 + t].bone;
-            if (thigh >= 0)
-            {
-                const int16_t parent = aTarget.parents[thigh];
-                SetRotation(aBones[thigh], APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), thighs[t])));
-            }
-        }
         // The back: each bone its share, within its range (degrees); the chest what the others leave sideways.
+        float used = 0.f;
         for (size_t i = 0; i < std::size(Back); ++i)
         {
-            const int32_t bone = turned[BackFirst + i].bone;
+            const int32_t bone = turned[i].bone;
             if (bone < 0)
             {
                 continue;
@@ -1397,17 +1372,19 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     }
 }
 
-// The bones Photo Mode's "Look at camera" turns (head / torso; on the torso it also turns the hips and thighs a little,
-// ~4-10 degrees depending on the camera). IK pins are measured on the pose without that turn, so a camera move does not
-// drag a world-pinned hand along, and body-pinned hands follow the turn like a manual one.
-constexpr const char* LookAtChain[] = {"Hips", "LeftUpLeg", "RightUpLeg", "Spine", "Spine1", "Spine2",
-                                       "Spine3", "Neck", "Neck1", "Head"};
+// The bones Photo Mode's "Look at camera" moves (head / torso; on the torso it also turns and moves the hips, up to
+// ~16 cm looking up / down, and bends the legs with IK to keep the feet). IK pins are measured on the pose without
+// that turn, so a camera move does not drag a world-pinned hand along, and body-pinned hands follow the turn like a
+// manual one. Whole transforms (the hips' position too): with the pose on, the body holds the frame taken when it went
+// on, and the game's lowered hips and bent knees stayed in it (camera low, test 31/10).
+constexpr const char* LookAtChain[] = {"Hips",   "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot",
+                                       "Spine",  "Spine1",    "Spine2",     "Spine3",  "Neck",     "Neck1",    "Head"};
 
 struct NoLookAtCache
 {
     bool valid = false;
     uint32_t poseGeneration = 0; // Photo Mode pose the bones belong to (LookAtCamera::PoseGeneration)
-    std::array<Quat, std::size(LookAtChain)> chain{};
+    std::array<RED4ext::QsTransform, std::size(LookAtChain)> chain{};
 };
 std::mutex g_noLookAtMutex; // anim threads remember and restore, the game thread resets
 std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
@@ -1429,19 +1406,19 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(character);
     if (APM::Pose::LookAtCamera::Reach(character) < 2)
     {
-        std::array<Quat, std::size(LookAtChain)> rotations{};
+        std::array<RED4ext::QsTransform, std::size(LookAtChain)> transforms{};
         for (size_t i = 0; i < chain.size(); ++i)
         {
-            rotations[i] = GetRotation(aBones[chain[i]]);
+            transforms[i] = aBones[chain[i]];
         }
         std::scoped_lock lock(g_noLookAtMutex);
         auto& g_noLookAt = g_noLookAtCaches[character];
-        g_noLookAt.chain = rotations;
+        g_noLookAt.chain = transforms;
         g_noLookAt.poseGeneration = generation;
         g_noLookAt.valid = true;
         return false;
     }
-    std::array<Quat, std::size(LookAtChain)> rotations{};
+    std::array<RED4ext::QsTransform, std::size(LookAtChain)> transforms{};
     {
         std::scoped_lock lock(g_noLookAtMutex);
         auto& g_noLookAt = g_noLookAtCaches[character];
@@ -1456,11 +1433,11 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
                               character);
             return false;
         }
-        rotations = g_noLookAt.chain;
+        transforms = g_noLookAt.chain;
     }
     for (size_t i = 0; i < chain.size(); ++i)
     {
-        SetRotation(aBones[chain[i]], rotations[i]);
+        aBones[chain[i]] = transforms[i];
     }
     return true;
 }
@@ -1492,7 +1469,7 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
             for (const char* name : LookAtChain)
             {
                 const int32_t bone = IndexOf(aTarget, Hash(name));
-                SetRotation(aBones[bone], GetRotation(withoutLookAt[bone]));
+                aBones[bone] = withoutLookAt[bone];
             }
         }
         if (useIk)

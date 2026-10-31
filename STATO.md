@@ -459,6 +459,18 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   gizmo degli occhi (AimPart / eye edit) ha lo stesso problema della testa del face_rig; attenzione warning
   C4100 'aContext' in AnimGraphHook.cpp:394 (preesistente).
 
+- Torace solo dalla schiena, assi di CDPR (31/10, da provare; build 2.5 e 2.31 ok, DLL in dist, dist231 e gioco 2.31).
+  Deciso con l'utente: anca e gambe fuori dal Guarda in camera (restano della posa e modificabili). Gli assi di CDPR
+  sono quelli del personaggio (catena pla_*_off su pla_trajectory), non quelli dell'anca in posa: KeepLookAt gira
+  Spine..Spine3 attorno alla verticale e all'asse laterale in piano, accumulati lungo la catena (con la posa
+  accovacciata/piegata gli assi dell'anca storcevano il busto, Flex Down). Anca (0.3 / 0.2) tolta: Spine3 prende il
+  resto del laterale entro 7.5. Fix POSE ON con camera bassa: il fotogramma congelato teneva anca abbassata e
+  ginocchia piegate dall'IK del gioco; RemoveGameLookAt ora ricorda e rimette trasformazioni intere (anche posizione
+  dell'anca) di LookAtChain + LeftLeg/RightLeg/LeftFoot/RightFoot. IsGameLookAtBone (Guarda in camera custom): anche
+  ginocchia e piedi restano animati. Limite: posa di Photo Mode scelta con Guarda in camera già acceso -> nessun
+  fotogramma pulito, la svolta del gioco resta. Da provare: Flex Down camera bassa/alta, POSE OFF/ON con camera bassa,
+  piedi uguali con POSE ON/OFF, pose in piedi (Azione), custom.
+
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
