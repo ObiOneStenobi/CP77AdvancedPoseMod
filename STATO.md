@@ -1,4 +1,4 @@
-# STATO – AdvancedPoseMod 1.4.0 (in corso)
+# STATO – AdvancedPoseMod 1.5.0 (pronta per Nexus)
 
 Aggiornato: 2026-10-30
 
@@ -488,6 +488,18 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
 
 - Libreria delle pose aperta di default all'avvio del gioco (PoseEditor.reds, pref di sessione "PosesOpen" 1.0;
   poi resta come la lascia l'utente). Script ok, dist e dist231 aggiornati.
+
+- 31/10 pomeriggio: provato tutto sulla 2.31 (dist231): ok (log 15-34-00, nessun crash; "back on after 1030 ms, held
+  still"). Crash delle 15:31 non della mod: Tony Casual Store V3.7 + V4.3 installati insieme (@addMethod doppio).
+  Libreria aperta di default NON ancora nel gioco (script del 30/10).
+- 31/10: DLL 2.5 e script di dist copiati nel gioco per la prova sulla 2.5 (config.ini del gioco lasciato com'è).
+  Primo avvio 2.5: redscript compilava contro r6\cache\moddedinal.redscripts del 25/10 (2.31) -> errori Codeware.
+  Cartella rinominata in modded.old (rifarlo a ogni cambio di versione del gioco).
+
+- 31/10: prova sulla 2.5 ok. 1.5.0: versione in CMake, warning C4100 in ScriptApi.cpp (CharacterSelect,
+  OnPhotoModeExit) tolti, build 2.5 e 2.31 senza warning, DLL in dist e dist231; template traduzioni invariato;
+  check_scripts ok; README aggiornato; release\CHANGELOG-1.5.0.md e zip 1.5.0 / 1.5.0-game2.31. Nel gioco: DLL e
+  script di dist231 (per tornare alla 2.31). DLL 1.5.0 non provate in gioco (cambiano solo versione e warning).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,

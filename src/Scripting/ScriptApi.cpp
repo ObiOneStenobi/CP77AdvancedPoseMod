@@ -85,7 +85,7 @@ void CharacterGetSelected(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     Return(aOut, static_cast<int32_t>(APM::Pose::Characters::Selected()));
 }
 
-void CharacterSelect(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void CharacterSelect(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     int32_t character = 0;
     RED4ext::GetParameter(aFrame, &character);
@@ -153,7 +153,7 @@ void CharacterHasEdits(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 }
 
 // The Photo Mode NPC page switched to another added character (its look-at options belong to that one).
-void OnPhotoModeExit(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+void OnPhotoModeExit(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     aFrame->code++;
     APM::PhotoModeTracker::OnExitRequested();

@@ -82,24 +82,27 @@ Open Photo Mode and click **Pose editor** (top left).
   and the hand / foot marker an orange glow, while that limb is pinned. Messages after an action (saved, loaded,
   click again...) appear for a moment above the button that was clicked.
 - The panel only shows what applies: the Move rows for parts that can move (hips, held items), the IK rows while the
-  chosen limb is pinned. The pose library folds with the arrow on its right (closed when the game starts, then remembered until it closes).
+  chosen limb is pinned. The pose library folds with the arrow on its right (open when the game starts, then remembered until it closes).
 - Tabs pick a body region, the buttons below pick the part.
 - Drag a value with the mouse, or use **-** / **+**; **0** resets that value.
 - **IK**: choose a hand or foot, **Pin** keeps it in place (world or body), the rows move it and turn the elbow/knee.
-- **Poses**: unlimited library (`poses\*.json`), five per page, after the built-in **T pose** and **A pose** (lock: they can
-  only be loaded). **Save new** saves the pose and lets you type its
+- **Poses**: unlimited library (`poses\*.json`), five per page (pages under the list), browsed as folders: the
+  **Built-in** folder on top holds the **T pose** and **A pose** (lock: they can only be loaded), then the subfolders
+  of `poses` (pose packs can ship in their own folder, so they never overwrite each other), then the poses; `..` goes
+  back. **Save new** saves the pose in the open folder and lets you type its
   name right away (Enter confirms, Esc keeps the default "Pose 001", ...). Select a pose to **Overwrite**, **Load**,
-  **Rename** or **Delete** it (delete asks for a second click). While a name is being typed, the keyboard only
-  writes the name (Photo Mode keys are ignored); names use letters, digits, spaces, `-` and `_`.
-  Poses in subfolders of `poses` are listed too, as `Folder/Name` (pose packs can ship in their own folder, so they
-  never overwrite each other); the mod saves its own poses in `poses` itself, and renaming keeps a pose in its folder.
-  Saved expressions (`expressions`) are read from subfolders the same way.
+  **Rename** or **Delete** it (overwrite and delete ask for a second click; a pose stays in its folder). While a name
+  is being typed, the keyboard only writes the name (Photo Mode keys are ignored); names use letters, digits, spaces,
+  `-` and `_`. Saved expressions (`expressions`) are browsed the same way.
 - **Hand poses** (**Hands** tab of the Poses section): a second library,
   `hands\*.json`, with the palm and fingers of one hand, after the built-in presets (Open, Relaxed, Fist, Point, Grip). Open the tab of a hand (or of its arm), then **Save new**, **Overwrite** or **Load** work on that hand;
   one file poses either hand (the rig is mirrored). Rename, delete, pages and subfolders work as for the poses.
 - Every time Photo Mode opens it starts from the game's pose: the edits, held items, Mirror and undo history of the
   previous session are cleared. Save a pose to keep it. While there are edits, leaving Photo Mode asks for
-  confirmation (as the game does for its own options).
+  confirmation (as the game does for its own options). Pose on / off of V is kept from the last session; with Pose on
+  the body holds still (Photo Mode poses no longer loop their idle), while the face, hair and Look at camera move.
+- **Vehicles**: in Photo Mode inside a vehicle the player on the seat is posed as V (body, hands, face); with Pose on
+  the seat animation is frozen. Items put in V's hands there are taken back when leaving Photo Mode.
 - **Characters**: when characters are added in the scene (Photo Mode NPC page), a row with the selector `< name >`
   appears under the title (names come from the game's character records): the panel, the gizmos, undo / redo and the
   items in hand work on the character shown there. Every character keeps its own pose; replacing a character in a slot starts it from the game's pose. Saved poses work on
@@ -164,13 +167,16 @@ closer.
 - The hips marker is violet: it is V's root and moves the whole body.
 - **Hand presets** (first entries of the **Hands** list; with a hand tab, or an arm tab, open): Open, Relaxed, Fist, Point, Grip set all the fingers of that
   hand at once (undo and Mirror work as usual); then refine with the finger markers.
-- Photo Mode's **Look at camera** has priority over our eye edits: while it is on they wait, and come back when it
-  is turned off (head and chest edits stay, the game turns them on top). With a full pose loaded (T / A pose, saved
-  poses) the neck (and the spine, for the torso) is turned so the face looks at the camera.
+- Photo Mode's **Look at camera** (Head / Torso) is driven by the mod, on any pose (Photo Mode, saved, edited): it has
+  priority over our eye edits, which wait and come back when it is turned off (head and chest edits stay, the turn
+  goes on top). Head: the neck and head turn upright, within the range measured from the chest. Torso: only the back
+  turns (and bends up / down), around the character's vertical and side axes as Photo Mode's own; hips and legs keep
+  the pose. Turning it on / off and switching Torso / Head is gradual; with the camera behind, head and torso stay on
+  their side until the camera is well past. A Photo Mode pose chosen while it is on is taken without the game's own
+  turn (it takes a moment while the pose settles).
   Edits of the hips or the back no longer turn the face away (the turn is applied after them), and IK pins are
   measured on the pose without the turn: a world pin stays put, a body pin follows the turned chest.
-  With Torso or Head the eyes also follow the camera (up to 30 degrees from where the face looks), also when the
-  head has reached its limit. Edited eyes are absolute on the face rig, so expressions that roll
+  The eyes also follow the camera within the game's eye limits, aimed in the face rig. Edited eyes are absolute on the face rig, so expressions that roll
   the eyes (e.g. Whistle) no longer move them. While Look at camera is on, the bones it turns (eyes; head and neck;
   the back and chest with Torso) are grey and cannot be edited. With **Custom** the game turns them towards its own
   point: they keep the game's turn (a loaded full pose leaves them alone too).
@@ -185,8 +191,9 @@ closer.
   expression; moving one sets that pose, and the game's facial solver applies it with its corrective poses and each
   head's own shapes (as CDPR's animations do). The dot marks the zones changed from Photo Mode; a row's reset button
   gives its Photo Mode value back, and choosing another expression in the Photo Mode menu starts from it (Ctrl+Z gives
-  the edited face back). Values above 100 come from expressions of other mods: they stay until the row is moved (then
-  at most 100). Expressions are saved whole in the list below (`expressions\*.json`). Turned eyes go to the game's
+  the edited face back). Rows stop at 100; the lock in the Face header allows up to 400 (above 100 the extra part
+  goes on the bones, past the game's solver, and the face can deform). Values above 100 from expressions of other
+  mods stay until the row is moved. Expressions are saved whole in the list below (`expressions\*.json`). Turned eyes go to the game's
   gaze, so the eyelids follow them as in its animations. Faces that ignore the game's solver (e.g. Johnny Silverhand)
   are recognised when a row is moved and posed on the bones. `[Face] GameSolver=0` in config.ini adds the poses to the
   bones instead (no correctives).
