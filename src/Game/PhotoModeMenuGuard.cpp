@@ -68,6 +68,16 @@ void Detour_Forward(void* aCallback, uint32_t aAttribute, float aValue, bool aAp
             // Research (debug log): which attributes the Photo Mode menu changes (e.g. the added characters' options).
             APM::Log::Verbose("Photo Mode attribute %u = %.3f", aAttribute, aValue);
         }
+        // While the plugin holds the game's Look at camera off, the menu sends its target back to "head" (74 / 78 = 1 a
+        // few frames after 15 = 0, test 31/10): that is not the user's choice.
+        const int32_t npc = APM::Pose::LookAtCamera::g_selectedNpc;
+        const uint32_t owner = aAttribute == 74 ? 0u : (aAttribute == 78 && npc >= 0 && npc < 3 ? static_cast<uint32_t>(npc) + 1 : 4u);
+        if (owner < 4 && APM::Pose::LookAtCamera::g_gameOffSince[owner] != 0)
+        {
+            APM::Log::Verbose("Character %u: look at camera target %.0f from the menu ignored (game's turn held off)",
+                              owner, aValue);
+            return;
+        }
         APM::Pose::LookAtCamera::OnPhotoModeAttribute(aAttribute, aValue);
     });
     g_origForward(aCallback, aAttribute, aValue, aApply);
@@ -151,6 +161,7 @@ void UpdateGameLookAt()
                     continue;
                 }
                 LookAt::g_cleanFrameTaken[c] = false;
+                LookAt::g_poseSettled[c] = false;
                 LookAt::g_gameOffGeneration[c] = generation;
                 LookAt::g_gameOffSince[c] = LookAt::NowMs();
                 SendGameLookAt(c, 0, 0, false);
@@ -160,6 +171,7 @@ void UpdateGameLookAt()
             if (LookAt::g_gameOffGeneration[c] != generation)
             {
                 // Another Photo Mode pose meanwhile: wait for that one.
+                LookAt::g_poseSettled[c] = false;
                 LookAt::g_gameOffGeneration[c] = generation;
                 LookAt::g_gameOffSince[c] = LookAt::NowMs();
                 continue;
@@ -167,10 +179,13 @@ void UpdateGameLookAt()
             if (LookAt::g_cleanFrameTaken[c] || LookAt::NowMs() - since >= LookAt::GameLookAtOffMaxMs)
             {
                 const bool taken = LookAt::g_cleanFrameTaken[c];
+                const bool settled = LookAt::g_poseSettled[c];
                 LookAt::ResetCleanFrame(c);
                 // As the plugin has it now (the user may have changed it meanwhile).
                 SendGameLookAt(c, LookAt::g_mode[c], LookAt::g_target[c], true);
-                Log::Verbose("Character %u: game's Look at camera back on (%s)", c, taken ? "pose remembered" : "timeout");
+                Log::Verbose("Character %u: game's Look at camera back on after %llu ms (%s)", c,
+                             static_cast<unsigned long long>(LookAt::NowMs() - since),
+                             taken ? (settled ? "pose remembered, held still" : "pose remembered, still moving") : "timeout");
             }
         }
     });

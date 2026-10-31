@@ -1389,6 +1389,57 @@ struct NoLookAtCache
 std::mutex g_noLookAtMutex; // anim threads remember and restore, the game thread resets
 std::array<NoLookAtCache, CharacterCount> g_noLookAtCaches{};
 
+// While the game's turn is held off for the pose without it: whether the look-at bones hold still (the turn faded out,
+// the Photo Mode pose blended in). Idle poses keep breathing, so "still" is a slow turn for a short while.
+struct SettleWatch
+{
+    bool valid = false;
+    uint32_t poseGeneration = 0;
+    uint64_t time = 0;      // ms
+    uint64_t calmSince = 0; // ms, 0 = moving
+    std::array<Quat, std::size(LookAtChain)> rotations{};
+};
+std::array<SettleWatch, CharacterCount> g_settleWatches{}; // under g_noLookAtMutex
+
+void WatchPoseSettling(uint32_t aCharacter, const RED4ext::QsTransform* aBones,
+                       const std::array<int32_t, std::size(LookAtChain)>& aChain, uint32_t aGeneration)
+{
+    constexpr float CalmDegreesPerSecond = 15.f;
+    constexpr uint64_t CalmMs = 250;
+    const uint64_t now = APM::Pose::LookAtCamera::NowMs();
+    std::scoped_lock lock(g_noLookAtMutex);
+    auto& watch = g_settleWatches[aCharacter];
+    std::array<Quat, std::size(LookAtChain)> rotations{};
+    for (size_t i = 0; i < aChain.size(); ++i)
+    {
+        rotations[i] = GetRotation(aBones[aChain[i]]);
+    }
+    if (!watch.valid || watch.poseGeneration != aGeneration || now - watch.time > 1000)
+    {
+        watch = {true, aGeneration, now, 0, rotations};
+        return;
+    }
+    if (now == watch.time)
+    {
+        return;
+    }
+    float fastest = 0.f; // degrees per second
+    for (size_t i = 0; i < rotations.size(); ++i)
+    {
+        const Quat& a = watch.rotations[i];
+        const Quat& b = rotations[i];
+        const float dot = std::min(1.f, std::abs(a.i * b.i + a.j * b.j + a.k * b.k + a.r * b.r));
+        fastest = std::max(fastest, 2.f * std::acos(dot) * 57.2958f * 1000.f / static_cast<float>(now - watch.time));
+    }
+    watch.calmSince = fastest < CalmDegreesPerSecond ? (watch.calmSince != 0 ? watch.calmSince : now) : 0;
+    if (watch.calmSince != 0 && now - watch.calmSince >= CalmMs)
+    {
+        APM::Pose::LookAtCamera::g_poseSettled[aCharacter] = true;
+    }
+    watch.time = now;
+    watch.rotations = rotations;
+}
+
 // Photo Mode pose (no full pose loaded): remembers the look-at bones while the game does not turn them; while it does,
 // puts them back in aBones (a copy) if the Photo Mode pose is still the same one (its pose selector did not change).
 // Without them (a pose chosen with Look at camera on), asks for the game's turn to be switched off for a moment
@@ -1406,6 +1457,10 @@ bool RemoveGameLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aB
     }
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
     const uint32_t generation = APM::Pose::LookAtCamera::PoseGeneration(character);
+    if (APM::Pose::LookAtCamera::AwaitsCleanFrame(character))
+    {
+        WatchPoseSettling(character, aBones, chain, generation);
+    }
     const bool clean = APM::Pose::LookAtCamera::GameLookAtClean(character);
     if (APM::Pose::LookAtCamera::Reach(character) < 2 || clean)
     {

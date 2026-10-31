@@ -479,6 +479,12 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   Log Verbose "game's Look at camera off for a moment" / "back on". Da provare: cambio posa con Guarda in camera
   Torace e Testa acceso, apertura di Photo Mode con Guarda in camera già acceso, personaggio aggiunto (la pagina NPC
   non deve cambiare selezione), se 1 s basta (svolta residua nella posa).
+  Prova 31/10: il personaggio non arrivava nella posa prima della riaccensione. Log: con 15 = 0 il menu rimanda
+  74 = 1 (Testa) dopo ~60 ms -> la mod passava a Testa per quel secondo (torace che sparisce e torna). FATTO: 74/78 dal
+  menu ignorati mentre la svolta del gioco è spenta da noi; attesa = ossa ferme (WatchPoseSettling: < 15 gradi/s per
+  0,25 s, minimo 1 s, massimo 5 s; GameLookAtOffMaxMs 6 s); FreezeAnimation non tiene il corpo fermo nell'attesa.
+  Log "back on after N ms (pose remembered, held still / still moving / timeout)". Build ok, DLL in dist e dist231;
+  NON nel gioco (era aperto).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
