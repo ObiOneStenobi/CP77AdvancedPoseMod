@@ -424,7 +424,13 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   (PoseGeneration): fotogramma preso dopo 0.6 s (anche all'accensione a piedi; nel veicolo subito). Le ossa del Look at
   camera del gioco (custom: anca, cosce, schiena, collo, testa, occhi; solo occhi: occhi) restano animate.
   POSE ON: V parte acceso la prima volta (preferenza PoseOn, default 1) poi resta com'era; i personaggi aggiunti si
-  accendono con la prima modifica o posa caricata. Causa: EyeLookPoint
+  accendono con la prima modifica o posa caricata. Provato: ok.
+- Guarda in camera Torace su pose già girate (Azione di CDPR: middle back girato troppo, 31/10, da provare; build 2.5
+  e 2.31 ok, DLL in dist, dist231 e gioco): KeepLookAt riscritto. La schiena gira dal petto (BodyAxes), non dalla
+  testa: petto al massimo 45 gradi dal bacino (mai indietro da dove la posa lo ha già), attorno all'asse del bacino,
+  quote fisse Spine 0.3 / Spine1 0.25 / Spine2 0.25 / Spine3 0.2, ognuna con JointLimits::LimitLocal (come le
+  modifiche; segue il lucchetto dei limiti). Poi testa limitata dal petto girato (60 lati / 60 su / 45 giù) e collo /
+  testa come prima. Smorzamento sulla direzione della camera (nel frame del petto della posa) prima dei limiti. Causa: EyeLookPoint
   (PoseEditor.reds ~3400) e GetEyeFocus (PhotoModeUi.cpp ~442) lo ricavano ogni frame dall'incrocio delle linee di
   vista degli occhi animati; con occhi quasi paralleli (denom = 1 - b^2 piccolo) l'incrocio salta di molti cm e
   scatta tra incrocio e ripiego (0.6 m / g_eyeFocus) alle soglie 0.15 / 4.0 / 0.05.

@@ -1114,17 +1114,21 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     {
         return;
     }
-    struct Share
+    // The torso (Torso, as far as it takes part while switching) turns the back from the lower back up, each bone a
+    // fixed share of the chest's turn around the back's own axis; the neck and the head take the rest, each a part of
+    // what remains.
+    struct BackShare
+    {
+        const char* bone;
+        float weight; // part of the chest's turn
+    };
+    static constexpr BackShare Back[] = {{"Spine", 0.3f}, {"Spine1", 0.25f}, {"Spine2", 0.25f}, {"Spine3", 0.2f}};
+    struct NeckShare
     {
         const char* bone;
         float weight; // part of the remaining turn
-        bool yawOnly; // spine: turns around the vertical only
     };
-    // The spine takes its shares as far as the torso takes part (Torso <-> Head eases from one to the other).
-    static constexpr Share Chain[] = {{"Spine1", 0.2f, true}, {"Spine2", 0.25f, true}, {"Spine3", 0.33f, true},
-                                      {"Neck", 0.35f, false}, {"Neck1", 0.5f, false},  {"Head", 1.f, false}};
-    const Share* chain = Chain;
-    const size_t chainSize = std::size(Chain);
+    static constexpr NeckShare Neck[] = {{"Neck", 0.35f}, {"Neck1", 0.5f}, {"Head", 1.f}};
     const float torso = TorsoLookShare(character);
 
     const int32_t head = IndexOf(aTarget, Hash("Head"));
@@ -1161,75 +1165,94 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
     const bool hasChest = BodyAxes(aTarget, current, aCount, false, face, chestForward, chestLeft, chestUp);
     if (hasChest)
     {
-        // Never more than a natural turn away from the body: the chest for the head, the hips for the torso (between
-        // the two while switching). Not from the head as it comes, which the game's own Look at camera may have turned
-        // already (a pose without edits). Sideways and up / down separately, eased towards the target in the chest's
-        // frame as the pose comes (the same for both, so a switch does not jump).
-        // The head: ~60 degrees sideways, past which the neck mesh twists (test 30/10); the eyes do the rest. Upwards
-        // as far as the game's (test 31/10); the torso turns less sideways than ours did, as the game's.
-        const auto limit = [&](const Vec3& aForward, const Vec3& aLeft, const Vec3& aUp, float aMaxSide, float aMaxUp,
-                               float aMaxDown) {
-            float side = 0.f;
-            float pitch = 0.f;
-            ToAngles(wanted, aForward, aLeft, aUp, side, pitch);
-            side = std::clamp(side, -aMaxSide / 57.2958f, aMaxSide / 57.2958f);
-            pitch = std::clamp(pitch, -aMaxDown / 57.2958f, aMaxUp / 57.2958f);
-            return FromAngles(side, pitch, aForward, aLeft, aUp);
-        };
-        Vec3 limited = limit(chestForward, chestLeft, chestUp, 60.f, 60.f, 45.f);
-        Vec3 hipsForward{};
-        Vec3 hipsLeft{};
-        Vec3 hipsUp{};
-        if (torso > 0.f && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
-        {
-            const Vec3 fromHips = limit(hipsForward, hipsLeft, hipsUp, 90.f, 65.f, 50.f);
-            const Vec3 mixed = limited * (1.f - torso) + fromHips * torso;
-            if (APM::Math::Length(mixed) > 1e-3f)
-            {
-                limited = APM::Math::Normalize(mixed);
-            }
-        }
+        // Eased towards the camera in the chest's frame as the pose comes (Look at camera turns gradually, as the
+        // game's); the limits come after, from the body as it is turned.
         float side = 0.f;
         float pitch = 0.f;
-        ToAngles(limited, chestForward, chestLeft, chestUp, side, pitch);
+        ToAngles(wanted, chestForward, chestLeft, chestUp, side, pitch);
         SmoothLook(character, 0, 0.4f, side, pitch);
         wanted = FromAngles(side, pitch, chestForward, chestLeft, chestUp);
     }
-    // The chain as it comes, for a turn fading in or out.
-    std::array<Quat, std::size(Chain)> before{};
-    for (size_t c = 0; c < chainSize; ++c)
+
+    // The bones as they come, for a turn fading in or out.
+    struct Turned
     {
-        const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
-        if (bone >= 0 && static_cast<uint32_t>(bone) < aCount)
+        int32_t bone = -1;
+        Quat before{};
+    };
+    std::array<Turned, std::size(Back) + std::size(Neck)> turned{};
+    for (size_t i = 0; i < turned.size(); ++i)
+    {
+        const char* name = i < std::size(Back) ? Back[i].bone : Neck[i - std::size(Back)].bone;
+        const int32_t bone = IndexOf(aTarget, Hash(name));
+        const int16_t parent = bone >= 0 && static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
+        if (bone >= 0 && static_cast<uint32_t>(bone) < aCount && parent >= 0 && static_cast<uint32_t>(parent) < aCount)
         {
-            before[c] = GetRotation(aBones[bone]);
+            turned[i] = {bone, GetRotation(aBones[bone])};
         }
     }
-    for (size_t c = 0; c < chainSize; ++c)
+
+    // The torso: the chest turns towards the camera, at most 45 degrees from the hips (sideways, around the back's
+    // axis), and never back from where the pose already has it. From the chest, not from the head: a pose with the head
+    // already turned (CDPR's "Action") twisted the middle back far past its range (test 31/10). Each back bone within
+    // its natural range (as the edits).
+    Vec3 hipsForward{};
+    Vec3 hipsLeft{};
+    Vec3 hipsUp{};
+    if (torso > 0.f && hasChest && BodyAxes(aTarget, current, aCount, true, face, hipsForward, hipsLeft, hipsUp))
     {
-        const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
-        if (bone < 0 || static_cast<uint32_t>(bone) >= aCount || (chain[c].yawOnly && torso <= 0.f))
+        float chestSide = 0.f;
+        float wantedSide = 0.f;
+        float unused = 0.f;
+        ToAngles(chestForward, hipsForward, hipsLeft, hipsUp, chestSide, unused);
+        ToAngles(wanted, hipsForward, hipsLeft, hipsUp, wantedSide, unused);
+        const float maxChest = 45.f / 57.2958f;
+        const float chestTurn =
+            (std::clamp(wantedSide, std::min(-maxChest, chestSide), std::max(maxChest, chestSide)) - chestSide) * torso;
+        for (size_t i = 0; i < std::size(Back); ++i)
         {
-            continue;
-        }
-        const int16_t parent = static_cast<size_t>(bone) < aTarget.parents.size() ? aTarget.parents[bone] : int16_t(-1);
-        if (parent < 0 || static_cast<uint32_t>(parent) >= aCount)
-        {
-            continue;
-        }
-        if (c > 0)
-        {
+            const int32_t bone = turned[i].bone;
+            if (bone < 0 || std::abs(chestTurn) < 1e-4f)
+            {
+                continue;
+            }
+            const int16_t parent = aTarget.parents[bone];
             ComputeModelPose(aTarget, aBones, aCount, current);
+            const Quat model = APM::Math::Mul(APM::Math::FromAxisAngle(hipsUp, chestTurn * Back[i].weight), current.rotations[bone]);
+            const Quat local = APM::Math::Normalize(APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
+            SetRotation(aBones[bone], APM::Pose::JointLimits::LimitLocal(character, Back[i].bone, local, turned[i].before, false));
         }
-        Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
-        Vec3 target = wanted;
-        Vec3 neckForward{};
-        Vec3 neckLeft{};
-        Vec3 neckUp{};
-        if (!chain[c].yawOnly && BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
+        ComputeModelPose(aTarget, aBones, aCount, current);
+    }
+
+    // The head: never more than a natural turn away from the chest as it now is (~60 degrees sideways, past which the
+    // neck mesh twists, test 30/10; upwards as far as the game's, test 31/10); the eyes do the rest.
+    Vec3 neckForward{};
+    Vec3 neckLeft{};
+    Vec3 neckUp{};
+    if (BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
+    {
+        float side = 0.f;
+        float pitch = 0.f;
+        ToAngles(wanted, neckForward, neckLeft, neckUp, side, pitch);
+        side = std::clamp(side, -60.f / 57.2958f, 60.f / 57.2958f);
+        pitch = std::clamp(pitch, -45.f / 57.2958f, 60.f / 57.2958f);
+        wanted = FromAngles(side, pitch, neckForward, neckLeft, neckUp);
+    }
+    for (size_t n = 0; n < std::size(Neck); ++n)
+    {
+        const int32_t bone = turned[std::size(Back) + n].bone;
+        if (bone < 0)
         {
-            // Neck and head: the face towards the camera with its top towards the chest's (the head upright on the
-            // neck). The shortest turn alone tilted the head onto the shoulder on a pose bent forward (test 30/10).
+            continue;
+        }
+        const int16_t parent = aTarget.parents[bone];
+        ComputeModelPose(aTarget, aBones, aCount, current);
+        const Vec3 facing = APM::Math::Rotate(current.rotations[head], faceLocal);
+        if (BodyAxes(aTarget, current, aCount, false, face, neckForward, neckLeft, neckUp))
+        {
+            // The face towards the camera with its top towards the chest's (the head upright on the neck). The shortest
+            // turn alone tilted the head onto the shoulder on a pose bent forward (test 30/10).
             // A head turned far to one side and a camera on the other: the shortest turn passes behind the neck, so
             // this bone takes its share of the way across the front instead (at most ~160 degrees at once).
             float faceSide = 0.f;
@@ -1238,53 +1261,39 @@ void KeepLookAt(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, 
             float wantedPitch = 0.f;
             ToAngles(facing, neckForward, neckLeft, neckUp, faceSide, facePitch);
             ToAngles(wanted, neckForward, neckLeft, neckUp, wantedSide, wantedPitch);
+            Quat turn{};
             if (std::abs(wantedSide - faceSide) > 3.14159265f)
             {
-                const float step = std::clamp((wantedSide - faceSide) * chain[c].weight, -2.8f, 2.8f);
-                const Vec3 across = FromAngles(faceSide + step, facePitch + (wantedPitch - facePitch) * chain[c].weight,
+                const float step = std::clamp((wantedSide - faceSide) * Neck[n].weight, -2.8f, 2.8f);
+                const Vec3 across = FromAngles(faceSide + step, facePitch + (wantedPitch - facePitch) * Neck[n].weight,
                                                neckForward, neckLeft, neckUp);
-                const Quat model = APM::Math::Mul(TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, across),
-                                                  current.rotations[bone]);
-                SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
-                continue;
+                turn = TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, across);
             }
-            const Quat turn = ScaleRotation(TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, wanted),
-                                            chain[c].weight);
+            else
+            {
+                turn = ScaleRotation(TurnFaceTo(current, head, neckUp, faceLocal, headUpLocal, wanted), Neck[n].weight);
+            }
             const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
             SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
             continue;
         }
-        if (chain[c].yawOnly)
-        {
-            facing.z = 0.f;
-            target.z = 0.f;
-            if (APM::Math::Length(facing) < 1e-4f || APM::Math::Length(target) < 1e-4f)
-            {
-                continue;
-            }
-        }
-        const float angle = APM::Math::AngleBetween(facing, target);
-        Vec3 axis = APM::Math::Cross(facing, target);
-        if (chain[c].yawOnly)
-        {
-            axis = Vec3{0.f, 0.f, axis.z >= 0.f ? 1.f : -1.f};
-        }
+        // No chest shape (missing bones): the shortest turn of the face.
+        const float angle = APM::Math::AngleBetween(facing, wanted);
+        const Vec3 axis = APM::Math::Cross(facing, wanted);
         if (angle < 1e-3f || APM::Math::Length(axis) < 1e-6f)
         {
             continue;
         }
-        const Quat turn = APM::Math::FromAxisAngle(axis, angle * chain[c].weight * (chain[c].yawOnly ? torso : 1.f));
-        const Quat model = APM::Math::Mul(turn, current.rotations[bone]);
+        const Quat model = APM::Math::Mul(APM::Math::FromAxisAngle(axis, angle * Neck[n].weight), current.rotations[bone]);
         SetRotation(aBones[bone], APM::Math::Mul(APM::Math::Conjugate(current.rotations[parent]), model));
     }
     if (share < 1.f)
     {
-        for (size_t c = 0; c < chainSize; ++c)
+        for (const auto& t : turned)
         {
-            const int32_t bone = IndexOf(aTarget, Hash(chain[c].bone));
-            if (bone >= 0 && static_cast<uint32_t>(bone) < aCount)
+            if (t.bone >= 0)
             {
-                SetRotation(aBones[bone], Blend(before[c], GetRotation(aBones[bone]), share));
+                SetRotation(aBones[t.bone], Blend(t.before, GetRotation(aBones[t.bone]), share));
             }
         }
     }
