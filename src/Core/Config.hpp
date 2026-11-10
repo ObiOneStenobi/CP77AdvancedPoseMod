@@ -24,8 +24,6 @@ struct Values
     float probeFaceTrackWeight = 0.f;
     bool debugLog = false;            // detailed diagnostics in the log
     bool allowUnknownGameVersion = false; // install the hooks on a game version the plugin was not built for (risky)
-    // [Items] LeftHandWeapons: weapons offered for the left hand. -1 auto (game 2.5 and later: yes, 2.31: no), 0 / 1.
-    int32_t leftHandWeapons = -1;
 };
 
 void Load();

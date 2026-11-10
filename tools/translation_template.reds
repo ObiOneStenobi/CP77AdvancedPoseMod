@@ -210,7 +210,6 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand");
         this.Text("APM-Msg-NoModel", "{0} has no model to hold");
         this.Text("APM-Item-ThisItem", "This item");
-        this.Text("APM-Msg-NoLeftWeapons", "Weapons in the left hand are not available on this game version");
         this.Text("APM-Msg-RenameFailed", "Could not rename {0}");
         this.Text("APM-Msg-TurnedByLookAt", "{0} is turned by Look at camera");
         this.Text("APM-Button-PoseOn", "Pose on");

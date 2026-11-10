@@ -5,7 +5,6 @@
 // Bone names: see probe/rig_*.txt (V's main skeleton is the "root" component, 71 bones).
 
 public native func APM_IsPhotoModeActive() -> Bool
-public native func APM_LeftHandWeapons() -> Bool
 // The player confirmed leaving Photo Mode: the plugin stops applying the pose before the game tears it down.
 public native func APM_OnPhotoModeExit() -> Void
 // Characters: 0 = V, 1-3 = the characters added in the scene (human ones only). The panel works on the selected one.

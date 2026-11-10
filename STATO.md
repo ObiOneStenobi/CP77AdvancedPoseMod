@@ -552,6 +552,12 @@ FATTO 10/11 (build 2.5 e 2.31 ok, script ok, dist/dist231/gioco 2.31; NON provat
   ripreso in APM_UpdatePoseEditor); m_exiting ferma SyncProps.
 - 2: Config [Items] LeftHandWeapons (-1 auto), nativo APM_LeftHandWeapons, m_leftWeapons / m_noLeftItems, log slot
   al posizionamento e dopo 3 s, testi APM-Msg-NoLeftHand / APM-Msg-NoLeftWeapons; [Items] in data\config.ini e dist.
+- Prova 10/11 sulla 2.31 (log 20-14-03): TUTTE le armi restano nello slot WeaponLeft (anche con un'arma nella destra,
+  su V e NPC); uscita: oggetti degli NPC tolti, "items gone after 66 ms", nessun crash; nessun invio del Look at camera
+  dopo la conferma. Quindi: opzione LeftHandWeapons, nativo APM_LeftHandWeapons e testo APM-Msg-NoLeftWeapons TOLTI
+  (armi sempre ammesse a sinistra, resta m_noLeftItems se un'arma non resta nello slot); all'uscita
+  oggetti tolti anche a V quando è il puppet di Photo Mode (non sul veicolo: lì RestorePlayerHands).
+- Da provare: arma nella sinistra di V sul veicolo (giocatore vero: inventario, arma del veicolo dopo l'uscita).
 
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,

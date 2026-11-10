@@ -377,7 +377,6 @@ public class APM_PoseEditor extends IScriptable {
     private let m_recentItems: array<TweakDBID>;
     private let m_noModelItems: array<Uint64>; // items that showed nothing in the hand (this session)
     private let m_noLeftItems: array<Uint64>; // weapons that did not stay in the left hand (this session)
-    private let m_leftWeapons: Bool; // weapons offered for the left hand (APM_LeftHandWeapons, read when the list opens)
     private let m_checkTimer: Float;           // time left before checking that a placed item shows up
     private let m_checkRight: Bool;
     private let m_checkRecord: Uint64;
@@ -2404,11 +2403,11 @@ public class APM_PoseEditor extends IScriptable {
         return 12;
     }
 
-    // An item can go in the current hand: weapons in the left one only where the game allows it (config
-    // [Items] LeftHandWeapons, game 2.5 by default) and not after one did not stay there.
+    // An item can go in the current hand: a weapon in the left one too (tried on game 2.31: every weapon stays in the
+    // left hand slot), unless one did not stay there.
     private func ItemAllowed(index: Int32) -> Bool {
         let number = TDBID.ToNumber(this.m_itemIds[index]);
-        if !this.m_propRight && this.m_itemWeapon[index] && (!this.m_leftWeapons || ArrayContains(this.m_noLeftItems, number)) {
+        if !this.m_propRight && this.m_itemWeapon[index] && ArrayContains(this.m_noLeftItems, number) {
             return false;
         }
         if this.m_pickerCategory > 0 && this.m_itemCategory[index] != this.m_pickerCategory {
@@ -2425,7 +2424,6 @@ public class APM_PoseEditor extends IScriptable {
             this.SetHelpOpen(false);
         }
         this.BuildItemList();
-        this.m_leftWeapons = APM_LeftHandWeapons();
         this.m_pickerOpen = true;
         this.m_pickerTyping = false;
         this.m_pickerQuery = "";
@@ -2844,12 +2842,6 @@ public class APM_PoseEditor extends IScriptable {
             return true; // unknown item (e.g. from a removed mod): nothing to place
         }
         let isWeapon = IsDefined(itemRecord as WeaponItem_Record);
-        if isWeapon && !right && !APM_LeftHandWeapons() {
-            // E.g. a pose saved on game 2.5 loaded on 2.31.
-            this.SetStatus(APM_Text("APM-Msg-NoLeftWeapons", "Weapons in the left hand are not available on this game version"));
-            APM_LogInfo(who + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + " not placed (weapons in the left hand are off)");
-            return true;
-        }
         let itemID = isWeapon ? ItemID.CreateQuery(id) : ItemID.FromTDBID(id);
         if !transactions.HasItem(puppet, itemID) {
             transactions.GiveItem(puppet, itemID, 1);
@@ -2876,7 +2868,7 @@ public class APM_PoseEditor extends IScriptable {
         return IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "unknown item";
     }
 
-    // Leaving Photo Mode: the items the mod put in the added characters' hands are taken out (as resetting them by hand
+    // Leaving Photo Mode: the items the mod put in the Photo Mode puppets' hands are taken out (as resetting them by hand
     // before leaving does: exits with them could crash). True when something was taken out: the game should leave only
     // once they are gone (ExitItemsGone).
     public func ClearAddedCharacterItems() -> Bool {
@@ -2885,11 +2877,12 @@ public class APM_PoseEditor extends IScriptable {
         this.m_checkTimer = 0.0;
         this.m_exitWait = 0.0;
         ArrayClear(this.m_exitItems);
-        let c = 1;
+        // V too when it is Photo Mode's own puppet (the player itself, in a vehicle, gets its hands back instead).
+        let c = 0;
         while c < 4 {
             let entity = APM_CharacterGetEntity(c);
             let puppet = entity as GameObject;
-            if APM_CharacterIsPresent(c) && IsDefined(puppet) && !this.IsPlayer(puppet) && IsDefined(this.m_charPuppets[c]) && this.m_charPuppets[c] == entity {
+            if (c == 0 || APM_CharacterIsPresent(c)) && IsDefined(puppet) && !this.IsPlayer(puppet) && IsDefined(this.m_charPuppets[c]) && this.m_charPuppets[c] == entity {
                 this.TakeOutPlacedItem(puppet, c, true);
                 this.TakeOutPlacedItem(puppet, c, false);
             }
