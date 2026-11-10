@@ -2793,12 +2793,17 @@ public class APM_PoseEditor extends IScriptable {
             this.NotePlayerHand(right, current); // the player's own inventory is never emptied
         }
         transactions.RemoveItemFromSlot(puppet, slot, !isPoseItem && !isPlayer);
+        let who = "Items: character " + IntToString(this.m_character) + (isPlayer ? " (player) " : " ") + (right ? "right" : "left") + " hand: ";
+        if IsDefined(current) {
+            APM_LogInfo(who + this.HeldItemName(current) + " taken out");
+        }
         if record == 0ul {
             if hasPose {
                 if !transactions.HasItem(puppet, poseItem) {
                     transactions.GiveItem(puppet, poseItem, 1);
                 }
                 transactions.AddItemToSlot(puppet, slot, poseItem, true, null, ERenderingPlane.RPl_Scene, false, true);
+                APM_LogInfo(who + "the pose's item back");
             }
             return true;
         }
@@ -2819,11 +2824,34 @@ public class APM_PoseEditor extends IScriptable {
             }
         }
         let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
-        APM_LogInfo("Items: " + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed in the " : " could not be placed in the ") + (right ? "right" : "left") + " hand");
+        APM_LogInfo(who + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed" : " could not be placed"));
         this.m_checkTimer = 3.0;
         this.m_checkRight = right;
         this.m_checkRecord = record;
         return true;
+    }
+
+    private func HeldItemName(item: ref<ItemObject>) -> String {
+        if !IsDefined(item) {
+            return "empty";
+        }
+        let record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item.GetItemID()));
+        return IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "unknown item";
+    }
+
+    // Diagnostics for crash reports: what each character still holds when Photo Mode is left.
+    public func LogHeldItemsAtExit(reason: String) {
+        let c = 0;
+        while c < 4 {
+            if c == 0 || APM_CharacterIsPresent(c) {
+                let puppet = APM_CharacterGetEntity(c) as GameObject;
+                if IsDefined(puppet) {
+                    let transactions = GameInstance.GetTransactionSystem(puppet.GetGame());
+                    APM_LogInfo("Exit (" + reason + "): character " + IntToString(c) + (this.IsPlayer(puppet) ? " (player)" : "") + " holds right " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponRight")) + ", left " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponLeft")));
+                }
+            }
+            c += 1;
+        }
     }
 
     private func IsPlayer(puppet: ref<GameObject>) -> Bool {
@@ -5785,9 +5813,12 @@ protected cb func OnTryExitPhotomode() -> Bool {
     }
     if !this.m_anyOptionChanged {
         if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.LogHeldItemsAtExit("no confirmation");
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();
+    } else {
+        APM_LogInfo("Exit requested: the game asks for confirmation");
     }
     return wrappedMethod();
 }
@@ -5797,6 +5828,7 @@ protected cb func OnExitConfirm(data: ref<inkGameNotificationData>) -> Bool {
     let resultData = data as GenericMessageNotificationCloseData;
     if IsDefined(resultData) && Equals(resultData.result, GenericMessageNotificationResult.Confirm) {
         if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.LogHeldItemsAtExit("confirmed");
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();

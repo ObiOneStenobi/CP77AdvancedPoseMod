@@ -493,8 +493,9 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   still"). Crash delle 15:31 non della mod: Tony Casual Store V3.7 + V4.3 installati insieme (@addMethod doppio).
   Libreria aperta di default NON ancora nel gioco (script del 30/10).
 - 31/10: DLL 2.5 e script di dist copiati nel gioco per la prova sulla 2.5 (config.ini del gioco lasciato com'è).
-  Primo avvio 2.5: redscript compilava contro r6\cache\moddedinal.redscripts del 25/10 (2.31) -> errori Codeware.
-  Cartella rinominata in modded.old (rifarlo a ogni cambio di versione del gioco).
+  Primo avvio 2.5: r6\cache\modded è il deploy REDmod (mods\, es. Load Begone) del 25/10 per la 2.31; redscript
+  compilava contro il suo final.redscripts -> errori Codeware. Rinominata in modded.old. A ogni cambio di versione del
+  gioco serve un nuovo deploy REDmod (Vortex lo rifà, la 2.31 lo ha rifatto il 31/10 21:17), non rinominare.
 
 - 31/10: prova sulla 2.5 ok. 1.5.0: versione in CMake, warning C4100 in ScriptApi.cpp (CharacterSelect,
   OnPhotoModeExit) tolti, build 2.5 e 2.31 senza warning, DLL in dist e dist231; template traduzioni invariato;
