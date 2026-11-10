@@ -278,8 +278,8 @@ void ProbeSpawn(void* aSystem, void* aCharacter)
 void ProbePuppet(uint64_t aPuppet, const char* aWhere, uint32_t aType)
 {
     using namespace APM;
-    const auto alive = EngineLayout::LockAlive(aPuppet); // kept alive while probed
-    if (!alive || g_probedPuppets.contains(aPuppet))
+    // Called right after the Photo Mode system's own update, which holds its puppets: no reference taken.
+    if (!EngineLayout::LooksAlive(aPuppet) || g_probedPuppets.contains(aPuppet))
     {
         return;
     }
@@ -404,9 +404,11 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
                       RED4ext::CClass* animatedCls, const APM::Config::Values& config)
 {
     using namespace APM;
-    // A puppet being despawned may already be freed: work only on one that is alive, and keep it alive meanwhile.
-    const auto entity = EngineLayout::LockAlive(puppet);
-    if (!entity)
+    // A puppet being despawned may already be freed: work only on one that is alive. Only weak references are taken
+    // (this runs right after the Photo Mode system's own update, whose lists hold the puppets): a strong one could
+    // leave the plugin as the last owner, destroying the puppet here while the game still has work queued for it.
+    const auto entity = EngineLayout::BorrowWeak(puppet);
+    if (!entity.instance)
     {
         return;
     }
@@ -418,12 +420,13 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
     for (uint32_t c = 0; c < components.size; ++c)
     {
         const auto componentAddress = EngineLayout::GetComponent(components, c);
-        const auto component = componentAddress ? EngineLayout::LockAlive(componentAddress) : RED4ext::Handle<RED4ext::ISerializable>{};
-        if (!component)
+        const auto component = componentAddress ? EngineLayout::BorrowWeak(componentAddress)
+                                                : RED4ext::WeakHandle<RED4ext::ISerializable>{};
+        if (!component.instance)
         {
             continue;
         }
-        auto* cls = component->GetType();
+        auto* cls = reinterpret_cast<RED4ext::ISerializable*>(componentAddress)->GetType();
         if (!cls || !cls->IsA(animatedCls))
         {
             continue;
@@ -514,7 +517,8 @@ bool IsHumanCharacter(const std::vector<APM::Pose::Target>& aTargets, uint64_t a
 bool IsMalePuppet(uint64_t aPuppet)
 {
     using namespace APM;
-    const auto entity = EngineLayout::LockAlive(aPuppet);
+    // Game thread, right after the Photo Mode system's update (which holds the puppet): no reference of our own.
+    auto* entity = EngineLayout::LooksAlive(aPuppet) ? reinterpret_cast<RED4ext::ISerializable*>(aPuppet) : nullptr;
     auto* cls = entity ? entity->GetType() : nullptr;
     auto* func = cls ? cls->GetFunction("GetResolvedGenderName") : nullptr;
     if (!func)
@@ -523,7 +527,7 @@ bool IsMalePuppet(uint64_t aPuppet)
         return false;
     }
     RED4ext::CName gender;
-    if (!RED4ext::ExecuteFunction(entity.instance, func, &gender))
+    if (!RED4ext::ExecuteFunction(entity, func, &gender))
     {
         return false;
     }
@@ -667,8 +671,8 @@ void RefreshTargets(void* aSystem)
         {
             // Research (vehicles): what the player entity is and which skeletons it has, once per session.
             s_playerSession = g_sessionId.load();
-            const auto alive = EngineLayout::LockAlive(player);
-            auto* type = alive ? alive->GetType() : nullptr;
+            auto* type = EngineLayout::LooksAlive(player) ? reinterpret_cast<RED4ext::ISerializable*>(player)->GetType()
+                                                          : nullptr;
             const auto typeName = type ? type->GetName() : RED4ext::CName{};
             std::string skeletons;
             for (const auto& target : own)
@@ -825,7 +829,7 @@ void Detour_Deactivate(void* aSystem)
     }
     g_playerEntity = 0;
     g_playerPosed = false;
-    APM::PhotoModeMenuGuard::ForgetMenu();
+    APM::PhotoModeMenuGuard::OnExitRequested();
     APM::Pose::LookAtCamera::g_ignored[0] = false;
     APM::CrashGuard::Guard("Photo Mode end", [] {
         APM::Pose::TargetRegistry::Clear();
@@ -940,6 +944,7 @@ void OnExitRequested()
     {
         return;
     }
+    APM::PhotoModeMenuGuard::OnExitRequested();
     RememberPoseOn();
     for (uint32_t c = 0; c < APM::Pose::Characters::Count; ++c)
     {

@@ -376,6 +376,8 @@ public class APM_PoseEditor extends IScriptable {
     private let m_itemsBuilt: Bool;
     private let m_recentItems: array<TweakDBID>;
     private let m_noModelItems: array<Uint64>; // items that showed nothing in the hand (this session)
+    private let m_noLeftItems: array<Uint64>; // weapons that did not stay in the left hand (this session)
+    private let m_leftWeapons: Bool; // weapons offered for the left hand (APM_LeftHandWeapons, read when the list opens)
     private let m_checkTimer: Float;           // time left before checking that a placed item shows up
     private let m_checkRight: Bool;
     private let m_checkRecord: Uint64;
@@ -436,6 +438,10 @@ public class APM_PoseEditor extends IScriptable {
     private let m_charHasPoseItemRight: array<Bool>;
     private let m_charHasPoseItemLeft: array<Bool>;
     private let m_charPuppets: array<wref<Entity>>;
+    // Leaving Photo Mode: items taken out of the added characters' hands, waited for until the game has removed them.
+    private let m_exiting: Bool;
+    private let m_exitItems: array<wref<ItemObject>>;
+    private let m_exitWait: Float;
     private let m_leftEyePart: Int32;
     private let m_rightEyePart: Int32;
     private let m_dragMarker: ref<APM_Marker>;
@@ -2398,15 +2404,16 @@ public class APM_PoseEditor extends IScriptable {
         return 12;
     }
 
-    // An item can go in the current hand: weapons only in the right one (the game poses both hands around them).
+    // An item can go in the current hand: weapons in the left one only where the game allows it (config
+    // [Items] LeftHandWeapons, game 2.5 by default) and not after one did not stay there.
     private func ItemAllowed(index: Int32) -> Bool {
-        if !this.m_propRight && this.m_itemWeapon[index] {
+        let number = TDBID.ToNumber(this.m_itemIds[index]);
+        if !this.m_propRight && this.m_itemWeapon[index] && (!this.m_leftWeapons || ArrayContains(this.m_noLeftItems, number)) {
             return false;
         }
         if this.m_pickerCategory > 0 && this.m_itemCategory[index] != this.m_pickerCategory {
             return false;
         }
-        let number = TDBID.ToNumber(this.m_itemIds[index]);
         return !ArrayContains(this.m_noModelItems, number);
     }
 
@@ -2418,6 +2425,7 @@ public class APM_PoseEditor extends IScriptable {
             this.SetHelpOpen(false);
         }
         this.BuildItemList();
+        this.m_leftWeapons = APM_LeftHandWeapons();
         this.m_pickerOpen = true;
         this.m_pickerTyping = false;
         this.m_pickerQuery = "";
@@ -2710,7 +2718,12 @@ public class APM_PoseEditor extends IScriptable {
 
     // Puts the chosen items on the Photo Mode puppet (also after loading a pose or undo / redo).
     private func SyncProps(timeDelta: Float) {
+        if this.m_exiting && APM_IsPhotoModeActive() {
+            return; // leaving: the items taken out stay out
+        }
         if !APM_IsPhotoModeActive() {
+            this.m_exiting = false;
+            ArrayClear(this.m_exitItems);
             this.RestorePlayerHands(); // if leaving did not go through the exit callbacks
             this.m_shownRight = 0ul;
             this.m_shownLeft = 0ul;
@@ -2763,12 +2776,27 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let slot = this.m_checkRight ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
-        if IsDefined(GameInstance.GetTransactionSystem(puppet.GetGame()).GetItemInSlot(puppet, slot)) {
+        let transactions = GameInstance.GetTransactionSystem(puppet.GetGame());
+        let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(this.m_checkRecord));
+        let leftWeapon = !this.m_checkRight && IsDefined(record as WeaponItem_Record);
+        if leftWeapon {
+            APM_LogInfo("Items: left hand weapon after 3 s: right slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponRight")) + ", left slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponLeft")));
+        }
+        if IsDefined(transactions.GetItemInSlot(puppet, slot)) {
+            return;
+        }
+        APM_SetHandProp(this.m_checkRight, 0ul);
+        if leftWeapon {
+            // Not a missing model: the game does not keep this weapon in the left hand (it stays offered for the right).
+            ArrayPush(this.m_noLeftItems, this.m_checkRecord);
+            this.SetStatus(APM_TextWith("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand", GetLocalizedItemNameByCName(record.DisplayName())));
+            APM_LogInfo("Items: weapon not kept in the left hand, removed from the left hand list");
+            if this.m_pickerOpen {
+                this.UpdatePickerResults();
+            }
             return;
         }
         ArrayPush(this.m_noModelItems, this.m_checkRecord);
-        APM_SetHandProp(this.m_checkRight, 0ul);
-        let record = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(this.m_checkRecord));
         this.SetStatus(APM_TextWith("APM-Msg-NoModel", "{0} has no model to hold", IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : APM_Text("APM-Item-ThisItem", "This item")));
         APM_LogInfo("Items: no model to hold, removed from the list");
         if this.m_pickerOpen {
@@ -2816,6 +2844,12 @@ public class APM_PoseEditor extends IScriptable {
             return true; // unknown item (e.g. from a removed mod): nothing to place
         }
         let isWeapon = IsDefined(itemRecord as WeaponItem_Record);
+        if isWeapon && !right && !APM_LeftHandWeapons() {
+            // E.g. a pose saved on game 2.5 loaded on 2.31.
+            this.SetStatus(APM_Text("APM-Msg-NoLeftWeapons", "Weapons in the left hand are not available on this game version"));
+            APM_LogInfo(who + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + " not placed (weapons in the left hand are off)");
+            return true;
+        }
         let itemID = isWeapon ? ItemID.CreateQuery(id) : ItemID.FromTDBID(id);
         if !transactions.HasItem(puppet, itemID) {
             transactions.GiveItem(puppet, itemID, 1);
@@ -2825,6 +2859,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
         APM_LogInfo(who + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed" : " could not be placed"));
+        if isWeapon && !right {
+            APM_LogInfo("Items: left hand weapon placed: right slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponRight")) + ", left slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponLeft")));
+        }
         this.m_checkTimer = 3.0;
         this.m_checkRight = right;
         this.m_checkRecord = record;
@@ -2837,6 +2874,68 @@ public class APM_PoseEditor extends IScriptable {
         }
         let record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item.GetItemID()));
         return IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "unknown item";
+    }
+
+    // Leaving Photo Mode: the items the mod put in the added characters' hands are taken out (as resetting them by hand
+    // before leaving does: exits with them could crash). True when something was taken out: the game should leave only
+    // once they are gone (ExitItemsGone).
+    public func ClearAddedCharacterItems() -> Bool {
+        this.SaveCharacterProps(this.m_character);
+        this.m_exiting = true;
+        this.m_checkTimer = 0.0;
+        this.m_exitWait = 0.0;
+        ArrayClear(this.m_exitItems);
+        let c = 1;
+        while c < 4 {
+            let entity = APM_CharacterGetEntity(c);
+            let puppet = entity as GameObject;
+            if APM_CharacterIsPresent(c) && IsDefined(puppet) && !this.IsPlayer(puppet) && IsDefined(this.m_charPuppets[c]) && this.m_charPuppets[c] == entity {
+                this.TakeOutPlacedItem(puppet, c, true);
+                this.TakeOutPlacedItem(puppet, c, false);
+            }
+            c += 1;
+        }
+        return ArraySize(this.m_exitItems) > 0;
+    }
+
+    private func TakeOutPlacedItem(puppet: ref<GameObject>, character: Int32, right: Bool) {
+        let shown = right ? this.m_charShownRight[character] : this.m_charShownLeft[character];
+        if shown <= 1ul {
+            return; // nothing chosen in the mod (the pose's own item) or emptied on purpose
+        }
+        let transactions = GameInstance.GetTransactionSystem(puppet.GetGame());
+        let slot = right ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
+        let item = transactions.GetItemInSlot(puppet, slot);
+        if IsDefined(item) {
+            APM_LogInfo("Exit: character " + IntToString(character) + " " + (right ? "right" : "left") + " hand: " + this.HeldItemName(item) + " taken out");
+            ArrayPush(this.m_exitItems, item);
+            transactions.RemoveItemFromSlot(puppet, slot, true);
+        }
+        if right {
+            this.m_charShownRight[character] = 0ul;
+        } else {
+            this.m_charShownLeft[character] = 0ul;
+        }
+    }
+
+    // Called every frame while leaving waits: true once the items taken out are gone (at most 1 s).
+    public func ExitItemsGone(timeDelta: Float) -> Bool {
+        this.m_exitWait += timeDelta;
+        let left = 0;
+        let i = 0;
+        while i < ArraySize(this.m_exitItems) {
+            if IsDefined(this.m_exitItems[i]) {
+                left += 1;
+            }
+            i += 1;
+        }
+        if left > 0 && this.m_exitWait < 1.0 {
+            return false;
+        }
+        let ms = IntToString(Cast<Int32>(this.m_exitWait * 1000.0));
+        APM_LogInfo(left == 0 ? "Exit: items gone after " + ms + " ms" : "Exit: " + IntToString(left) + " items still there after " + ms + " ms, leaving anyway");
+        ArrayClear(this.m_exitItems);
+        return true;
     }
 
     // Diagnostics for crash reports: what each character still holds when Photo Mode is left.
@@ -5806,14 +5905,28 @@ public func APM_AnyCharacterHasEdits() -> Bool {
 
 // Leaving Photo Mode (without the confirmation, or once it is confirmed): the pose stops being applied before the game
 // tears Photo Mode down, as users did by resetting their edits before leaving (exits with edits crashed for some).
+// Leaving confirmed while the added characters' items are being taken out: the game's own exit waits for them.
+@addField(gameuiPhotoModeMenuController)
+private let m_apmExitPending: Bool;
+
+@addField(gameuiPhotoModeMenuController)
+private let m_apmExitResume: Bool;
+
+@addField(gameuiPhotoModeMenuController)
+private let m_apmExitData: ref<inkGameNotificationData>;
+
 @wrapMethod(gameuiPhotoModeMenuController)
 protected cb func OnTryExitPhotomode() -> Bool {
+    if this.m_apmExitPending {
+        return true; // already leaving
+    }
     if APM_AnyCharacterHasEdits() {
         this.m_anyOptionChanged = true; // the game asks before leaving: the pose would be lost
     }
     if !this.m_anyOptionChanged {
         if IsDefined(this.m_apmPoseEditor) {
             this.m_apmPoseEditor.LogHeldItemsAtExit("no confirmation");
+            this.m_apmPoseEditor.ClearAddedCharacterItems(); // nothing expected: items in hand ask for confirmation
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();
@@ -5827,8 +5940,17 @@ protected cb func OnTryExitPhotomode() -> Bool {
 protected cb func OnExitConfirm(data: ref<inkGameNotificationData>) -> Bool {
     let resultData = data as GenericMessageNotificationCloseData;
     if IsDefined(resultData) && Equals(resultData.result, GenericMessageNotificationResult.Confirm) {
-        if IsDefined(this.m_apmPoseEditor) {
+        if !this.m_apmExitResume && IsDefined(this.m_apmPoseEditor) {
             this.m_apmPoseEditor.LogHeldItemsAtExit("confirmed");
+            if this.m_apmPoseEditor.ClearAddedCharacterItems() {
+                // The game leaves once the items are gone (APM_UpdatePoseEditor calls this again).
+                this.m_apmExitData = data;
+                this.m_apmExitPending = true;
+                return true;
+            }
+        }
+        this.m_apmExitResume = false;
+        if IsDefined(this.m_apmPoseEditor) {
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();
@@ -5896,6 +6018,17 @@ public final func APM_UpdatePoseEditor(timeDelta: Float) {
     }
     if IsDefined(this.m_apmPoseEditor) {
         this.m_apmPoseEditor.Update(timeDelta);
+    }
+    if this.m_apmExitPending && !APM_IsPhotoModeActive() {
+        this.m_apmExitPending = false; // Photo Mode ended some other way meanwhile
+        this.m_apmExitData = null;
+    }
+    if this.m_apmExitPending && (!IsDefined(this.m_apmPoseEditor) || this.m_apmPoseEditor.ExitItemsGone(timeDelta)) {
+        this.m_apmExitPending = false;
+        this.m_apmExitResume = true;
+        let data = this.m_apmExitData;
+        this.m_apmExitData = null;
+        this.OnExitConfirm(data);
     }
 }
 

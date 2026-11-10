@@ -53,6 +53,7 @@ void Load()
     v.probeFaceTrackWeight = static_cast<float>(std::atof(ReadString(file, L"Probe", L"FaceTrackWeight").c_str()));
     v.debugLog = ReadBool(file, L"Debug", L"Log", v.debugLog);
     v.allowUnknownGameVersion = ReadBool(file, L"Compatibility", L"AllowUnknownGameVersion", v.allowUnknownGameVersion);
+    v.leftHandWeapons = static_cast<int32_t>(GetPrivateProfileIntW(L"Items", L"LeftHandWeapons", -1, file.c_str()));
     Log::g_verbose = v.debugLog;
 
     {

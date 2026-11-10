@@ -10,4 +10,7 @@ void Uninstall();
 void UpdateGameLookAt();
 // Photo Mode ended: its menu is gone.
 void ForgetMenu();
+// Leaving Photo Mode was confirmed (or Photo Mode ended): nothing more is sent to the game's menu, and a pending
+// "game's Look at camera off for a moment" is dropped.
+void OnExitRequested();
 } // namespace APM::PhotoModeMenuGuard

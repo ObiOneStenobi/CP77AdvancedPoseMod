@@ -1,5 +1,6 @@
 #include "Scripting/ScriptApi.hpp"
 
+#include "Core/Config.hpp"
 #include "Core/Log.hpp"
 #include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
@@ -67,6 +68,19 @@ void IsPhotoModeActive(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     aFrame->code++;
     Return(aOut, APM::PhotoModeTracker::IsActive());
+}
+
+// Weapons offered for the left hand: config [Items] LeftHandWeapons, by default from game 2.5 (dual pistols).
+void LeftHandWeapons(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    const int32_t setting = APM::Config::Get().leftHandWeapons;
+#ifdef APM_GAME_231
+    constexpr bool byDefault = false;
+#else
+    constexpr bool byDefault = true;
+#endif
+    Return(aOut, setting < 0 ? byDefault : setting != 0);
 }
 
 // --- Characters (0 = V, 1-3 = added human characters) ----------------------------------------------------------
@@ -1506,6 +1520,7 @@ namespace APM::ScriptApi
 void Register()
 {
     ::Register("APM_IsPhotoModeActive", &IsPhotoModeActive, "Bool", {});
+    ::Register("APM_LeftHandWeapons", &LeftHandWeapons, "Bool", {});
     ::Register("APM_OnPhotoModeExit", &OnPhotoModeExit, nullptr, {});
     ::Register("APM_CharacterIsPresent", &CharacterIsPresent, "Bool", {{"Int32", "character"}});
     ::Register("APM_CharacterGetSelected", &CharacterGetSelected, "Int32", {});

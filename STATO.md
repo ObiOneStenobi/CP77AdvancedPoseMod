@@ -502,6 +502,57 @@ DLL copiate in dist, dist231 e nel gioco. Script invariati.
   check_scripts ok; README aggiornato; release\CHANGELOG-1.5.0.md e zip 1.5.0 / 1.5.0-game2.31. Nel gioco: DLL e
   script di dist231 (per tornare alla 2.31). DLL 1.5.0 non provate in gioco (cambiano solo versione e warning).
 
+## 10/11: segnalazioni utenti (analisi e prove sulla 2.31)
+- Crash "NPCPuppet (destroyed)" su redDispatcher (2.5): sospetti UpdateGameLookAt senza controllo di Photo Mode attivo
+  (invio di 15/74 e 68/58/78/68 visto nel log anche dopo "Exit requested"), LockAlive nella ricostruzione dei target,
+  oggetti in mano ai personaggi aggiunti non tolti all'uscita. Log script aggiunti (Items: character N ..., Exit (...):
+  character N holds ...). Prova 10/11: 9 uscite, 4 con oggetti in mano agli NPC, nessun crash. Correzioni da fare.
+- Occhi: con Look at camera solo occhi tracce uguali al gioco; con la testa la mod gira gli occhi molto di più (CDPR li
+  limita). DECISO dall'utente: va bene così, gli occhi seguono la camera indipendentemente dalla testa.
+- Idee: lista oggetti da estendere (Con_Drink ecc., nome del record come riserva, log degli scartati); armi nella mano
+  sinistra (2.5: armi a due mani contemporanee, provare WeaponLeft per le pistole); capelli (prova fisica prima); mani
+  unite (IK sinistra che segue la destra).
+
+- Segnalazione utente: viso non modificabile con V sul veicolo (slider si muovono, viso fermo); a piedi ok. Sulla 2.31
+  provato dall'utente: funziona. Da provare sulla 2.5 (log: "Face poses: ... the facial solver poses the face /
+  ignores the facial solver", "V is the player in a vehicle", FaceProbe con FaceTracks=1).
+- Armi nella mano sinistra: prima prove sulla 2.31 (blocco tolto + log dello slot), annotarle, poi 2.5.
+
+## Piano 1.6.0 (approvato 10/11)
+Ordine: 1 crash, 2 prova armi a sinistra (2.31), 3 lista oggetti, 4 oggetti delle mod, 5 mani unite, 6 rilascio.
+Dopo ogni gruppo: build 2.31 e 2.5, check_scripts, dist/dist231/gioco, STATO.
+1. Crash: (a) PhotoModeMenuGuard: UpdateGameLookAt/SendGameLookAt fermi se !PhotoModeTracker::IsActive(), salta
+   personaggi aggiunti assenti, nuovo PhotoModeMenuGuard::OnExitRequested (ResetCleanFrame di tutti + ForgetMenu) da
+   PhotoModeTracker::OnExitRequested e Detour_Deactivate, g_menuCallback/g_menuApply atomici. (b) EngineLayout::BorrowWeak
+   (solo riferimento debole) in AddPuppetTargets, ProbePuppet, giocatore sul veicolo; IsMalePuppet col puntatore diretto.
+   (c) Script: all'uscita togliere gli oggetti messi dalla mod ai personaggi 1-3 (PlaceProp con puppet come parametro),
+   PRIMA di APM_OnPhotoModeExit; se c'erano oggetti, uscita del gioco ritardata di 0,3 s (con e senza conferma).
+2. Armi a sinistra: config [Items] LeftHandWeapons=auto|0|1 (auto: 2.5 sì, 2.31 no) + nativo; in prova tutte le armi;
+   log AddItemToSlot e slot subito/3 s dopo; messaggio "non si può tenere nella mano sinistra" senza m_noModelItems;
+   pose con arma a sinistra e opzione spenta: non messa + messaggio.
+3. Lista oggetti: Con_Drink NON esiste (bevande = Con_Edible). Aggiungere Con_Inhaler, Con_Injector (cat. 2), Gen_Misc,
+   Gen_Readable, Gen_Keycard, Gen_Tarot, Gen_CraftingMaterial, Con_Skillbook (cat. 3), Gad_Grenade (cat. 1, prova);
+   nome di riserva FriendlyName poi EntityName; log Verbose degli scartati con modello (tipo, nome, motivo); dedup con
+   ricerca binaria.
+4. Oggetti delle mod: src/Game/VanillaRecords.* legge gli ID dei record da r6\cache\tweakdb.bin + tweakdb_ep1.bin (mai
+   modded; formato da verificare con uno script) alla prima apertura della lista; nativi APM_PropRecordIsMod /
+   APM_ModRecordsAvailable. Oggetti delle mod nella loro categoria e in Tutti con un'icona (Lucide "puzzle") + scheda
+   "Mods" come filtro (lista 476 px); regole larghe per i tipi delle mod.
+5. Mani unite: quarta opzione del pin IK di ogni mano "Hand" (segue l'altra mano o WeaponRight/WeaponLeft se c'è un
+   oggetto), offset preso all'attivazione; solo una mano su Hand; Off/World/Body scollega senza scatti; braccio guida
+   prima, poi quello che segue (dopo SolveIkChains, ComputeModelPose fresco); rotazioni del polso (cEdit) restano;
+   specchio escluso; in cronologia e nel salvataggio (campo handLink); azzerato da Reset body / T-A pose.
+6. Rilascio 1.6.0: CMake, README, changelog, zip.
+
+FATTO 10/11 (build 2.5 e 2.31 ok, script ok, dist/dist231/gioco 2.31; NON provato in gioco):
+- 1a: PhotoModeMenuGuard (SendGameLookAt -> bool, controlli IsActive / puppet presente; OnExitRequested; atomici).
+- 1b: EngineLayout::BorrowWeak / LooksAlive; AddPuppetTargets, ProbePuppet, IsMalePuppet, giocatore sul veicolo.
+- 1c: PoseEditor.reds ClearAddedCharacterItems / TakeOutPlacedItem / ExitItemsGone (wref<ItemObject>, attesa finché
+  spariscono, max 1 s, log "Exit: items gone after N ms"); OnExitConfirm rimandato (m_apmExitPending/Resume/Data,
+  ripreso in APM_UpdatePoseEditor); m_exiting ferma SyncProps.
+- 2: Config [Items] LeftHandWeapons (-1 auto), nativo APM_LeftHandWeapons, m_leftWeapons / m_noLeftItems, log slot
+  al posizionamento e dopo 3 s, testi APM-Msg-NoLeftHand / APM-Msg-NoLeftWeapons; [Items] in data\config.ini e dist.
+
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.

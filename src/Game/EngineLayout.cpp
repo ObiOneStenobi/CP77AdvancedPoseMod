@@ -223,25 +223,54 @@ bool ViewRig(uintptr_t aRig, RigView& aOut)
     return true;
 }
 
-RED4ext::Handle<RED4ext::ISerializable> LockAlive(uintptr_t aObject)
+namespace
 {
-    struct RawRef
-    {
-        uint64_t instance;
-        uint64_t refCount;
-    } raw{};
+struct RawRef
+{
+    uint64_t instance;
+    uint64_t refCount;
+};
+static_assert(sizeof(RawRef) == sizeof(RED4ext::WeakHandle<RED4ext::ISerializable>));
+
+// The object's own weak reference, read from raw memory, if the object still has a strong owner.
+bool ReadOwnRef(uintptr_t aObject, RawRef& aOut)
+{
     uint64_t vtable = 0;
     uint32_t strongRefs = 0;
-    if (!SafeMemory::LooksLikePointer(aObject) || !SafeMemory::ReadU64(aObject, vtable) ||
-        !SafeMemory::IsInGameImage(vtable) || !SafeMemory::ReadBytes(aObject + SerializableRef, &raw, sizeof(raw)) ||
-        raw.instance != aObject || !SafeMemory::LooksLikePointer(raw.refCount) ||
-        !SafeMemory::ReadU32(raw.refCount, strongRefs) || strongRefs == 0)
+    return SafeMemory::LooksLikePointer(aObject) && SafeMemory::ReadU64(aObject, vtable) &&
+           SafeMemory::IsInGameImage(vtable) && SafeMemory::ReadBytes(aObject + SerializableRef, &aOut, sizeof(aOut)) &&
+           aOut.instance == aObject && SafeMemory::LooksLikePointer(aOut.refCount) &&
+           SafeMemory::ReadU32(aOut.refCount, strongRefs) && strongRefs != 0;
+}
+} // namespace
+
+RED4ext::WeakHandle<RED4ext::ISerializable> BorrowWeak(uintptr_t aObject)
+{
+    RawRef raw{};
+    if (!ReadOwnRef(aObject, raw))
+    {
+        return {};
+    }
+    // Copy of the object's own weak reference (weak count + 1): never keeps the object alive, so the plugin can never be
+    // the one that destroys it.
+    return reinterpret_cast<const RED4ext::WeakHandle<RED4ext::ISerializable>&>(raw);
+}
+
+bool LooksAlive(uintptr_t aObject)
+{
+    RawRef raw{};
+    return ReadOwnRef(aObject, raw);
+}
+
+RED4ext::Handle<RED4ext::ISerializable> LockAlive(uintptr_t aObject)
+{
+    RawRef raw{};
+    if (!ReadOwnRef(aObject, raw))
     {
         return {};
     }
     // Borrows the weak reference without copying it (no weak count change) and takes a strong one only if the
     // object still has an owner (atomic compare-exchange): from here on it cannot be freed while the handle lives.
-    static_assert(sizeof(RawRef) == sizeof(RED4ext::WeakHandle<RED4ext::ISerializable>));
     return reinterpret_cast<const RED4ext::WeakHandle<RED4ext::ISerializable>&>(raw).Lock();
 }
 } // namespace APM::EngineLayout

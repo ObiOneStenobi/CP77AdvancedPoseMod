@@ -48,6 +48,12 @@ bool ViewRig(uintptr_t aRig, RigView& aOut);
 
 // Strong handle to an engine object (ISerializable*) read from raw memory, only while it is still alive: its own
 // weak reference must point back at it and still count a strong owner. Empty for a destroyed (despawned) object.
-// Holding the handle keeps the object from being freed.
+// Holding the handle keeps the object from being freed, but releasing it may then destroy the object on this thread
+// (if the game dropped its own reference meanwhile): only for short calls that need a strong reference.
 RED4ext::Handle<RED4ext::ISerializable> LockAlive(uintptr_t aObject);
+// Weak handle to a live engine object (same checks as LockAlive), without ever taking a strong reference. Use on the
+// thread that owns the object (e.g. right after the Photo Mode system's own update, which holds its puppets).
+RED4ext::WeakHandle<RED4ext::ISerializable> BorrowWeak(uintptr_t aObject);
+// Same checks, nothing taken.
+bool LooksAlive(uintptr_t aObject);
 } // namespace APM::EngineLayout
