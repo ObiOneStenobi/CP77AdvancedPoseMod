@@ -2720,15 +2720,7 @@ public class APM_PoseEditor extends IScriptable {
             return; // leaving: the items taken out stay out
         }
         if !APM_IsPhotoModeActive() {
-            this.m_exiting = false;
-            ArrayClear(this.m_exitItems);
-            this.RestorePlayerHands(); // if leaving did not go through the exit callbacks
-            this.m_shownRight = 0ul;
-            this.m_shownLeft = 0ul;
-            this.m_checkTimer = 0.0;
-            this.m_hasPoseItemRight = false;
-            this.m_hasPoseItemLeft = false;
-            this.ResetCharacterProps();
+            this.ResetItemsState();
             return;
         }
         let right = APM_GetHandProp(true);
@@ -2766,6 +2758,25 @@ public class APM_PoseEditor extends IScriptable {
                 this.CheckPlacedItem();
             }
         }
+    }
+
+    private func ResetItemsState() {
+        this.m_exiting = false;
+        ArrayClear(this.m_exitItems);
+        this.RestorePlayerHands(); // if leaving did not go through the exit callbacks
+        this.m_shownRight = 0ul;
+        this.m_shownLeft = 0ul;
+        this.m_checkTimer = 0.0;
+        this.m_hasPoseItemRight = false;
+        this.m_hasPoseItemLeft = false;
+        this.ResetCharacterProps();
+    }
+
+    // Photo Mode left (the exit went to the game). The panel lives on with the menu, which gets no update after a
+    // confirmed exit: its items state is reset now, and the next opening is seen as a new session.
+    public func OnPhotoModeLeft() {
+        this.ResetItemsState();
+        this.m_wasActive = false;
     }
 
     private func CheckPlacedItem() {
@@ -5923,6 +5934,9 @@ protected cb func OnTryExitPhotomode() -> Bool {
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();
+        if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.OnPhotoModeLeft();
+        }
     } else {
         APM_LogInfo("Exit requested: the game asks for confirmation");
     }
@@ -5947,6 +5961,9 @@ protected cb func OnExitConfirm(data: ref<inkGameNotificationData>) -> Bool {
             this.m_apmPoseEditor.RestorePlayerHands();
         }
         APM_OnPhotoModeExit();
+        if IsDefined(this.m_apmPoseEditor) {
+            this.m_apmPoseEditor.OnPhotoModeLeft();
+        }
     }
     return wrappedMethod(data);
 }

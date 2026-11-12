@@ -559,6 +559,60 @@ FATTO 10/11 (build 2.5 e 2.31 ok, script ok, dist/dist231/gioco 2.31; NON provat
   oggetti tolti anche a V quando è il puppet di Photo Mode (non sul veicolo: lì RestorePlayerHands).
 - Da provare: arma nella sinistra di V sul veicolo (giocatore vero: inventario, arma del veicolo dopo l'uscita).
 
+## Prove da fare (aggiornato 12/11; nel gioco: 2.31 con DLL dist231 e script attuali, config Log=1 FaceTracks=1)
+Sulla 2.31:
+1. Veicolo: V in auto/moto, arma nella mano sinistra (e anche nella destra); uscire da Photo Mode: V non deve restare
+   con l'arma, l'arma non deve diventare quella del veicolo, nessuna arma in più nell'inventario; provare a guidare e
+   sparare dal veicolo. Log: "Items: character 0 (player) ...", "Exit (...)".
+2. Uscita con oggetti in mano anche a V a piedi (puppet di Photo Mode): log "Exit: character 0 ... taken out" e
+   "Exit: items gone after N ms"; nessun crash. Ripetere con 1-3 NPC con oggetti e con Annulla nella conferma.
+3. Look at camera: cambiare la posa di Photo Mode ed uscire subito (entro 1 s): dopo "Exit (confirmed)" nessuna riga
+   "game's Look at camera back on" né "Photo Mode attribute 68/58/78".
+4. Aggiungere, sostituire e rimuovere NPC più volte, poi uscire (riferimenti deboli: "character N added", niente
+   Warn "Layout:"/SafeMemory).
+5. Arma nella mano sinistra salvata in una posa, ricaricata, annulla/ripeti, Reset body.
+Sulla 2.5 (Steam senza beta, profilo Vortex "2.5 APM", DLL e script di dist):
+6. Le stesse prove 1-5.
+7. Viso su V nel veicolo (segnalazione utente: slider che non muovono il viso): log "Face poses: ... the facial
+   solver poses the face / ignores", "V is the player in a vehicle", FaceProbe.
+8. Selettore NPC (segnalazione utente "no selection for the NPC"): aggiungere un NPC dalla pagina NPC di Photo Mode,
+   deve comparire la riga "< nome >"; log "PhotoMode: character N added (human, can be posed)".
+9. Palpebre a occhi chiusi con Look at camera sulla testa e camera di lato: POSE OFF / POSE ON (se si chiudono solo
+   con OFF è lo sguardo della mod, deciso di tenerlo; valutare di ridurlo solo a occhi chiusi).
+Prova 12/11 (log 22-57-54, 2.31): oggetti in mano piazzati solo nella sessione 1 (veicolo) e 7 (a piedi), poi più
+nulla (nessuna riga "Items:"). Causa: ClearAddedCharacterItems mette m_exiting = true a ogni uscita; lo azzera solo
+SyncProps con Photo Mode spento, ma dopo un'uscita confermata OnUpdate non gira più -> m_exiting resta vero e
+SyncProps esce subito nelle sessioni seguenti (l'uscita senza conferma della sessione 6 lo aveva azzerato per caso).
+Anche m_wasActive resta vero (Retranslate / KeepLayerOnTop(true) solo alla prima apertura). Uscita dal veicolo:
+mani del giocatore ripristinate (ok). Prova 3 (uscita entro 1 s) difficile: la conferma del gioco arriva in ritardo;
+nel log nessun invio del Look at camera dopo le conferme.
+FATTO 12/11 (solo script, check ok, script in dist, dist231 e gioco 2.31): ResetItemsState (ex ramo "Photo Mode spento"
+di SyncProps) e OnPhotoModeLeft (ResetItemsState + m_wasActive = false), chiamato dopo APM_OnPhotoModeExit in
+OnTryExitPhotomode e OnExitConfirm. Da provare: oggetti in mano in più sessioni di fila (veicolo e a piedi, uscite con
+e senza conferma, con oggetti in mano all'uscita), cambio dell'oggetto della posa.
+Segnalazione utente: crash all'uscita spariti togliendo "Photomode UI Improvements" (da verificare se sostituisce
+metodi di gameuiPhotoModeMenuController che la mod avvolge: OnUpdate, OnTryExitPhotomode, OnExitConfirm).
+Analisi PMUI 1.3.0 (installata nel gioco 2.31, 16/10): solo @wrapMethod, nessuno sui nostri metodi d'uscita (unico
+salto di wrappedMethod: OnMenuHoverOut con l'overlay sotto il mouse). Sospetti: (1) archivio che sostituisce
+player_photomode.animgraph + FaceGraphSwap.reds (callback Codeware Entity/Initialize e Reassemble: cambia b.graph dei
+componenti animati dei puppet NPC; PMUI_BodyGraphHooks / PMUI_RuntimeBodyGraphSwap in ModInfo.reds:38-42, true);
+(2) LookAtCharacter.reds: LookAtAddEvent/RemoveEvent propri ai puppet, rimozioni in coda fino a 15 frame (i suoi
+commenti citano crash quando Photo Mode distrugge un personaggio con una richiesta attiva); (3) plugin
+PMUIThermalTarget.dll (detour sui componenti mesh skinnati, sempre attivo). Prova possibile: hook spenti / DLL tolta.
+PMUI 1.4.2 (Desktop, per la 2.5, 03/11): la mod base NON ha più anim graph nell'archivio né FaceGraphSwap; sono nel
+componente opzionale "Animations" 1.4.2 (stessi 4 grafi + FaceGraphSwap con Entity/Initialize e Reassemble, attivo
+con PMUI_BodyGraphHooks / PMUI_RuntimeBodyGraphSwap). LookAtCharacter.reds identico alla 1.3.0 (PMUI_GazeEvents true);
+PMUIThermalTarget.dll cambiata (md5 diverso); HologramHairHook (Entity/Reassemble) spento (PMUI_HologramDots false).
+Nuovo: npc.xl con molti NPC aggiunti alla lista di Photo Mode.
+Da chiedere agli utenti: crash (versione mod/gioco, log con Log=1, momento del crash, oggetti in mano, Look at camera);
+palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpebre).
+
+## Prossimi lavori del piano 1.6.0 (in ordine)
+3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).
+4. Oggetti delle mod (tweakdb.bin, icona "puzzle", scheda Mods come filtro, lista 476 px).
+5. Mani unite: opzione "Hand" nel pin IK di ogni mano.
+6. Rilascio 1.6.0.
+
 ## Prossimi passi
 - Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
   rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
