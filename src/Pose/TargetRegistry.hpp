@@ -50,6 +50,7 @@ struct Target
     // when it is one of the skeleton's own bones (not in the character's main skeleton), else -1.
     std::vector<int16_t> chainRoots;
     std::vector<int8_t> groups; // per bone: PhysicsBones::Groups index of the own bones moved as one piece, else -1
+    std::vector<uint8_t> pivots; // per bone: 1 for the main member of its group (it turns around it)
     bool hasOwnBones = false;
 };
 

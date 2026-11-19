@@ -18,11 +18,12 @@ struct GroupRule
     const char* name;         // virtual bone
     const char* memberPrefix; // bones whose name starts with it
     const char* label;        // panel label
+    const char* pivot;        // the member it turns around (its main bone), found by this part of its name
 };
 
 inline constexpr GroupRule Groups[] = {
-    {"breasts", "APM_group:l_chest", "l_chest", "Left breast"},
-    {"breasts", "APM_group:r_chest", "r_chest", "Right breast"},
+    {"breasts", "APM_group:l_chest", "l_chest", "Left breast", "C_top"},
+    {"breasts", "APM_group:r_chest", "r_chest", "Right breast", "C_top"},
 };
 constexpr size_t GroupCount = sizeof(Groups) / sizeof(Groups[0]);
 
@@ -43,6 +44,22 @@ inline int32_t GroupOf(std::string_view aSkeleton, std::string_view aBone)
         }
     }
     return -1;
+}
+
+// Main member of a group (the one it turns around); the others support it.
+inline bool IsGroupPivot(size_t aGroup, std::string_view aBone)
+{
+    return aGroup < GroupCount && aBone.find(Groups[aGroup].pivot) != std::string_view::npos;
+}
+
+// Panel section of a physics skeleton: 0 hair, 1 breasts, 2 clothes (everything else).
+inline int32_t CategoryOf(std::string_view aSkeleton)
+{
+    if (aSkeleton == "breasts")
+    {
+        return 1;
+    }
+    return aSkeleton.find("hair") != std::string_view::npos ? 0 : 2;
 }
 
 // Own bones that can be posed: in the breasts skeleton only the breast bones (the shoulder helpers follow the arms).

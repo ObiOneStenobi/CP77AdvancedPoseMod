@@ -32,6 +32,8 @@ struct CatalogEntry
     const char* chainRoot = nullptr; // first bone of the chain (its physics switch is kept there)
     int32_t chainIndex = 0;          // 1-based place of the bone in its chain (0 for a group)
     bool ikMove = false;             // moving it bends the chain above it (chain IK) instead of offsetting it
+    int32_t category = -1;           // physics section: 0 hair, 1 breasts, 2 clothes
+    bool support = false;            // a group member around its main bone (drawn smaller)
 };
 
 // Body parts, then the physics bones of the selected character (indices of the body parts never change).

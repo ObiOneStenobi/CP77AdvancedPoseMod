@@ -701,7 +701,16 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   solo da APM_PhysicsRevision; ikMove (ossa con indice > 1): GizmoMovePart -> MoveChainBone (CCD, salva rotazioni).
   Assi pannello dei gruppi = Spine3. Spostamento fisico max 15 cm. Nativi APM_PhysicsRevision, APM_PartSkeleton,
   APM_PartChain, APM_PartChainIndex, APM_PartKeepsPhysics, APM_PartSetKeepsPhysics.
-- Non fatto: pin World/Body per le catene (l'IK salva rotazioni: segue il corpo), specchio delle ossa fisiche.
+- Non fatto: specchio delle ossa fisiche.
+- Prova 19/11 22:33 + secondo giro (FATTO, build/script ok, copiato; DA PROVARE): scheletri distinti per rig (V aveva
+  due hair_dangle: capelli + acconciatura del vestito); Game/MeshBones (CMesh.boneNames delle mesh visibili via
+  ResourceLoader::LoadAsync, già caricate) -> nel catalogo solo ossa usate (log "Physics bones: ... used by the visible
+  meshes"; se non tutte lette: tutte, riprova ogni 1 s); gruppi del seno attorno a C_top (pivots); posa ferma salvata
+  ("physicsHeld" nel JSON, OverrideSnapshot.held/heldGeneration); scheletro sparito -> RemoveBones (stesso
+  personaggio); ResetAll(true) tiene le ossa non del root; ResetBones/APM_ResetPhysics(categoria); categorie
+  0 capelli ("hair" nel nome) / 1 seno / 2 vestiti; pin catena BoneOverride.pin (1 world modello, 2 body nel frame
+  di Hips) risolto ogni frame (SolvePinnedChains, CCD); script: modalità Body/Face + Hair/Breasts/Clothes, Physics
+  On/Off, pin Off/World/Body, marker IK gialli, C_top senza marker (al suo posto il gruppo), supporti piccoli.
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

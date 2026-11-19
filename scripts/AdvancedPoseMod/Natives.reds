@@ -217,6 +217,15 @@ public native func APM_PartChainIndex(part: Int32) -> Int32
 // Per chain: false = an edited chain is held still, true = the physics keeps moving it and the edits are added
 public native func APM_PartKeepsPhysics(part: Int32) -> Bool
 public native func APM_PartSetKeepsPhysics(part: Int32, keep: Bool)
+// Physics section of a part: 0 hair, 1 breasts, 2 clothes; -1 for body parts
+public native func APM_PartCategory(part: Int32) -> Int32
+// Breast bones around the main one (smaller markers)
+public native func APM_PartIsSupport(part: Int32) -> Bool
+// Chain IK pin of a hair / clothing bone that bends its chain: 0 off, 1 world, 2 body (set: pinned where it is now)
+public native func APM_PartPin(part: Int32) -> Int32
+public native func APM_PartSetPin(part: Int32, pin: Int32)
+// Resets every edit of a physics section (category as APM_PartCategory), one undo step
+public native func APM_ResetPhysics(category: Int32)
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
 // Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)

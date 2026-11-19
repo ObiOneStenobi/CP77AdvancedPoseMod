@@ -76,6 +76,7 @@ void MarkOwnBones(std::vector<APM::Pose::Target>& aTargets)
     {
         target.chainRoots.assign(target.boneNames.size(), int16_t(-1));
         target.groups.assign(target.boneNames.size(), int8_t(-1));
+        target.pivots.assign(target.boneNames.size(), uint8_t(0));
         target.hasOwnBones = false;
         if (!APM::Pose::IsPhysicsSkeletonName(target.debugName))
         {
@@ -107,6 +108,8 @@ void MarkOwnBones(std::vector<APM::Pose::Target>& aTargets)
                 continue;
             }
             target.groups[i] = static_cast<int8_t>(APM::Pose::PhysicsBones::GroupOf(target.debugName, name));
+            target.pivots[i] = target.groups[i] >= 0 &&
+                               APM::Pose::PhysicsBones::IsGroupPivot(static_cast<size_t>(target.groups[i]), name);
             const int16_t parent = i < target.parents.size() ? target.parents[i] : int16_t(-1);
             const bool parentOwn = parent >= 0 && static_cast<size_t>(parent) < i && target.chainRoots[parent] >= 0;
             target.chainRoots[i] = parentOwn ? target.chainRoots[parent] : static_cast<int16_t>(i);

@@ -64,10 +64,13 @@ struct PhysicsBone
     int16_t parent = -1;   // index in the skeleton
     int16_t chainRoot = -1; // index of the first bone of its chain (itself for the first one)
     int8_t group = -1;     // PhysicsBones::Groups index
+    bool pivot = false;    // main member of its group
 };
 struct PhysicsSkeleton
 {
     std::string name; // component name
+    uintptr_t rig = 0;
+    uintptr_t entity = 0; // the character's entity (ent::Entity*)
     std::vector<PhysicsBone> bones; // the whole rig, in order (own bones have chainRoot >= 0)
 };
 std::vector<PhysicsSkeleton> GetPhysicsSkeletons();

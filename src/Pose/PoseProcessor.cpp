@@ -1601,6 +1601,7 @@ struct HeldChains
 {
     std::vector<RED4ext::QsTransform> held;
     std::vector<uint8_t> has;
+    uint32_t generation = 0; // OverrideSnapshot::heldGeneration they were taken for
 };
 std::mutex g_heldMutex;
 std::unordered_map<uintptr_t, std::unique_ptr<HeldChains>> g_held;
@@ -1634,6 +1635,117 @@ const std::array<uint64_t, APM::Pose::PhysicsBones::GroupCount>& GroupHashes()
         return out;
     }();
     return hashes;
+}
+
+// Pinned hair / clothing bones (chain IK): the bones of the chain above each one turn, every frame, so that it reaches
+// its pin (a model-space point, or a point in the hips' frame), cyclic coordinate descent on the final local pose.
+void SolvePinnedChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                       const APM::Pose::OverrideSnapshot& aPose, const std::vector<int32_t>& aEdits)
+{
+    thread_local std::vector<Vec3> positions;
+    thread_local std::vector<Quat> rotations;
+    const auto computeModel = [&]
+    {
+        positions.resize(aCount);
+        rotations.resize(aCount);
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            const Vec3 local{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+            const int16_t parent = aTarget.parents[i];
+            if (parent >= 0 && static_cast<uint32_t>(parent) < i)
+            {
+                positions[i] = positions[parent] + APM::Math::Rotate(rotations[parent], local);
+                rotations[i] = APM::Math::Normalize(APM::Math::Mul(rotations[parent], GetRotation(aBones[i])));
+            }
+            else
+            {
+                positions[i] = local;
+                rotations[i] = GetRotation(aBones[i]);
+            }
+        }
+    };
+    static const uint64_t hipsHash = Hash("Hips");
+    for (uint32_t p = 0; p < aCount; ++p)
+    {
+        if (aEdits[p] < 0 || aPose.bones[aEdits[p]].pin == 0)
+        {
+            continue;
+        }
+        const auto& bone = aPose.bones[aEdits[p]];
+        computeModel();
+        Vec3 target{bone.pinTarget[0], bone.pinTarget[1], bone.pinTarget[2]};
+        if (bone.pin == 2)
+        {
+            const int32_t hips = IndexOf(aTarget, hipsHash);
+            if (hips >= 0 && static_cast<uint32_t>(hips) < aCount)
+            {
+                target = positions[hips] + APM::Math::Rotate(rotations[hips], target);
+            }
+        }
+        // The chain above the pinned bone, from its first bone down.
+        std::array<int32_t, 64> path{};
+        size_t length = 0;
+        const int16_t root = aTarget.chainRoots[p];
+        for (int32_t i = aTarget.parents[p]; i >= 0 && length < path.size(); i = aTarget.parents[i])
+        {
+            if (aTarget.chainRoots[i] != root)
+            {
+                break;
+            }
+            path[length++] = i;
+            if (i == root)
+            {
+                break;
+            }
+        }
+        if (length == 0)
+        {
+            continue;
+        }
+        std::reverse(path.begin(), path.begin() + length);
+        Vec3 effector = positions[p];
+        std::array<Vec3, 64> jointPositions{};
+        std::array<Quat, 64> jointRotations{};
+        for (size_t j = 0; j < length; ++j)
+        {
+            jointPositions[j] = positions[path[j]];
+            jointRotations[j] = rotations[path[j]];
+        }
+        for (int iteration = 0; iteration < 10 && APM::Math::Length(effector - target) > 0.001f; ++iteration)
+        {
+            for (size_t step = 0; step < length; ++step)
+            {
+                const size_t j = length - 1 - step;
+                const Vec3 from = effector - jointPositions[j];
+                const Vec3 to = target - jointPositions[j];
+                if (APM::Math::Length(from) < 1e-4f || APM::Math::Length(to) < 1e-4f)
+                {
+                    continue;
+                }
+                const Vec3 axis = APM::Math::Cross(APM::Math::Normalize(from), APM::Math::Normalize(to));
+                const float angle = APM::Math::AngleBetween(APM::Math::Normalize(from), APM::Math::Normalize(to));
+                if (APM::Math::Length(axis) < 1e-6f || angle < 1e-4f)
+                {
+                    continue;
+                }
+                const Quat turn = APM::Math::FromAxisAngle(APM::Math::Normalize(axis), angle);
+                for (size_t k = j + 1; k < length; ++k)
+                {
+                    jointPositions[k] = jointPositions[j] + APM::Math::Rotate(turn, jointPositions[k] - jointPositions[j]);
+                    jointRotations[k] = APM::Math::Normalize(APM::Math::Mul(turn, jointRotations[k]));
+                }
+                jointRotations[j] = APM::Math::Normalize(APM::Math::Mul(turn, jointRotations[j]));
+                effector = jointPositions[j] + APM::Math::Rotate(turn, effector - jointPositions[j]);
+            }
+        }
+        for (size_t j = 0; j < length; ++j)
+        {
+            const int16_t parent = aTarget.parents[path[j]];
+            const Quat parentModel = j > 0 ? jointRotations[j - 1]
+                                           : (parent >= 0 ? rotations[parent] : Quat{0.f, 0.f, 0.f, 1.f});
+            SetRotation(aBones[path[j]], APM::Math::Mul(APM::Math::Conjugate(parentModel), jointRotations[j]));
+        }
+    }
 }
 
 void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
@@ -1678,7 +1790,7 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         {
             held[root] = 2;
         }
-        else if ((bone.hasRotation || bone.hasTranslation) && held[root] == 0)
+        else if ((bone.hasRotation || bone.hasTranslation || bone.pin != 0) && held[root] == 0)
         {
             held[root] = 1;
         }
@@ -1706,10 +1818,11 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
     }
 
     HeldChains* chains = GetHeld(aTarget.animatedComponent);
-    if (chains->held.size() != aCount)
+    if (chains->held.size() != aCount || chains->generation != aPose.heldGeneration)
     {
         chains->held.assign(aCount, RED4ext::QsTransform{});
         chains->has.assign(aCount, 0);
+        chains->generation = aPose.heldGeneration;
     }
     for (uint32_t i = 0; i < aCount; ++i)
     {
@@ -1725,7 +1838,22 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         }
         if (!chains->has[i])
         {
+            // Where the loaded pose had it, else where the physics has it now.
             chains->held[i] = aBones[i];
+            if (aPose.held)
+            {
+                for (const auto& saved : *aPose.held)
+                {
+                    if (saved.boneHash == aTarget.boneNames[i])
+                    {
+                        SetRotation(chains->held[i], saved.rotation);
+                        chains->held[i].Translation.X = saved.translation[0];
+                        chains->held[i].Translation.Y = saved.translation[1];
+                        chains->held[i].Translation.Z = saved.translation[2];
+                        break;
+                    }
+                }
+            }
             chains->has[i] = 1;
         }
         aBones[i] = chains->held[i];
@@ -1743,6 +1871,7 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         Vec3 sum{};
         int32_t members = 0;
         int16_t parent = -1;
+        int32_t pivot = -1;
         for (uint32_t i = 0; i < aCount; ++i)
         {
             if (aTarget.groups[i] == static_cast<int8_t>(g) && (parent < 0 || aTarget.parents[i] == parent))
@@ -1750,13 +1879,16 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
                 parent = aTarget.parents[i];
                 sum = sum + Vec3{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
                 ++members;
+                pivot = aTarget.pivots.size() > i && aTarget.pivots[i] ? static_cast<int32_t>(i) : pivot;
             }
         }
         if (members == 0)
         {
             continue;
         }
-        const Vec3 middle = sum * (1.f / static_cast<float>(members));
+        // Turned around its main bone (a breast around C_top), else around the middle of its members.
+        const Vec3 middle = pivot >= 0 ? Vec3{aBones[pivot].Translation.X, aBones[pivot].Translation.Y, aBones[pivot].Translation.Z}
+                                       : sum * (1.f / static_cast<float>(members));
         const Quat turn = edit.hasRotation ? edit.rotation : Quat{0.f, 0.f, 0.f, 1.f};
         const Vec3 move = edit.hasTranslation ? Vec3{edit.translation[0], edit.translation[1], edit.translation[2]} : Vec3{};
         for (uint32_t i = 0; i < aCount; ++i)
@@ -1775,6 +1907,7 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
     }
 
     // The bones' own edits.
+    bool anyPin = false;
     for (uint32_t i = 0; i < aCount; ++i)
     {
         if (edits[i] < 0)
@@ -1782,6 +1915,7 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
             continue;
         }
         const auto& bone = aPose.bones[edits[i]];
+        anyPin = anyPin || bone.pin != 0;
         if (bone.hasRotation)
         {
             SetRotation(aBones[i], APM::Math::Mul(GetRotation(aBones[i]), bone.rotation));
@@ -1792,6 +1926,10 @@ void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
             aBones[i].Translation.Y += bone.translation[1];
             aBones[i].Translation.Z += bone.translation[2];
         }
+    }
+    if (anyPin)
+    {
+        SolvePinnedChains(aTarget, aBones, aCount, aPose, edits);
     }
 }
 

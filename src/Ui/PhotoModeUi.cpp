@@ -1213,6 +1213,23 @@ bool MoveChainBone(int32_t aPart, const Math::Vec3& aModelDelta)
     const uint64_t moved = RED4ext::CName(entry.bones.front()).hash;
     const uint64_t root = RED4ext::CName(entry.chainRoot).hash;
 
+    // A pinned bone: its pin moves (the solver bends the chain every frame).
+    std::array<float, 3> pinTarget{};
+    if (const uint8_t pin = Pose::PoseOverrides::GetPin(entry.bones.front(), pinTarget))
+    {
+        Math::Vec3 delta = aModelDelta;
+        Math::Quat hips{};
+        if (pin == 2 && Pose::GizmoState::GetBoneModelRotation(RED4ext::CName("Hips").hash, hips))
+        {
+            delta = Math::Rotate(Math::Conjugate(hips), aModelDelta);
+        }
+        Pose::PoseOverrides::SetPin(entry.bones.front(), pin,
+                                    {pinTarget[0] + delta.x, pinTarget[1] + delta.y, pinTarget[2] + delta.z});
+        g_bodyPart = aPart;
+        RequestRefresh();
+        return true;
+    }
+
     // Bones from the chain's first one down to the dragged bone's parent.
     std::vector<uint64_t> path;
     for (const auto& skeleton : Pose::GizmoState::GetPhysicsSkeletons())
@@ -1332,6 +1349,104 @@ uint32_t RefreshPhysicsParts()
         RequestRefresh();
     }
     return revision;
+}
+
+int32_t PartPin(int32_t aPart)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()) || !catalog[aPart].ikMove)
+    {
+        return 0;
+    }
+    std::array<float, 3> target{};
+    return Pose::PoseOverrides::GetPin(catalog[aPart].bones.front(), target);
+}
+
+// Pins a hair / clothing bone where it is shown now (world: model space; body: in the hips' frame), or unpins it
+// keeping the chain as the solver bent it (as plain rotations).
+void SetPartPin(int32_t aPart, int32_t aPin)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()) || !catalog[aPart].ikMove || aPin < 0 || aPin > 2)
+    {
+        return;
+    }
+    const char* bone = catalog[aPart].bones.front();
+    const uint64_t hash = RED4ext::CName(bone).hash;
+    const uint64_t root = RED4ext::CName(catalog[aPart].chainRoot).hash;
+    Math::Vec3 position{};
+    if (!Pose::GizmoState::GetBoneModelPosition(hash, position))
+    {
+        return;
+    }
+    Pose::PoseOverrides::Checkpoint();
+    if (aPin == 0)
+    {
+        // The chain above it keeps its current shape.
+        for (const auto& skeleton : Pose::GizmoState::GetPhysicsSkeletons())
+        {
+            const auto it = std::find_if(skeleton.bones.begin(), skeleton.bones.end(), [&](const auto& b) { return b.hash == hash; });
+            if (it == skeleton.bones.end())
+            {
+                continue;
+            }
+            for (int32_t i = it->parent; i >= 0 && static_cast<size_t>(i) < skeleton.bones.size(); i = skeleton.bones[i].parent)
+            {
+                Math::Quat finalLocal{};
+                Math::Vec3 unused{};
+                const char* name = RED4ext::CName(skeleton.bones[i].hash).ToString();
+                if (name && Pose::GizmoState::GetFinalLocal(skeleton.bones[i].hash, finalLocal, unused))
+                {
+                    SetBoneLocal(name, finalLocal, false);
+                }
+                if (skeleton.bones[i].hash == root)
+                {
+                    break;
+                }
+            }
+            break;
+        }
+        Pose::PoseOverrides::SetPin(bone, 0, {});
+    }
+    else
+    {
+        Math::Vec3 target = position;
+        Math::Vec3 hipsPosition{};
+        Math::Quat hipsRotation{};
+        if (aPin == 2 && Pose::GizmoState::GetBoneModelPosition(RED4ext::CName("Hips").hash, hipsPosition) &&
+            Pose::GizmoState::GetBoneModelRotation(RED4ext::CName("Hips").hash, hipsRotation))
+        {
+            target = Math::Rotate(Math::Conjugate(hipsRotation), position - hipsPosition);
+        }
+        Pose::PoseOverrides::SetPin(bone, static_cast<uint8_t>(aPin), {target.x, target.y, target.z});
+    }
+    g_bodyPart = aPart;
+    RequestRefresh();
+}
+
+void ResetPhysicsSection(int32_t aCategory)
+{
+    std::vector<uint64_t> bones;
+    for (const auto& entry : GetBoneCatalog())
+    {
+        if (!entry.skeleton || entry.category != aCategory)
+        {
+            continue;
+        }
+        for (const char* name : entry.bones)
+        {
+            bones.push_back(RED4ext::CName(name).hash);
+        }
+        if (entry.chainRoot)
+        {
+            bones.push_back(RED4ext::CName(entry.chainRoot).hash);
+        }
+    }
+    if (!bones.empty())
+    {
+        Pose::PoseOverrides::ResetBones(bones);
+    }
+    RequestRefresh();
 }
 
 bool PartKeepsPhysics(int32_t aPart)

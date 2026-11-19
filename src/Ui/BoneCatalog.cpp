@@ -1,7 +1,13 @@
 #include "Ui/BoneCatalog.hpp"
 
+#include "Core/Log.hpp"
+#include "Game/MeshBones.hpp"
+#include "Pose/Characters.hpp"
 #include "Pose/GizmoState.hpp"
 #include "Pose/PhysicsBones.hpp"
+#include "Pose/PoseOverrides.hpp"
+
+#include <Windows.h>
 
 #include <RED4ext/CName.hpp>
 
@@ -97,6 +103,10 @@ const std::vector<CatalogEntry>& BodyCatalog()
 std::vector<CatalogEntry> g_catalog = BodyCatalog();
 uint32_t g_sourceRevision = 0;
 uint32_t g_revision = 1;
+uint64_t g_retryAt = 0; // a visible mesh was not loaded yet: look again then
+// Physics bones of the selected character last time (to drop the edits of a skeleton that went away).
+std::unordered_set<uint64_t> g_lastBones;
+uint32_t g_lastSlot = UINT32_MAX;
 
 // Names live as long as the plugin: the entries keep plain pointers to them.
 const char* Intern(const std::string& aText)
@@ -199,15 +209,82 @@ size_t GetBodyPartCount()
 uint32_t RefreshPhysicsEntries()
 {
     const uint32_t source = Pose::GizmoState::GetPhysicsRevision();
-    if (source == g_sourceRevision)
+    const uint64_t now = GetTickCount64();
+    if (source == g_sourceRevision && (g_retryAt == 0 || now < g_retryAt))
     {
         return g_revision;
     }
     g_sourceRevision = source;
-    std::vector<CatalogEntry> catalog = BodyCatalog();
-    for (const auto& skeleton : Pose::GizmoState::GetPhysicsSkeletons())
+    g_retryAt = 0;
+    const auto skeletons = Pose::GizmoState::GetPhysicsSkeletons();
+
+    // Only the bones the visible meshes use (when they can all be read).
+    std::unordered_set<uint64_t> used;
+    bool complete = false;
+    const bool read = !skeletons.empty() && MeshBones::Collect(skeletons.front().entity, used, complete);
+    const bool filter = read && complete;
+    if (read && !complete)
     {
-        const std::string skeletonLabel = SkeletonLabel(skeleton.name);
+        g_retryAt = now + 1000;
+    }
+
+    // A skeleton that went away (other outfit or hair): its edits go too, the physics takes it back.
+    std::unordered_set<uint64_t> bones;
+    for (const auto& skeleton : skeletons)
+    {
+        for (const auto& bone : skeleton.bones)
+        {
+            if (bone.chainRoot >= 0 || bone.group >= 0 || Pose::PhysicsBones::IsGroupBone(NameOf(bone.hash)))
+            {
+                bones.insert(bone.hash);
+            }
+        }
+    }
+    const uint32_t slot = Pose::Characters::Selected();
+    if (slot == g_lastSlot && !skeletons.empty())
+    {
+        std::vector<uint64_t> gone;
+        for (const uint64_t hash : g_lastBones)
+        {
+            if (!bones.contains(hash))
+            {
+                gone.push_back(hash);
+            }
+        }
+        if (!gone.empty())
+        {
+            Pose::PoseOverrides::RemoveBones(gone);
+        }
+    }
+    if (!skeletons.empty())
+    {
+        g_lastBones = std::move(bones);
+        g_lastSlot = slot;
+    }
+
+    std::vector<CatalogEntry> catalog = BodyCatalog();
+    std::unordered_set<std::string> labels;
+    for (const auto& skeleton : skeletons)
+    {
+        std::string skeletonLabel = SkeletonLabel(skeleton.name);
+        for (int n = 2; labels.contains(skeletonLabel); ++n)
+        {
+            skeletonLabel = SkeletonLabel(skeleton.name) + " " + std::to_string(n);
+        }
+        labels.insert(skeletonLabel);
+        const int32_t category = Pose::PhysicsBones::CategoryOf(skeleton.name);
+        size_t ownCount = 0;
+        size_t usedCount = 0;
+        for (const auto& bone : skeleton.bones)
+        {
+            if (bone.chainRoot >= 0)
+            {
+                ++ownCount;
+                usedCount += used.contains(bone.hash) ? 1 : 0;
+            }
+        }
+        APM::Log::Verbose("Physics bones: %s (%s): %zu own bones, %zu used by the visible meshes%s", skeleton.name.c_str(),
+                          skeletonLabel.c_str(), ownCount, usedCount, filter ? "" : " (meshes not all read: all shown)");
         const char* group = Intern("~" + skeletonLabel);
         const char* skeletonText = Intern(skeletonLabel);
         // Groups (a breast) first.
@@ -224,6 +301,7 @@ uint32_t RefreshPhysicsEntries()
                 {
                     CatalogEntry entry{group, rule.label, {Intern(name)}, EntryMode::Group, true};
                     entry.skeleton = skeletonText;
+                    entry.category = category;
                     entry.chain = rule.label;
                     entry.chainRoot = Intern(name);
                     catalog.push_back(std::move(entry));
@@ -245,10 +323,14 @@ uint32_t RefreshPhysicsEntries()
             std::vector<size_t> members;
             for (size_t i = root; i < skeleton.bones.size(); ++i)
             {
-                if (skeleton.bones[i].chainRoot == static_cast<int16_t>(root))
+                if (skeleton.bones[i].chainRoot == static_cast<int16_t>(root) && (!filter || used.contains(skeleton.bones[i].hash)))
                 {
                     members.push_back(i);
                 }
+            }
+            if (members.empty())
+            {
+                continue;
             }
             const bool single = members.size() == 1;
             const char* chainText = Intern(BoneLabel(rootName, !single));
@@ -268,7 +350,9 @@ uint32_t RefreshPhysicsEntries()
                 entry.chain = chainText;
                 entry.chainRoot = rootText;
                 entry.chainIndex = static_cast<int32_t>(m + 1);
-                entry.ikMove = m > 0;
+                entry.ikMove = members[m] != root;
+                entry.category = category;
+                entry.support = skeleton.bones[members[m]].group >= 0 && !skeleton.bones[members[m]].pivot;
                 catalog.push_back(std::move(entry));
             }
         }

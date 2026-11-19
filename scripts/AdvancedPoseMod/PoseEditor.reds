@@ -201,11 +201,14 @@ public class APM_Marker extends IScriptable {
     public let depth: Float;    // distance from the camera while shown
     public let behindFade: Float; // 0..1: depth behind the nearest marker shown (drawn fainter)
     public let coverFade: Float;  // 0..1: covered on screen by a nearer marker (drawn much fainter)
-    public let isPhysics: Bool;   // hair, clothing or breast bone (Hair & clothes mode only)
+    public let isPhysics: Bool;   // hair, clothing or breast bone (shown in its physics mode only)
+    public let category: Int32;   // APM_PartCategory: 0 hair, 1 breasts, 2 clothes (-1 body)
     public let skeleton: String;  // its physics skeleton
     public let chainIndex: Int32; // 1-based place in its chain, 0 for a group entry
     public let prevPart: Int32;   // previous bone of its chain (line from it), or -1
-    public let panelOnly: Bool;   // breast bone of a skeleton with group entries: marker only while selected
+    public let pinnable: Bool;    // hair / clothing bone that bends its chain when moved (chain IK, pin)
+    public let isSupport: Bool;   // breast bone around the main one: smaller, dimmer marker
+    public let noMarker: Bool;    // main breast bone (C_top): on the group entry's marker, picked in the panel only
 }
 
 // Classic gizmo (rotation rings / move arrows on the selected part): one hit square of a ring or an arrow.
@@ -341,9 +344,14 @@ public class APM_PoseEditor extends IScriptable {
     private let m_sectionItems: wref<inkCanvas>;
     private let m_sectionMode: wref<inkCanvas>;   // Body / Face: the panel shows the body sections or the face section
     private let m_faceMode: Bool;
-    // Hair & clothes mode: the physics bones (hair, clothing, breasts), listed after the body parts in the part list
-    // (7701). The list changes at runtime (other character, hair, outfit): APM_PhysicsRevision() tells when.
-    private let m_physicsMode: Bool;
+    // Hair / Breasts / Clothes modes: the physics bones, listed after the body parts in the part list (7701). The
+    // list changes at runtime (other character, hair, outfit): APM_PhysicsRevision() tells when.
+    private let m_physicsMode: Bool;                  // one of the three physics modes is shown
+    private let m_physicsCategory: Int32;             // its category (APM_PartCategory), -1 in Body / Face
+    private let m_physicsPartCategories: array<Int32>; // category per physics part (index part - m_bodyPartCount)
+    private let m_physicsSkeletonCategories: array<Int32>;
+    private let m_physicsSkeletonSlots: array<Int32>; // skeleton of each skeleton button (-1 none)
+    private let m_physicsPinLabel: wref<inkText>;
     private let m_sectionPhysics: wref<inkCanvas>;
     private let m_physicsHeight: Float;
     private let m_physicsRevision: Int32;
@@ -363,7 +371,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_physicsBoneButtons: array<ref<APM_Button>>;
     private let m_physicsEmpty: wref<inkText>;
     private let m_lastBodyPart: Int32;                // selection kept while the other mode is shown
-    private let m_lastPhysicsPart: Int32;
+    private let m_lastPhysicsParts: array<Int32>;     // per physics mode
     private let m_sectionFace: wref<inkCanvas>;   // face poses by zone and saved expressions
     private let m_faceBody: wref<inkCanvas>;
     private let m_faceInfo: wref<inkText>;
@@ -544,9 +552,16 @@ public class APM_PoseEditor extends IScriptable {
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 1.0) > 0.5; // open when the game starts
         this.m_faceMode = APM_SessionGet("FaceMode", 0.0) > 0.5;
-        this.m_physicsMode = !this.m_faceMode && APM_SessionGet("PhysicsMode", 0.0) > 0.5;
+        // Physics mode: 0 none, else category + 1 (hair, breasts, clothes)
+        this.m_physicsCategory = this.m_faceMode ? -1 : Cast<Int32>(APM_SessionGet("PhysicsMode", 0.0) + 0.5) - 1;
+        this.m_physicsCategory = Clamp(this.m_physicsCategory, -1, 2);
+        this.m_physicsMode = this.m_physicsCategory >= 0;
         this.m_physicsChain = -1;
-        this.m_lastPhysicsPart = -1;
+        let c = 0;
+        while c < 3 {
+            ArrayPush(this.m_lastPhysicsParts, Cast<Int32>(APM_SessionGet("PhysicsPart" + IntToString(c), -1.0)));
+            c += 1;
+        }
         this.m_physicsRevision = APM_PhysicsRevision();
         this.ReadPhysicsParts();
         this.m_faceZone = Cast<Int32>(APM_SessionGet("FaceZone", 4.0) + 0.5); // lips
@@ -781,28 +796,34 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(tools, "axes:global", "globe", 412.0, 4.0, this.L("APM-Tip-AxesGlobal", "Axes (Ctrl+4): Global, the character's (fixed). Click for Local"));
         this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, ""); // tooltip in Refresh: Body or Face
 
-        // Body / Face / Hair & clothes: the panel shows the body sections below, the face section or the physics one
+        // Body / Face, then Hair / Breasts / Clothes (the physics bones): the panel shows the body sections below, the
+        // face section or the physics one (filtered to that category)
         let modeRow = this.CreateSection(n"APM_Mode");
         this.m_sectionMode = modeRow;
-        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 199.0, 32.0);
+        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 302.0, 32.0);
         this.TipL(bodyMode, "APM-Tip-ModeBody", "Pose the body: parts, IK, poses, items");
-        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 220.0, 4.0, 199.0, 32.0);
+        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 322.0, 4.0, 302.0, 32.0);
         this.TipL(faceMode, "APM-Tip-ModeFace", "Expression editor: the Photo Mode expression, pose by pose");
-        let physicsMode = this.CreateButton(modeRow, "mode:physics", this.L("APM-Button-ModePhysics", "Hair & clothes"), 424.0, 4.0, 200.0, 32.0);
-        this.TipL(physicsMode, "APM-Tip-ModePhysics", "Pose hair, clothing and breast bones (the physics ones)");
+        let hairMode = this.CreateButton(modeRow, "mode:hair", this.L("APM-Button-ModeHair", "Hair"), 16.0, 40.0, 199.0, 32.0);
+        this.TipL(hairMode, "APM-Tip-ModeHair", "Pose the hair bones (the ones moved by physics)");
+        let breastsMode = this.CreateButton(modeRow, "mode:breasts", this.L("APM-Button-ModeBreasts", "Breasts"), 220.0, 40.0, 199.0, 32.0);
+        this.TipL(breastsMode, "APM-Tip-ModeBreasts", "Pose the breasts: each one as a whole, or bone by bone");
+        let clothesMode = this.CreateButton(modeRow, "mode:clothes", this.L("APM-Button-ModeClothes", "Clothes"), 424.0, 40.0, 200.0, 32.0);
+        this.TipL(clothesMode, "APM-Tip-ModeClothes", "Pose the clothing bones (the ones moved by physics: coat tails, skirts, straps)");
 
-        // Hair & clothes: skeletons (two rows of four), chains of the skeleton (two rows of three, in pages), bones of
-        // the chain, physics switch of the chain. Placed by LayoutPhysics().
+        // Physics modes: skeletons (two rows of four), chains of the skeleton (two rows of three, in pages), bones of
+        // the chain, physics switch of the chain and pin of the bone. Placed by LayoutPhysics().
         let physics = this.CreateSection(n"APM_Physics");
         this.m_sectionPhysics = physics;
         this.AddSeparator(physics);
-        this.m_physicsEmpty = this.CreateText(physics, this.L("APM-Msg-NoPhysics", "No hair, clothing or breast bones with physics on this character"), 16.0, 10.0, 608.0, 32.0, 14, APM_ColorDimText());
+        this.m_physicsEmpty = this.CreateText(physics, "", 16.0, 10.0, 608.0, 32.0, 14, APM_ColorDimText()); // text per mode in RefreshPhysics
         let p = 0;
         while p < 8 {
             let skeletonButton = this.CreateButton(physics, "physskel:" + IntToString(p), "", 16.0 + Cast<Float>(p % 4) * 152.0, 10.0 + Cast<Float>(p / 4) * 36.0, 146.0, 32.0);
             skeletonButton.label.SetLetterCase(textLetterCase.OriginalCase);
             this.AddDot(skeletonButton);
             ArrayPush(this.m_physicsSkeletonButtons, skeletonButton);
+            ArrayPush(this.m_physicsSkeletonSlots, -1);
             p += 1;
         }
         this.CreateButton(physics, "physpage:prev", "<", 16.0, 0.0, 40.0, 68.0);
@@ -823,8 +844,16 @@ public class APM_PoseEditor extends IScriptable {
             ArrayPush(this.m_physicsBoneButtons, boneButton);
             p += 1;
         }
-        let keepButton = this.CreateSmallButton(physics, "physkeep", "", 16.0, 0.0, 240.0, 28.0);
-        this.TipL(keepButton, "APM-Tip-PhysicsSwitch", "Held: an edited chain stays still where it was. On: the physics keeps moving it and your edits are added");
+        let keepButton = this.CreateSmallButton(physics, "physkeep", "", 16.0, 0.0, 200.0, 28.0);
+        this.TipL(keepButton, "APM-Tip-PhysicsSwitch", "Physics Off: an edited chain stays still where it was. Physics On: the physics keeps moving it and your edits are added");
+        // Pin of a bone that bends its chain (hair, clothes), as the IK pin of the limbs
+        this.m_physicsPinLabel = this.CreateText(physics, this.L("APM-Label-Pin", "Pin"), 232.0, 0.0, 60.0, 28.0, 14, APM_ColorDimText());
+        let pinOffButton = this.CreateSmallButton(physics, "physpin:0", this.L("APM-Button-PinOff", "Off"), 296.0, 0.0, 106.0, 28.0);
+        this.TipL(pinOffButton, "APM-Tip-PhysicsPinOff", "Pin off: moving the bone bends its chain, which keeps its shape afterwards");
+        let pinWorldButton = this.CreateSmallButton(physics, "physpin:1", this.L("APM-Button-PinWorld", "World"), 407.0, 0.0, 106.0, 28.0);
+        this.TipL(pinWorldButton, "APM-Tip-PhysicsPinWorld", "Pin world: the bone stays where it is in the scene, even if the head / body moves");
+        let pinBodyButton = this.CreateSmallButton(physics, "physpin:2", this.L("APM-Button-PinBody", "Body"), 518.0, 0.0, 106.0, 28.0);
+        this.TipL(pinBodyButton, "APM-Tip-PhysicsPinBody", "Pin body: the bone keeps its place relative to the hips and moves with them");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -1047,9 +1076,9 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionHeader, y, 42.0, true);
         y = this.PlaceSection(this.m_sectionCharacter, y, 46.0, this.HasAddedCharacters());
         y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
-        y = this.PlaceSection(this.m_sectionMode, y, 40.0, true);
+        y = this.PlaceSection(this.m_sectionMode, y, 76.0, true);
         let body = !this.m_faceMode && !this.m_physicsMode;
-        let physicsParts = this.m_physicsMode && ArraySize(this.m_physicsChainFirst) > 0;
+        let physicsParts = this.m_physicsMode && this.CategoryHasParts(this.m_physicsCategory);
         y = this.PlaceSection(this.m_sectionPart, y, 160.0, body);
         y = this.PlaceSection(this.m_sectionPhysics, y, this.m_physicsHeight, this.m_physicsMode);
         y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body || physicsParts);
@@ -1359,18 +1388,22 @@ public class APM_PoseEditor extends IScriptable {
         marker.group = APM_UiGetOptionGroup(7701u, i);
         marker.kind = APM_MarkerKindBone();
         if isPhysics {
-            // Hair, clothing, breasts: plain bone markers, no IK; the line comes from the previous bone of the chain.
+            // Hair, clothing, breasts: plain bone markers, no limb IK; the line comes from the previous bone of the
+            // chain (hair, clothes). Hair / clothing bones that can move bend their chain (chain IK, pin).
             marker.chain = -1;
             marker.swivelChain = -1;
             marker.isProp = false;
             marker.isPhysics = true;
+            marker.category = APM_PartCategory(i);
             marker.skeleton = APM_PartSkeleton(i);
             marker.chainIndex = APM_PartChainIndex(i);
             marker.prevPart = -1;
-            if marker.chainIndex > 1 && i > 0 && Equals(APM_PartChain(i - 1), APM_PartChain(i)) && Equals(APM_PartSkeleton(i - 1), marker.skeleton) {
+            if marker.category != 1 && marker.chainIndex > 1 && i > 0 && Equals(APM_PartChain(i - 1), APM_PartChain(i)) && Equals(APM_PartSkeleton(i - 1), marker.skeleton) {
                 marker.prevPart = i - 1;
             }
-            marker.panelOnly = marker.chainIndex > 0 && this.SkeletonHasGroups(marker.skeleton);
+            marker.pinnable = marker.canMove && (marker.category == 0 || marker.category == 2);
+            marker.isSupport = marker.category == 1 && marker.chainIndex > 0 && APM_PartIsSupport(i);
+            marker.noMarker = marker.category == 1 && marker.chainIndex > 0 && !marker.isSupport;
         } else if Equals(label, "Eyes (both)") || i == this.m_leftEyePart || i == this.m_rightEyePart {
             marker.kind = APM_MarkerKindEyeLook();
         } else if APM_GizmoIsPartDetail(i) {
@@ -3475,16 +3508,36 @@ public class APM_PoseEditor extends IScriptable {
         this.RefreshPhysics(part, edited);
     }
 
-    // --- Hair & clothes (physics parts) ----------------------------------------------------------------------------
+    // --- Physics parts (Hair / Breasts / Clothes modes) ------------------------------------------------------------
 
     private func IsPhysicsPart(part: Int32) -> Bool {
         return part >= this.m_bodyPartCount && part < APM_UiGetOptionCount(7701u);
+    }
+
+    // APM_PartCategory of a part, read with the list: 0 hair, 1 breasts, 2 clothes, -1 body part.
+    private func PhysicsCategoryOf(part: Int32) -> Int32 {
+        let k = part - this.m_bodyPartCount;
+        if part < 0 || k < 0 || k >= ArraySize(this.m_physicsPartCategories) {
+            return -1;
+        }
+        return this.m_physicsPartCategories[k];
+    }
+
+    // A physics part of the physics mode shown.
+    private func IsPartOfMode(part: Int32) -> Bool {
+        return this.m_physicsMode && this.IsPhysicsPart(part) && this.PhysicsCategoryOf(part) == this.m_physicsCategory;
+    }
+
+    private func CategoryHasParts(category: Int32) -> Bool {
+        return ArrayContains(this.m_physicsPartCategories, category);
     }
 
     // Skeletons and chains of the physics parts (after the body parts; the parts of a chain follow each other, a group
     // entry is a chain of its own).
     private func ReadPhysicsParts() {
         ArrayClear(this.m_physicsSkeletons);
+        ArrayClear(this.m_physicsSkeletonCategories);
+        ArrayClear(this.m_physicsPartCategories);
         ArrayClear(this.m_physicsChainFirst);
         ArrayClear(this.m_physicsChainCount);
         ArrayClear(this.m_physicsChainSkeleton);
@@ -3501,18 +3554,21 @@ public class APM_PoseEditor extends IScriptable {
         i = this.m_bodyPartCount;
         while i < count {
             let skeleton = APM_PartSkeleton(i);
+            let category = APM_PartCategory(i);
             let chain = APM_PartChain(i);
             let place = APM_PartChainIndex(i);
+            ArrayPush(this.m_physicsPartCategories, category);
             let skeletonIndex = -1;
             let k = 0;
             while k < ArraySize(this.m_physicsSkeletons) {
-                if Equals(this.m_physicsSkeletons[k], skeleton) {
+                if Equals(this.m_physicsSkeletons[k], skeleton) && this.m_physicsSkeletonCategories[k] == category {
                     skeletonIndex = k;
                 }
                 k += 1;
             }
             if skeletonIndex < 0 {
                 ArrayPush(this.m_physicsSkeletons, skeleton);
+                ArrayPush(this.m_physicsSkeletonCategories, category);
                 skeletonIndex = ArraySize(this.m_physicsSkeletons) - 1;
             }
             let last = ArraySize(this.m_physicsChainFirst) - 1;
@@ -3528,23 +3584,23 @@ public class APM_PoseEditor extends IScriptable {
             }
             i += 1;
         }
-        this.m_physicsSkeleton = Clamp(this.m_physicsSkeleton, 0, Max(0, ArraySize(this.m_physicsSkeletons) - 1));
+        this.m_physicsSkeleton = -1; // set by RefreshPhysics (first skeleton of the mode, or the selected part's)
         this.m_physicsChain = -1;
         this.m_physicsChainPage = 0;
         this.m_physicsPageChain = -1;
     }
 
-    // A skeleton whose parts include group entries (the breasts): its single bones are picked in the panel only.
-    private func SkeletonHasGroups(skeleton: String) -> Bool {
-        let c = 0;
-        while c < ArraySize(this.m_physicsChainFirst) {
-            let first = this.m_physicsChainFirst[c];
-            if Equals(this.m_physicsSkeletons[this.m_physicsChainSkeleton[c]], skeleton) && APM_PartChainIndex(first) == 0 {
-                return true;
+    // Skeletons of a category, in list order.
+    private func CategorySkeletons(category: Int32) -> array<Int32> {
+        let skeletons: array<Int32>;
+        let k = 0;
+        while k < ArraySize(this.m_physicsSkeletonCategories) {
+            if this.m_physicsSkeletonCategories[k] == category {
+                ArrayPush(skeletons, k);
             }
-            c += 1;
+            k += 1;
         }
-        return false;
+        return skeletons;
     }
 
     // Chain holding a part (-1 for a body part).
@@ -3563,12 +3619,12 @@ public class APM_PoseEditor extends IScriptable {
         return chain >= 0 && chain < ArraySize(this.m_physicsChainFirst) && APM_PartChainIndex(this.m_physicsChainFirst[chain]) == 0;
     }
 
-    // Chains of the skeleton shown, in list order.
-    private func PhysicsSkeletonChains() -> array<Int32> {
+    // Chains of a skeleton, in list order.
+    private func SkeletonChains(skeleton: Int32) -> array<Int32> {
         let chains: array<Int32>;
         let c = 0;
         while c < ArraySize(this.m_physicsChainFirst) {
-            if this.m_physicsChainSkeleton[c] == this.m_physicsSkeleton {
+            if this.m_physicsChainSkeleton[c] == skeleton {
                 ArrayPush(chains, c);
             }
             c += 1;
@@ -3584,9 +3640,6 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.m_physicsRevision = revision;
         this.ReadPhysicsParts();
-        if this.m_lastPhysicsPart >= 0 && !this.IsPhysicsPart(this.m_lastPhysicsPart) {
-            this.m_lastPhysicsPart = -1;
-        }
         this.RebuildPhysicsMarkers();
         if IsDefined(this.m_panel) {
             this.Refresh();
@@ -3600,14 +3653,26 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    // Body / Face / Hair & clothes: each keeps its own selected part (a physics part in Hair & clothes, a body part
-    // in the others).
+    // Each mode keeps its own selected part: a physics part of its category in Hair / Breasts / Clothes (the last one
+    // selected there, else the first), a body part in Body / Face.
     private func SelectPartForMode() {
         let part = Cast<Int32>(APM_UiGetValue(7701u));
         if this.m_physicsMode {
-            if !this.IsPhysicsPart(part) && ArraySize(this.m_physicsChainFirst) > 0 {
-                let target = this.IsPhysicsPart(this.m_lastPhysicsPart) ? this.m_lastPhysicsPart : this.m_physicsChainFirst[0];
-                APM_UiSetValue(7701u, Cast<Float>(target));
+            if !this.IsPartOfMode(part) && this.CategoryHasParts(this.m_physicsCategory) {
+                let target = this.m_lastPhysicsParts[this.m_physicsCategory];
+                if !this.IsPartOfMode(target) {
+                    target = -1;
+                    let skeletons = this.CategorySkeletons(this.m_physicsCategory);
+                    if ArraySize(skeletons) > 0 {
+                        let chains = this.SkeletonChains(skeletons[0]);
+                        if ArraySize(chains) > 0 {
+                            target = this.m_physicsChainFirst[chains[0]];
+                        }
+                    }
+                }
+                if target >= 0 {
+                    APM_UiSetValue(7701u, Cast<Float>(target));
+                }
             }
         } else if this.IsPhysicsPart(part) {
             let bodyPart = this.m_lastBodyPart >= 0 && this.m_lastBodyPart < this.m_bodyPartCount ? this.m_lastBodyPart : 0;
@@ -3615,30 +3680,80 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    private func PhysicsSkeletonText(skeleton: String) -> String {
-        if Equals(skeleton, "Hair") {
-            return APM_Text("APM-Physics-Hair", "Hair");
+    // Remembers the selected part for its mode (the physics ones also for the session).
+    private func RememberPart(part: Int32) {
+        if this.IsPhysicsPart(part) {
+            let category = this.PhysicsCategoryOf(part);
+            if category >= 0 && category < ArraySize(this.m_lastPhysicsParts) && this.m_lastPhysicsParts[category] != part {
+                this.m_lastPhysicsParts[category] = part;
+                APM_SessionSet("PhysicsPart" + IntToString(category), Cast<Float>(part));
+            }
+        } else {
+            this.m_lastBodyPart = part;
         }
-        if Equals(skeleton, "Breasts") {
-            return APM_Text("APM-Physics-Breasts", "Breasts");
+    }
+
+    // "Hair", "Hair 2", "Breasts": translated; other skeletons (component names) as they are.
+    private func PhysicsSkeletonText(skeleton: String) -> String {
+        if StrBeginsWith(skeleton, "Hair") {
+            return APM_Text("APM-Physics-Hair", "Hair") + StrMid(skeleton, 4);
+        }
+        if StrBeginsWith(skeleton, "Breasts") {
+            return APM_Text("APM-Physics-Breasts", "Breasts") + StrMid(skeleton, 7);
         }
         return skeleton;
     }
 
-    // Buttons of the Hair & clothes section; places them (LayoutPhysics) and sets the section height.
+    // Reset all in a physics mode: 0 tooltip, 1 tooltip while confirming, 2 confirmation message.
+    private func PhysicsResetText(kind: Int32) -> String {
+        if this.m_physicsCategory == 1 {
+            return kind == 0 ? APM_Text("APM-Tip-ResetBreasts", "Reset the breasts (click twice): every edit of the breast bones")
+                : (kind == 1 ? APM_Text("APM-Tip-ResetBreastsConfirm", "Click again to reset the breasts")
+                : APM_Text("APM-Msg-ResetBreastsConfirm", "Click again to reset the breasts (every edit of the breast bones)"));
+        }
+        if this.m_physicsCategory == 2 {
+            return kind == 0 ? APM_Text("APM-Tip-ResetClothes", "Reset the clothes (click twice): every edit of the clothing bones")
+                : (kind == 1 ? APM_Text("APM-Tip-ResetClothesConfirm", "Click again to reset the clothes")
+                : APM_Text("APM-Msg-ResetClothesConfirm", "Click again to reset the clothes (every edit of the clothing bones)"));
+        }
+        return kind == 0 ? APM_Text("APM-Tip-ResetHair", "Reset the hair (click twice): every edit of the hair bones")
+            : (kind == 1 ? APM_Text("APM-Tip-ResetHairConfirm", "Click again to reset the hair")
+            : APM_Text("APM-Msg-ResetHairConfirm", "Click again to reset the hair (every edit of the hair bones)"));
+    }
+
+    private func PhysicsModeId(category: Int32) -> String {
+        return category == 0 ? "hair" : (category == 1 ? "breasts" : "clothes");
+    }
+
+    // Hair / clothing bone that bends its chain when moved: it can be pinned.
+    private func IsPinnablePart(part: Int32) -> Bool {
+        let category = this.PhysicsCategoryOf(part);
+        return (category == 0 || category == 2) && APM_GizmoCanMovePart(part);
+    }
+
+    // Buttons of the physics section for the mode shown; places them (LayoutPhysics) and sets the section height.
     private func RefreshPhysics(part: Int32, edited: array<Bool>) {
-        this.SetButton("mode:physics", this.m_physicsMode, true);
+        let m = 0;
+        while m < 3 {
+            this.SetButton("mode:" + this.PhysicsModeId(m), this.m_physicsCategory == m, true);
+            m += 1;
+        }
         let count = ArraySize(edited);
-        // The skeleton and chain shown follow the selected part when it is a physics part.
-        let selectedChain = this.PhysicsChainOf(part);
+        let skeletons = this.CategorySkeletons(this.m_physicsCategory);
+        let any = ArraySize(skeletons) > 0;
+        // The skeleton and chain shown follow the selected part when it is a part of this mode.
+        let selectedChain = this.IsPartOfMode(part) ? this.PhysicsChainOf(part) : -1;
         if selectedChain >= 0 {
             this.m_physicsChain = selectedChain;
             this.m_physicsSkeleton = this.m_physicsChainSkeleton[selectedChain];
         }
+        if !ArrayContains(skeletons, this.m_physicsSkeleton) {
+            this.m_physicsSkeleton = any ? skeletons[0] : -1;
+        }
         if this.m_physicsChain >= ArraySize(this.m_physicsChainFirst) || (this.m_physicsChain >= 0 && this.m_physicsChainSkeleton[this.m_physicsChain] != this.m_physicsSkeleton) {
             this.m_physicsChain = -1;
         }
-        let chains = this.PhysicsSkeletonChains();
+        let chains = this.SkeletonChains(this.m_physicsSkeleton);
         let perPage = APM_PhysicsChainSlots();
         let pages = Max(1, (ArraySize(chains) + perPage - 1) / perPage);
         if selectedChain >= 0 && selectedChain != this.m_physicsPageChain {
@@ -3653,22 +3768,32 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.m_physicsChainPage = Clamp(this.m_physicsChainPage, 0, pages - 1);
 
-        // Skeletons
-        let any = ArraySize(this.m_physicsChainFirst) > 0;
+        // Nothing of this category on the character: a message only.
         this.m_physicsEmpty.SetVisible(!any);
+        if !any {
+            if this.m_physicsCategory == 1 {
+                this.m_physicsEmpty.SetText(APM_Text("APM-Msg-NoPhysicsBreasts", "No breast bones with physics on this character"));
+            } else if this.m_physicsCategory == 2 {
+                this.m_physicsEmpty.SetText(APM_Text("APM-Msg-NoPhysicsClothes", "No clothing with physics on this character"));
+            } else {
+                this.m_physicsEmpty.SetText(APM_Text("APM-Msg-NoPhysicsHair", "No hair with physics on this character"));
+            }
+        }
+        // Skeletons of the category
         let p = 0;
         while p < ArraySize(this.m_physicsSkeletonButtons) {
             let button = this.m_physicsSkeletonButtons[p];
-            let shown = p < ArraySize(this.m_physicsSkeletons);
-            button.root.SetVisible(shown);
-            if shown {
-                button.label.SetText(this.PhysicsSkeletonText(this.m_physicsSkeletons[p]));
-                button.isSelected = p == this.m_physicsSkeleton;
+            let skeleton = p < ArraySize(skeletons) ? skeletons[p] : -1;
+            this.m_physicsSkeletonSlots[p] = skeleton;
+            button.root.SetVisible(skeleton >= 0);
+            if skeleton >= 0 {
+                button.label.SetText(this.PhysicsSkeletonText(this.m_physicsSkeletons[skeleton]));
+                button.isSelected = skeleton == this.m_physicsSkeleton;
                 button.UpdateLook();
                 let skeletonEdited = false;
                 let c = 0;
                 while c < ArraySize(this.m_physicsChainFirst) && !skeletonEdited {
-                    if this.m_physicsChainSkeleton[c] == p {
+                    if this.m_physicsChainSkeleton[c] == skeleton {
                         skeletonEdited = this.AnyEdited(edited, this.m_physicsChainFirst[c], this.m_physicsChainCount[c]);
                     }
                     c += 1;
@@ -3703,8 +3828,8 @@ public class APM_PoseEditor extends IScriptable {
         }
         this.SetButton("physpage:prev", false, this.m_physicsChainPage > 0);
         this.SetButton("physpage:next", false, this.m_physicsChainPage < pages - 1);
-        // Bones of the chain (none for a group entry), and its physics switch
-        let bones = this.m_physicsChain >= 0 && !this.IsGroupChain(this.m_physicsChain) ? Min(this.m_physicsChainCount[this.m_physicsChain], APM_PhysicsBoneSlots()) : 0;
+        // Bones of the chain (none for a group entry), its physics switch, and the pin of the selected bone
+        let bones = any && this.m_physicsChain >= 0 && !this.IsGroupChain(this.m_physicsChain) ? Min(this.m_physicsChainCount[this.m_physicsChain], APM_PhysicsBoneSlots()) : 0;
         p = 0;
         while p < ArraySize(this.m_physicsBoneButtons) {
             let button = this.m_physicsBoneButtons[p];
@@ -3722,12 +3847,25 @@ public class APM_PoseEditor extends IScriptable {
             keepButton.root.SetVisible(bones > 0);
             if bones > 0 {
                 let keeps = APM_PartKeepsPhysics(this.m_physicsChainFirst[this.m_physicsChain]);
-                keepButton.label.SetText(keeps ? APM_Text("APM-Button-PhysicsOn", "Physics: on") : APM_Text("APM-Button-PhysicsHeld", "Physics: held"));
+                keepButton.label.SetText(keeps ? APM_Text("APM-Button-PhysicsOn", "Physics On") : APM_Text("APM-Button-PhysicsOff", "Physics Off"));
                 keepButton.isSelected = keeps;
                 keepButton.UpdateLook();
             }
         }
-        this.LayoutPhysics(paged ? perPage : ArraySize(chains) - first, bones);
+        let pinnable = bones > 0 && this.IsPartOfMode(part) && this.IsPinnablePart(part);
+        let pin = pinnable ? APM_PartPin(part) : 0;
+        this.m_physicsPinLabel.SetVisible(pinnable);
+        p = 0;
+        while p < 3 {
+            let pinButton = this.FindButton("physpin:" + IntToString(p));
+            if IsDefined(pinButton) {
+                pinButton.root.SetVisible(pinnable);
+                pinButton.isSelected = p == pin;
+                pinButton.UpdateLook();
+            }
+            p += 1;
+        }
+        this.LayoutPhysics(ArraySize(skeletons), paged ? perPage : ArraySize(chains) - first, bones);
     }
 
     private func AnyEdited(edited: array<Bool>, first: Int32, count: Int32) -> Bool {
@@ -3741,13 +3879,14 @@ public class APM_PoseEditor extends IScriptable {
         return false;
     }
 
-    // Rows of the Hair & clothes section: skeletons, chains (left on the page), bones, physics switch.
-    private func LayoutPhysics(chainsLeft: Int32, bones: Int32) {
-        if ArraySize(this.m_physicsChainFirst) == 0 {
+    // Rows of the physics section: skeletons, chains (left on the page), bones, physics switch and pin.
+    private func LayoutPhysics(skeletons: Int32, chainsLeft: Int32, bones: Int32) {
+        if skeletons == 0 {
             this.m_physicsHeight = 50.0;
             return;
         }
-        let y = 10.0 + Cast<Float>((Min(ArraySize(this.m_physicsSkeletons), 8) + 3) / 4) * 36.0 + 4.0;
+        let s = APM_UiScale();
+        let y = 10.0 + Cast<Float>((Min(skeletons, 8) + 3) / 4) * 36.0 + 4.0;
         let chainRows = Clamp((chainsLeft + 2) / 3, 1, 2);
         let p = 0;
         while p < ArraySize(this.m_physicsChainButtons) {
@@ -3771,6 +3910,15 @@ public class APM_PoseEditor extends IScriptable {
             let keepButton = this.FindButton("physkeep");
             if IsDefined(keepButton) {
                 this.MoveButton(keepButton, y);
+            }
+            this.m_physicsPinLabel.SetMargin(232.0 * s, y * s, 0.0, 0.0);
+            p = 0;
+            while p < 3 {
+                let pinButton = this.FindButton("physpin:" + IntToString(p));
+                if IsDefined(pinButton) {
+                    this.MoveButton(pinButton, y);
+                }
+                p += 1;
             }
             y += 32.0;
         }
@@ -3809,11 +3957,7 @@ public class APM_PoseEditor extends IScriptable {
         // Body part tabs
         this.SelectPartForMode();
         let part = Cast<Int32>(APM_UiGetValue(7701u));
-        if this.IsPhysicsPart(part) {
-            this.m_lastPhysicsPart = part;
-        } else {
-            this.m_lastBodyPart = part;
-        }
+        this.RememberPart(part);
         let group = APM_UiGetOptionGroup(7701u, part);
         let groupIndex = this.GroupIndexOf(group);
         let i = 0;
@@ -3902,7 +4046,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         let resetAllButton = this.FindButton("resetall");
         if IsDefined(resetAllButton) {
-            if this.m_faceMode {
+            if this.m_physicsMode {
+                resetAllButton.tooltip = this.PhysicsResetText(this.m_confirmResetAll ? 1 : 0);
+            } else if this.m_faceMode {
                 resetAllButton.tooltip = this.m_confirmResetAll ? APM_Text("APM-Tip-ResetFaceConfirm", "Click again to reset the face") : APM_Text("APM-Tip-ResetFace", "Reset the face (click twice): the Photo Mode expression");
             } else {
                 resetAllButton.tooltip = this.m_confirmResetAll ? APM_Text("APM-Tip-ResetBodyConfirm", "Click again to reset the body") : APM_Text("APM-Tip-ResetBody", "Reset the body (click twice): pose and items in hand (the face stays)");
@@ -4209,16 +4355,17 @@ public class APM_PoseEditor extends IScriptable {
         let selectedGroup = APM_UiGetOptionGroup(7701u, selected);
         let s = APM_UiScale();
         let shownSkeleton = this.m_physicsSkeleton >= 0 && this.m_physicsSkeleton < ArraySize(this.m_physicsSkeletons) ? this.m_physicsSkeletons[this.m_physicsSkeleton] : "";
+        let shownCategory = this.m_physicsSkeleton >= 0 && this.m_physicsSkeleton < ArraySize(this.m_physicsSkeletonCategories) ? this.m_physicsSkeletonCategories[this.m_physicsSkeleton] : -1;
 
         let i = 0;
         while i < ArraySize(this.m_markers) {
             let marker = this.m_markers[i];
             let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
-            // Hair & clothes: only the markers of the skeleton shown (breasts: the group entries, a single bone while
-            // selected); the other modes: only the body markers.
+            // Physics modes: only the markers of the skeleton shown (breasts: not the main bone, which sits on its
+            // group entry's marker); Body / Face: only the body markers.
             let modeShown = !this.m_physicsMode && !marker.isPhysics;
             if marker.isPhysics && this.m_physicsMode {
-                modeShown = Equals(marker.skeleton, shownSkeleton) && (!marker.panelOnly || marker.part == selected);
+                modeShown = marker.category == this.m_physicsCategory && marker.category == shownCategory && Equals(marker.skeleton, shownSkeleton) && !marker.noMarker;
             }
             if !modeShown && !isDragged {
                 marker.root.SetVisible(false);
@@ -4288,6 +4435,8 @@ public class APM_PoseEditor extends IScriptable {
             color = APM_ColorAccent();
         } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
             color = APM_ColorIk();
+        } else if marker.pinnable && mode == APM_DragMove() {
+            color = APM_ColorIk(); // hair / clothing bone: moving it bends its chain (IK)
         } else if marker.isProp {
             color = APM_ColorProp();
         } else if marker.part == this.m_hipsPart {
@@ -4314,14 +4463,26 @@ public class APM_PoseEditor extends IScriptable {
             marker.depth = anywhere.Z;
             let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
             let size = isDetail ? 7.0 : 10.0;
+            if marker.isPhysics && marker.chainIndex == 0 {
+                size = 12.0; // a whole breast: the main marker
+            } else if marker.isSupport {
+                size = 6.0;  // breast bones around the main one
+            }
             if isSelected || marker.isHovered {
                 size += 4.0;
             }
             marker.dot.SetTintColor(color);
             if IsDefined(marker.halo) {
-                marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
+                let pinned = marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain);
+                if marker.pinnable {
+                    pinned = APM_PartPin(marker.part) > 0; // hair / clothing bone pinned (chain IK)
+                }
+                marker.halo.SetVisible(pinned);
             }
             let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
+            if marker.isSupport && !isSelected && !marker.isHovered {
+                opacity *= 0.6;
+            }
             if !isSelected && !marker.isHovered {
                 opacity *= this.DepthFade(marker); // farther back (last frame's overlap pass)
             }
@@ -4348,7 +4509,7 @@ public class APM_PoseEditor extends IScriptable {
             this.SetEyesTogether(true);
         }
         this.UpdateRootMarker(camera, toWorld, selected);
-        if this.m_physicsMode && !this.IsPhysicsPart(selected) {
+        if this.m_physicsMode && !this.IsPartOfMode(selected) {
             this.HideClassicGizmo(); // Hair & clothes without physics parts: no body part is edited there
         } else {
             this.UpdateClassicGizmo(camera, toWorld, selected, s);
@@ -4863,7 +5024,10 @@ public class APM_PoseEditor extends IScriptable {
             // Classic gizmo on: the markers only select (the rings / arrows turn and move).
             text = APM_PartShortText(APM_UiGetOptionLabel(7701u, marker.part)) + ": " + APM_Text("APM-Hint-ClassicSelect", "click to select (drag the rings / arrows)");
         } else if !IsDefined(this.m_dragMarker) && !this.m_shiftDown && !this.m_controlDown && !APM_IsAltDown() && marker.kind != APM_MarkerKindEyeLook() {
-            if marker.chain >= 0 {
+            if marker.isPhysics {
+                // Physics bones that move: Shift rotates (a whole breast turns as seen from the camera)
+                text += "   " + (marker.canMove ? APM_Text("APM-Hint-ShiftRotate", "(Shift: rotate, Alt: free, Ctrl: twist)") : APM_Text("APM-Hint-AltFree", "(Alt: free, Ctrl: twist)"));
+            } else if marker.chain >= 0 {
                 if this.m_autoIk {
                     text += "   " + APM_Text("APM-Hint-ShiftRotate", "(Shift: rotate, Alt: free, Ctrl: twist)");
                 } else if APM_GizmoIsIkActive(marker.chain) {
@@ -5212,11 +5376,20 @@ public class APM_PoseEditor extends IScriptable {
             // camera, like the head.
             return shift ? APM_DragTrackball() : APM_DragMove();
         }
+        // Physics bones: a whole breast (group entry) moves, Shift turns it as seen from the camera; a bone that can
+        // move (breast bones, hair / clothing bones that bend their chain with IK) moves, Shift rotates it; the first
+        // bone of a chain rotates.
+        if marker.isPhysics {
+            if marker.chainIndex == 0 {
+                return shift || !marker.canMove ? APM_DragTrackball() : APM_DragMove();
+            }
+            if marker.canMove {
+                return shift ? APM_DragRotate() : APM_DragMove();
+            }
+            return APM_DragRotate();
+        }
         if shift && marker.canMove && !isHips {
             return APM_DragMove();
-        }
-        if marker.isPhysics && marker.chainIndex == 0 {
-            return APM_DragTrackball(); // a whole breast (group entry): turned as seen from the camera
         }
         if marker.chain >= 0 {
             // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: drag rotates it; Shift moves it with IK
@@ -5680,7 +5853,7 @@ public class APM_PoseEditor extends IScriptable {
             this.RunPropButton(arg);
         } else if Equals(prefix, "mode") {
             let faceMode = Equals(arg, "face");
-            let physicsMode = Equals(arg, "physics");
+            let category = Equals(arg, "hair") ? 0 : (Equals(arg, "breasts") ? 1 : (Equals(arg, "clothes") ? 2 : -1));
             if NotEquals(faceMode, this.m_faceMode) {
                 this.m_faceMode = faceMode;
                 APM_SessionSet("FaceMode", this.m_faceMode ? 1.0 : 0.0);
@@ -5688,19 +5861,27 @@ public class APM_PoseEditor extends IScriptable {
                 this.m_posePage = 0;
                 this.ReloadPoses();
             }
-            if NotEquals(physicsMode, this.m_physicsMode) {
-                this.m_physicsMode = physicsMode;
-                APM_SessionSet("PhysicsMode", this.m_physicsMode ? 1.0 : 0.0);
+            if category != this.m_physicsCategory {
+                this.m_physicsCategory = category;
+                this.m_physicsMode = category >= 0;
+                APM_SessionSet("PhysicsMode", Cast<Float>(category + 1));
+                this.m_physicsChain = -1;
+                this.m_physicsPageChain = -1;
             }
-            this.SelectPartForMode(); // a physics part in Hair & clothes, a body part in the others
+            this.SelectPartForMode(); // a part of that physics category, or a body part in Body / Face
         } else if Equals(prefix, "physskel") {
-            let skeleton = StringToInt(arg);
-            if skeleton >= 0 && skeleton < ArraySize(this.m_physicsSkeletons) {
-                this.m_physicsSkeleton = skeleton;
-                let skeletonChains = this.PhysicsSkeletonChains();
+            let skeletonSlot = StringToInt(arg);
+            if skeletonSlot >= 0 && skeletonSlot < ArraySize(this.m_physicsSkeletonSlots) && this.m_physicsSkeletonSlots[skeletonSlot] >= 0 {
+                this.m_physicsSkeleton = this.m_physicsSkeletonSlots[skeletonSlot];
+                let skeletonChains = this.SkeletonChains(this.m_physicsSkeleton);
                 if ArraySize(skeletonChains) > 0 {
                     this.SelectPhysicsChain(skeletonChains[0]);
                 }
+            }
+        } else if Equals(prefix, "physpin") {
+            let pinPart = Cast<Int32>(APM_UiGetValue(7701u));
+            if this.IsPartOfMode(pinPart) && this.IsPinnablePart(pinPart) {
+                APM_PartSetPin(pinPart, StringToInt(arg)); // pinned where it is now (undo step in the plugin)
             }
         } else if Equals(prefix, "physchain") {
             let chainSlot = StringToInt(arg);
@@ -5780,11 +5961,16 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(id, "resetall") {
             // The part shown: Face resets the expression, Body the pose and the items in hand.
             if this.m_confirmResetAll {
-                if this.m_faceMode {
+                if this.m_physicsMode {
+                    APM_ResetPhysics(this.m_physicsCategory); // that section only (one undo step)
+                } else if this.m_faceMode {
                     APM_FaceReset();
                 } else {
                     APM_ResetBody(); // pose, IK, base pose and items in hand (one undo step)
                 }
+            } else if this.m_physicsMode {
+                keepResetConfirm = true;
+                this.SetStatus(this.PhysicsResetText(2));
             } else {
                 keepResetConfirm = true;
                 this.SetStatus(this.m_faceMode ? APM_Text("APM-Msg-ResetFaceConfirm", "Click again to reset the face (the Photo Mode expression)") : APM_Text("APM-Msg-ResetBodyConfirm", "Click again to reset the body (pose, items in hand)"));

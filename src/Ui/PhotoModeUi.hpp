@@ -74,6 +74,11 @@ uint32_t RefreshPhysicsParts();
 // Physics of the part's chain kept on while it is edited (off: the edited chain is held still).
 bool PartKeepsPhysics(int32_t aPart);
 void SetPartKeepsPhysics(int32_t aPart, bool aKeep);
+// Chain IK pin of a hair / clothing bone: 0 off, 1 world, 2 body (only bones that bend their chain when moved).
+int32_t PartPin(int32_t aPart);
+void SetPartPin(int32_t aPart, int32_t aPin);
+// Reset all of a physics section (0 hair, 1 breasts, 2 clothes): one step of the history.
+void ResetPhysicsSection(int32_t aCategory);
 
 // Hand presets (0 open, 1 relaxed, 2 fist, 3 point, 4 grip): sets the fingers of one hand. Returns false if unknown.
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset);

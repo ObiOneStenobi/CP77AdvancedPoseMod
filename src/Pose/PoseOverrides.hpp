@@ -33,6 +33,11 @@ struct BoneOverride
     // First bone of a hair / clothing chain (physics skeletons): the physics keeps moving the chain while it is edited
     // (the edits are added to it) instead of holding it still.
     bool keepPhysics = false;
+
+    // Hair / clothing bone pinned by the chain IK (its chain's bones above it turn to keep it there every frame):
+    // 1 = world (pinTarget: model-space point), 2 = body (pinTarget: point in the hips' frame).
+    uint8_t pin = 0;
+    std::array<float, 3> pinTarget{};
 };
 
 // Two-bone IK chains of the main skeleton.
@@ -116,8 +121,19 @@ inline bool AnyFaceWeight(const FaceWeights& aWeights)
     return false;
 }
 
+// Where a held hair / clothing chain stands (local transform of its bones), as saved in a pose file: a loaded pose
+// holds its chains there instead of wherever the physics has them when it is loaded, so its edits look the same.
+struct HeldBone
+{
+    uint64_t boneHash = 0;
+    Math::Quat rotation{};
+    std::array<float, 3> translation{};
+};
+
 struct OverrideSnapshot
 {
+    std::shared_ptr<const std::vector<HeldBone>> held;
+    uint32_t heldGeneration = 0; // changes when a pose is loaded or reset: the held chains are taken again
     std::vector<BoneOverride> bones;
     std::array<IkChainSettings, IkChainCount> ik{};
     std::shared_ptr<const BasePose> base;
@@ -171,6 +187,13 @@ void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, cons
 bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut);
 // Physics of a hair / clothing chain kept on while it is edited (aBone = the chain's first bone).
 void SetKeepPhysics(const std::string& aBone, bool aKeep);
+// Drops the edits of these bones (the physics bones of a skeleton that went away: other outfit or hair).
+void RemoveBones(const std::vector<uint64_t>& aBones);
+// Chain IK pin of a hair / clothing bone (0 off, 1 world, 2 body) and its target (see BoneOverride).
+void SetPin(const std::string& aBone, uint8_t aPin, const std::array<float, 3>& aTarget);
+uint8_t GetPin(const std::string& aBone, std::array<float, 3>& aTarget);
+// Reset of a group of bones as one step of the history (Reset all of the hair / breasts / clothes sections).
+void ResetBones(const std::vector<uint64_t>& aBones);
 bool GetKeepPhysics(const std::string& aBone);
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut);
 bool GetTranslation(const std::string& aBone, std::array<float, 3>& aOut);

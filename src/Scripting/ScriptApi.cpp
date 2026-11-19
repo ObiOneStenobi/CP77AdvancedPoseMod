@@ -1325,6 +1325,52 @@ void PartChainIndex(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, entry ? entry->chainIndex : 0);
 }
 
+// Physics section of a part: 0 hair, 1 breasts, 2 clothes; -1 for body parts.
+void PartCategory(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    const auto* entry = PhysicsEntry(part);
+    Return(aOut, entry ? entry->category : -1);
+}
+
+// A breast bone around the main one (C_top): drawn smaller.
+void PartIsSupport(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    const auto* entry = PhysicsEntry(part);
+    Return(aOut, entry && entry->support);
+}
+
+void PartPin(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::PartPin(part));
+}
+
+void PartSetPin(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t part = 0;
+    int32_t pin = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    RED4ext::GetParameter(aFrame, &pin);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetPartPin(part, pin);
+}
+
+void ResetPhysics(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t category = 0;
+    RED4ext::GetParameter(aFrame, &category);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::ResetPhysicsSection(category);
+}
+
 void PartKeepsPhysics(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t part = 0;
@@ -1855,6 +1901,11 @@ void Register()
     ::Register("APM_PartChainIndex", &PartChainIndex, "Int32", {{"Int32", "part"}});
     ::Register("APM_PartKeepsPhysics", &PartKeepsPhysics, "Bool", {{"Int32", "part"}});
     ::Register("APM_PartSetKeepsPhysics", &PartSetKeepsPhysics, nullptr, {{"Int32", "part"}, {"Bool", "keep"}});
+    ::Register("APM_PartCategory", &PartCategory, "Int32", {{"Int32", "part"}});
+    ::Register("APM_PartIsSupport", &PartIsSupport, "Bool", {{"Int32", "part"}});
+    ::Register("APM_PartPin", &PartPin, "Int32", {{"Int32", "part"}});
+    ::Register("APM_PartSetPin", &PartSetPin, nullptr, {{"Int32", "part"}, {"Int32", "pin"}});
+    ::Register("APM_ResetPhysics", &ResetPhysics, nullptr, {{"Int32", "category"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
     ::Register("APM_GizmoRotatePart", &GizmoRotatePart, "Bool",

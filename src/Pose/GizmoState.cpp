@@ -33,6 +33,8 @@ struct Skeleton
     // Physics skeletons only: rig data, virtual group bones appended after the rig's bones, local pose before edits.
     std::string name;
     uintptr_t component = 0;
+    uintptr_t rig = 0;
+    std::vector<uint8_t> pivots;
     size_t rigCount = 0;
     std::vector<int16_t> chainRoots;
     std::vector<int8_t> groups;
@@ -155,7 +157,8 @@ namespace
 void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
 {
     using namespace APM;
-    if (aTarget.parents.size() < aCount || aTarget.chainRoots.size() < aCount || aTarget.groups.size() < aCount)
+    if (aTarget.parents.size() < aCount || aTarget.chainRoots.size() < aCount || aTarget.groups.size() < aCount ||
+        aTarget.pivots.size() < aCount)
     {
         return;
     }
@@ -191,6 +194,7 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
         Vec3 sum{};
         int32_t members = 0;
         int16_t parent = -1;
+        int32_t pivot = -1;
         for (uint32_t i = 0; i < aCount; ++i)
         {
             if (aTarget.groups[i] == static_cast<int8_t>(g))
@@ -198,6 +202,7 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
                 sum = sum + positions[i];
                 ++members;
                 parent = aTarget.parents[i];
+                pivot = aTarget.pivots[i] ? static_cast<int32_t>(i) : pivot;
             }
         }
         if (members == 0 || parent < 0)
@@ -215,7 +220,7 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
         }
         groupNames.push_back(hash);
         groupParents.push_back(parent);
-        positions.push_back(sum * (1.f / static_cast<float>(members)));
+        positions.push_back(pivot >= 0 ? positions[pivot] : sum * (1.f / static_cast<float>(members)));
         rotations.push_back(Math::Normalize(Math::Mul(rotations[parent], edit)));
     }
 
@@ -227,7 +232,10 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
         g_physicsSlot = aTarget.photoModeSlot;
         g_physicsRevision.fetch_add(1);
     }
-    auto it = std::find_if(g_physics.begin(), g_physics.end(), [&](const Skeleton& s) { return s.name == aTarget.debugName; });
+    // Copies of a skeleton share its rig (added characters have several); two skeletons with the same name and their own
+    // rigs (V's hair and a hairstyle that comes with clothing) are both kept.
+    auto it = std::find_if(g_physics.begin(), g_physics.end(),
+                           [&](const Skeleton& s) { return s.name == aTarget.debugName && s.rig == aTarget.rig; });
     if (it != g_physics.end() && it->component != aTarget.animatedComponent && now - it->lastUpdate <= 1000)
     {
         return; // another copy of the same skeleton (added characters have several): the first one is shown
@@ -237,6 +245,7 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
         g_physics.emplace_back();
         it = std::prev(g_physics.end());
         it->name = aTarget.debugName;
+        it->rig = aTarget.rig;
     }
     auto& skeleton = *it;
     skeleton.component = aTarget.animatedComponent;
@@ -251,6 +260,7 @@ void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform
         skeleton.parents.insert(skeleton.parents.end(), groupParents.begin(), groupParents.end());
         skeleton.chainRoots.assign(aTarget.chainRoots.begin(), aTarget.chainRoots.begin() + aCount);
         skeleton.groups.assign(aTarget.groups.begin(), aTarget.groups.begin() + aCount);
+        skeleton.pivots.assign(aTarget.pivots.begin(), aTarget.pivots.begin() + aCount);
         skeleton.animatedRotations.clear();
         skeleton.animatedTranslations.clear();
         g_physicsRevision.fetch_add(1);
@@ -300,6 +310,8 @@ std::vector<PhysicsSkeleton> GetPhysicsSkeletons()
     {
         PhysicsSkeleton out;
         out.name = skeleton.name;
+        out.rig = skeleton.rig;
+        out.entity = g_entity;
         for (size_t i = 0; i < skeleton.boneNames.size(); ++i)
         {
             PhysicsBone bone;
@@ -307,6 +319,7 @@ std::vector<PhysicsSkeleton> GetPhysicsSkeletons()
             bone.parent = i < skeleton.parents.size() ? skeleton.parents[i] : int16_t(-1);
             bone.chainRoot = i < skeleton.chainRoots.size() ? skeleton.chainRoots[i] : int16_t(-1);
             bone.group = i < skeleton.groups.size() ? skeleton.groups[i] : int8_t(-1);
+            bone.pivot = i < skeleton.pivots.size() && skeleton.pivots[i] != 0;
             out.bones.push_back(bone);
         }
         result.push_back(std::move(out));

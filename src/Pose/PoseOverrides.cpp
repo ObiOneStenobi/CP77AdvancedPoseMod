@@ -5,6 +5,7 @@
 #include "Core/Runtime.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/GizmoState.hpp"
+#include "Pose/PhysicsBones.hpp"
 #include "Pose/TargetRegistry.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -52,6 +53,8 @@ struct CharacterState
     std::vector<EditState> redo;
     std::atomic<uint64_t> propRight{0};
     std::atomic<uint64_t> propLeft{0};
+    std::shared_ptr<const std::vector<APM::Pose::HeldBone>> held; // from the last loaded pose
+    uint32_t heldGeneration = 0;
     // Read by the animation threads (guarded by g_snapshotMutex, held for a pointer copy only).
     std::shared_ptr<const APM::Pose::OverrideSnapshot> snapshot = std::make_shared<APM::Pose::OverrideSnapshot>();
 };
@@ -76,9 +79,11 @@ void PublishLocked(CharacterState& aState)
     snapshot->ik = aState.ik;
     snapshot->base = aState.base;
     snapshot->faceWeights = aState.faceWeights;
+    snapshot->held = aState.held;
+    snapshot->heldGeneration = aState.heldGeneration;
     for (const auto& bone : aState.bones)
     {
-        if (bone.hasRotation || bone.hasTranslation || bone.keepPhysics)
+        if (bone.hasRotation || bone.hasTranslation || bone.keepPhysics || bone.pin != 0)
         {
             snapshot->bones.push_back(bone);
         }
@@ -102,6 +107,8 @@ void ClearLocked(CharacterState& aState)
     aState.faceName.clear();
     aState.undo.clear();
     aState.redo.clear();
+    aState.held.reset();
+    ++aState.heldGeneration;
     aState.propRight = 0;
     aState.propLeft = 0;
     PublishLocked(aState);
@@ -118,7 +125,7 @@ bool SameBones(const std::vector<APM::Pose::BoneOverride>& a, const std::vector<
     {
         const auto& x = a[i];
         const auto& y = b[i];
-        if (x.boneHash != y.boneHash || x.hasRotation != y.hasRotation || x.hasTranslation != y.hasTranslation || x.keepPhysics != y.keepPhysics ||
+        if (x.boneHash != y.boneHash || x.hasRotation != y.hasRotation || x.hasTranslation != y.hasTranslation || x.keepPhysics != y.keepPhysics || x.pin != y.pin || x.pinTarget != y.pinTarget ||
             x.rotation.i != y.rotation.i || x.rotation.j != y.rotation.j || x.rotation.k != y.rotation.k ||
             x.rotation.r != y.rotation.r || x.translation != y.translation || x.uiAngles != y.uiAngles)
         {
@@ -362,13 +369,56 @@ void SetKeepPhysics(const std::string& aBone, bool aKeep)
     std::scoped_lock lock(g_mutex);
     auto& bone = FindOrAddLocked(aBone);
     bone.keepPhysics = aKeep;
-    if (!bone.hasRotation && !bone.hasTranslation && !bone.keepPhysics)
+    if (!bone.hasRotation && !bone.hasTranslation && !bone.keepPhysics && bone.pin == 0)
     {
         const uint64_t hash = bone.boneHash;
         std::erase_if(S().bones, [hash](const auto& b) { return b.boneHash == hash; });
     }
     PublishLocked();
     S().enabled = true;
+}
+
+void SetPin(const std::string& aBone, uint8_t aPin, const std::array<float, 3>& aTarget)
+{
+    std::scoped_lock lock(g_mutex);
+    auto& bone = FindOrAddLocked(aBone);
+    bone.pin = aPin;
+    bone.pinTarget = aPin != 0 ? aTarget : std::array<float, 3>{};
+    if (!bone.hasRotation && !bone.hasTranslation && !bone.keepPhysics && bone.pin == 0)
+    {
+        const uint64_t hash = bone.boneHash;
+        std::erase_if(S().bones, [hash](const auto& b) { return b.boneHash == hash; });
+    }
+    PublishLocked();
+    S().enabled = true;
+}
+
+uint8_t GetPin(const std::string& aBone, std::array<float, 3>& aTarget)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto* bone = FindLocked(aBone);
+    aTarget = bone ? bone->pinTarget : std::array<float, 3>{};
+    return bone ? bone->pin : 0;
+}
+
+void ResetBones(const std::vector<uint64_t>& aBones)
+{
+    std::scoped_lock lock(g_mutex);
+    CheckpointLocked();
+    std::erase_if(S().bones, [&](const auto& b) { return std::find(aBones.begin(), aBones.end(), b.boneHash) != aBones.end(); });
+    PublishLocked();
+}
+
+void RemoveBones(const std::vector<uint64_t>& aBones)
+{
+    std::scoped_lock lock(g_mutex);
+    const size_t before = S().bones.size();
+    std::erase_if(S().bones, [&](const auto& b) { return std::find(aBones.begin(), aBones.end(), b.boneHash) != aBones.end(); });
+    if (S().bones.size() != before)
+    {
+        Log::Info("Edits of %zu physics bones dropped (their skeleton went away)", before - S().bones.size());
+        PublishLocked();
+    }
 }
 
 bool GetKeepPhysics(const std::string& aBone)
@@ -413,9 +463,19 @@ void ResetBone(const std::string& aBone)
 
 void ResetAll(bool aKeepFace)
 {
+    // Body reset (face kept): the hair, clothing and breast bones (not in the main skeleton) keep their edits too.
+    const auto mainBones = aKeepFace ? TargetRegistry::GetMainSkeletonBones() : std::vector<uint64_t>{};
     std::scoped_lock lock(g_mutex);
     CheckpointLocked();
-    S().bones.clear();
+    if (mainBones.empty())
+    {
+        S().bones.clear();
+    }
+    else
+    {
+        std::erase_if(S().bones, [&](const auto& b)
+                      { return std::find(mainBones.begin(), mainBones.end(), b.boneHash) != mainBones.end(); });
+    }
     S().ik = {};
     S().base.reset();
     S().propRight = 0; // the hands hold the items of the Photo Mode pose again
@@ -578,7 +638,82 @@ bool Save(const std::string& aName)
         {
             entry["physics"] = true; // first bone of a hair / clothing chain whose physics stays on
         }
+        if (bone.pin != 0)
+        {
+            entry["pin"] = bone.pin == 2 ? "body" : "world";
+            entry["pinTarget"] = bone.pinTarget;
+        }
         bones.push_back(std::move(entry));
+    }
+
+    // Where the edited hair / clothing chains are held (local pose of all their bones), so loading it looks the same.
+    {
+        const auto current = GetSnapshot();
+        auto& held = root["physicsHeld"] = nlohmann::json::array();
+        for (const auto& skeleton : GizmoState::GetPhysicsSkeletons())
+        {
+            std::vector<uint8_t> edited(skeleton.bones.size(), 0);
+            for (const auto& bone : current->bones)
+            {
+                for (size_t i = 0; i < skeleton.bones.size(); ++i)
+                {
+                    const auto& b = skeleton.bones[i];
+                    if (b.hash != bone.boneHash)
+                    {
+                        continue;
+                    }
+                    if (b.chainRoot >= 0 && !bone.keepPhysics)
+                    {
+                        edited[b.chainRoot] = 1;
+                    }
+                    else if (b.chainRoot < 0) // a group: its members' chains
+                    {
+                        const char* text = RED4ext::CName(bone.boneHash).ToString();
+                        for (size_t g = 0; text && g < PhysicsBones::GroupCount; ++g)
+                        {
+                            if (std::string_view(text) == PhysicsBones::Groups[g].name)
+                            {
+                                for (const auto& member : skeleton.bones)
+                                {
+                                    if (member.group == static_cast<int8_t>(g) && member.chainRoot >= 0)
+                                    {
+                                        edited[member.chainRoot] = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for (const auto& bone : current->bones) // chains whose physics stays on are not held
+            {
+                for (const auto& b : skeleton.bones)
+                {
+                    if (bone.keepPhysics && b.hash == bone.boneHash && b.chainRoot >= 0)
+                    {
+                        edited[b.chainRoot] = 0;
+                    }
+                }
+            }
+            for (const auto& b : skeleton.bones)
+            {
+                Math::Quat rotation{};
+                Math::Vec3 translation{};
+                const char* text = RED4ext::CName(b.hash).ToString();
+                if (b.chainRoot < 0 || !edited[b.chainRoot] || !text ||
+                    !GizmoState::GetAnimatedLocal(b.hash, rotation, translation))
+                {
+                    continue;
+                }
+                held.push_back({{"name", text},
+                                {"rotationQuat", std::array<float, 4>{rotation.i, rotation.j, rotation.k, rotation.r}},
+                                {"translation", std::array<float, 3>{translation.x, translation.y, translation.z}}});
+            }
+        }
+        if (held.empty())
+        {
+            root.erase("physicsHeld");
+        }
     }
 
     auto& ik = root["ik"] = nlohmann::json::object();
@@ -744,6 +879,11 @@ bool Load(const std::string& aName)
                 bone.hasTranslation = !IsZero(bone.translation);
             }
             bone.keepPhysics = entry.value("physics", false);
+            if (entry.contains("pin") && entry.contains("pinTarget"))
+            {
+                bone.pin = entry["pin"].get<std::string>() == "body" ? 2 : 1;
+                bone.pinTarget = entry["pinTarget"].get<std::array<float, 3>>();
+            }
             loaded.push_back(std::move(bone));
         }
     }
@@ -753,10 +893,33 @@ bool Load(const std::string& aName)
         return false;
     }
 
+    std::shared_ptr<std::vector<HeldBone>> held;
+    if (root.contains("physicsHeld") && root["physicsHeld"].is_array())
+    {
+        held = std::make_shared<std::vector<HeldBone>>();
+        for (const auto& entry : root["physicsHeld"])
+        {
+            try
+            {
+                HeldBone bone;
+                bone.boneHash = HashBone(entry.at("name").get<std::string>());
+                const auto q = entry.at("rotationQuat").get<std::array<float, 4>>();
+                bone.rotation = Math::Normalize(Math::Quat{q[0], q[1], q[2], q[3]});
+                bone.translation = entry.at("translation").get<std::array<float, 3>>();
+                held->push_back(bone);
+            }
+            catch (const std::exception&)
+            {
+            }
+        }
+    }
+
     {
         std::scoped_lock lock(g_mutex);
         CheckpointLocked();
         S().bones = std::move(loaded);
+        S().held = std::move(held);
+        ++S().heldGeneration;
         S().ik = loadedIk;
         S().base = std::move(loadedBase);
         PublishLocked();
