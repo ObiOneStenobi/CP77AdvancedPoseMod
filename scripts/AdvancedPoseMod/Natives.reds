@@ -81,6 +81,9 @@ public native func APM_RenameHandPose(oldName: String, newName: String) -> Strin
 // Item records for the prop picker (0 weapons, 1 consumables, 2 other items), as TweakDBID numbers
 public native func APM_PropRecordCount(kind: Int32) -> Int32
 public native func APM_PropRecordAt(kind: Int32, index: Int32) -> Uint64
+public native func APM_ItemKnownWithoutModel(record: Uint64) -> Bool
+public native func APM_ItemMarkWithoutModel(record: Uint64)
+public native func APM_ItemVisibleMeshes(item: ref<Entity>) -> Int32
 // TweakDBID from TDBID.ToNumber()
 public native func APM_RecordFromNumber(number: Uint64) -> TweakDBID
 // Item held in a hand (TweakDBID number, 0 = none); saved with poses
@@ -163,6 +166,7 @@ public native func APM_TextEntryGetText() -> String
 
 // Writes a line to the plugin log (red4ext/logs/advancedposemod-*.log)
 public native func APM_LogInfo(text: String) -> Bool
+public native func APM_LogEnabled() -> Bool
 // True if the body part has edits (rotations / moves, or its IK pin moved away from the pose)
 public native func APM_UiIsPartEdited(part: Int32) -> Bool
 
@@ -201,6 +205,18 @@ public native func APM_GizmoIkModelToOffset(chain: Int32, modelDelta: Vector4) -
 // Moves a part that allows it (hips, held props) by a model-space vector (meters)
 public native func APM_GizmoMovePart(part: Int32, modelDelta: Vector4) -> Bool
 public native func APM_GizmoCanMovePart(part: Int32) -> Bool
+// Physics parts (hair, clothing, breast bones), after the body parts in the part list (7701). The revision changes
+// when that list changed (other character, hair, outfit); calling it rebuilds the list if needed.
+public native func APM_PhysicsRevision() -> Int32
+// Panel name of the physics skeleton ("Hair", "Breasts", or a component name); "" for body parts
+public native func APM_PartSkeleton(part: Int32) -> String
+// Panel name of the part's chain ("Back chain 03", "Left breast")
+public native func APM_PartChain(part: Int32) -> String
+// 1-based place of the bone in its chain; 0 for a group entry (one breast moved as one piece)
+public native func APM_PartChainIndex(part: Int32) -> Int32
+// Per chain: false = an edited chain is held still, true = the physics keeps moving it and the edits are added
+public native func APM_PartKeepsPhysics(part: Int32) -> Bool
+public native func APM_PartSetKeepsPhysics(part: Int32, keep: Bool)
 // V's Photo Mode puppet (null when unknown)
 public native func APM_GizmoGetEntity() -> ref<Entity>
 // Animated component of V's main skeleton; GetLocalToWorld() maps bone model space to the world (null when unknown)

@@ -7,6 +7,7 @@
 #include "Core/SafeMemory.hpp"
 #include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Game/PhysicsProbe.hpp"
 #include "Math/Quat.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/FacePoses.hpp"
@@ -508,6 +509,7 @@ void ApplyOverrides(void* aNode, [[maybe_unused]] uintptr_t aContext, const Samp
         }
 
         auto* bones = reinterpret_cast<RED4ext::QsTransform*>(bonesAddress);
+        APM::PhysicsProbe::OnSkeletonSampled(aTarget, bones, boneCount);
         FreezeAnimation(aTarget, bones, boneCount, APM::Pose::PoseOverrides::IsEnabled(aTarget.photoModeSlot));
         if (applyPose)
         {
@@ -1211,11 +1213,13 @@ bool Install()
                       SafeMemory::IsInGameImage(sermoSample) ? HexDump(sermoSample, 64).c_str() : " none");
         }
     }
+    PhysicsProbe::Install(); // [Probe] Physics=1 only
     return true;
 }
 
 void Uninstall()
 {
+    PhysicsProbe::Uninstall();
     if (g_addrSermoSample)
     {
         DetachHook(g_addrSermoSample);
@@ -1251,6 +1255,7 @@ void OnPhotoModeActivated()
         std::scoped_lock lock(g_unresolvedMutex);
         g_unresolvedLogged.clear();
     }
+    PhysicsProbe::OnPhotoModeActivated();
     g_probeBudget = config.probeEnabled ? config.probeScanBudget : 0;
     g_statAllCalls = 0;
     g_statOuterCalls = 0;
@@ -1314,5 +1319,35 @@ void LogCharacterSkeletons(uint32_t aCharacter)
                      line.name.c_str(), line.bones, reinterpret_cast<void*>(line.component), note.samples,
                      note.accepted, note.lastCount, note.lastRigCount);
     }
+}
+
+uintptr_t NodeVtable(const char* aClass)
+{
+    const uintptr_t vtable = ResolveNodeVtable(aClass);
+    return SafeMemory::IsInGameImage(vtable) ? vtable : 0;
+}
+
+uintptr_t NodeSample(uintptr_t aVtable)
+{
+    if (!SafeMemory::IsInGameImage(aVtable))
+    {
+        return 0;
+    }
+    uint64_t sample = 0;
+    return SafeMemory::ReadU64(aVtable + SampleVtableSlot * sizeof(uintptr_t), sample) &&
+                   SafeMemory::IsInGameImage(sample)
+               ? static_cast<uintptr_t>(sample)
+               : 0;
+}
+
+int OutputDepth()
+{
+    return t_depth;
+}
+
+uintptr_t ComponentFromContext(uintptr_t aContext)
+{
+    const uint32_t path = g_contextPath.load(std::memory_order_acquire);
+    return path == PathUnknown ? 0 : ResolveTargetFromContext(aContext, path);
 }
 } // namespace APM::AnimGraphHook

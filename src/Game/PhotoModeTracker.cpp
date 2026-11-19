@@ -11,6 +11,7 @@
 #include "Game/AnimGraphHook.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/EngineLayout.hpp"
+#include "Game/PhysicsProbe.hpp"
 #include "Pose/EyelidFollow.hpp"
 #include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
@@ -417,6 +418,7 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
     {
         return;
     }
+    const size_t first = targets.size();
     for (uint32_t c = 0; c < components.size; ++c)
     {
         const auto componentAddress = EngineLayout::GetComponent(components, c);
@@ -487,6 +489,7 @@ void AddPuppetTargets(std::vector<APM::Pose::Target>& targets, uint64_t puppet, 
 
         targets.push_back(std::move(target));
     }
+    PhysicsProbe::LogPuppet(puppet, aCharacter, targets, first); // [Probe] Physics=1 only
 }
 
 // An added character can be posed when its main skeleton is a human one, like V's ("root", 71 bones). Animals and

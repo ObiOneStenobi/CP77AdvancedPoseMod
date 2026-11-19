@@ -8,6 +8,7 @@
 #include "Pose/GizmoState.hpp"
 #include "Pose/JointLimits.hpp"
 #include "Pose/LookAtCamera.hpp"
+#include "Pose/PhysicsBones.hpp"
 #include "Pose/TwoBoneIk.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -19,6 +20,7 @@
 #include <chrono>
 #include <cmath>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -339,10 +341,14 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
 {
     uint32_t solved = 0;
     const auto character = static_cast<uint32_t>(CharacterOf(aTarget));
+    // Hands that follow the other hand go last, once the other arm is in its final place (see IkChainSettings).
+    for (int pass = 0; pass < 2; ++pass)
+    {
     for (size_t chainIndex = 0; chainIndex < IkChainCount; ++chainIndex)
     {
         const auto& settings = aPose.ik[chainIndex];
-        if (!settings.enabled)
+        const bool follows = settings.followHand && chainIndex < 2;
+        if (!settings.enabled || follows != (pass == 1))
         {
             continue;
         }
@@ -363,7 +369,27 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         Quat body{0.f, 0.f, 0.f, 1.f};
         Vec3 target = aOriginalPose.positions[c] + offset;
         const int16_t p = static_cast<size_t>(a) < aTarget.parents.size() ? aTarget.parents[a] : int16_t(-1);
-        if (p >= 0 && static_cast<uint32_t>(p) < aCount)
+        // Following the other hand: its frame (item slot or hand) after everything above, the other arm's IK included.
+        Quat leader{0.f, 0.f, 0.f, 1.f};
+        bool led = false;
+        if (follows)
+        {
+            ComputeModelPose(aTarget, aBones, aCount, aCurrentPose);
+            const bool leftLeads = chainIndex == 1;
+            int32_t frame = settings.linkHand ? -1 : IndexOf(aTarget, Hash(leftLeads ? "WeaponLeft" : "WeaponRight"));
+            if (frame < 0 || static_cast<uint32_t>(frame) >= aCount)
+            {
+                frame = IndexOf(aTarget, Hash(leftLeads ? "LeftHand" : "RightHand"));
+            }
+            if (frame >= 0 && static_cast<uint32_t>(frame) < aCount)
+            {
+                leader = aCurrentPose.rotations[frame];
+                target = aCurrentPose.positions[frame] + APM::Math::Rotate(leader, offset);
+                body = leader;
+                led = true;
+            }
+        }
+        if (!led && p >= 0 && static_cast<uint32_t>(p) < aCount)
         {
             body = APM::Math::Normalize(
                 APM::Math::Mul(aCurrentPose.rotations[p], APM::Math::Conjugate(aOriginalPose.rotations[p])));
@@ -426,7 +452,11 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
             APM::Math::Mul(APM::Math::Conjugate(aOriginalPose.rotations[b]), aOriginalPose.rotations[c]);
         const Quat cEdit = APM::Math::Mul(APM::Math::Conjugate(cLocalOriginal), GetRotation(aBones[c]));
         Quat cWorld = APM::Math::Mul(aOriginalPose.rotations[c], cEdit);
-        if (settings.followBody)
+        if (led)
+        {
+            cWorld = APM::Math::Mul(APM::Math::Mul(leader, settings.linkRotation), cEdit);
+        }
+        else if (settings.followBody)
         {
             cWorld = APM::Math::Mul(body, cWorld);
         }
@@ -442,6 +472,7 @@ uint32_t SolveIkChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         aCurrentPose.rotations[a] = result.aGlobal;
         aCurrentPose.rotations[b] = result.bGlobal;
         solved |= 1u << chainIndex;
+    }
     }
     return solved;
 }
@@ -1562,6 +1593,209 @@ void ProcessMainSkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform*
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Physics skeletons (hair, clothes, breasts): their own bones
+// ---------------------------------------------------------------------------------------------------------------------
+// A chain with an edit is held still where the physics had it when the edit began (unless its first bone keeps the
+// physics on); the edits are applied on top. Kept per animated component (added characters have several copies).
+struct HeldChains
+{
+    std::vector<RED4ext::QsTransform> held;
+    std::vector<uint8_t> has;
+};
+std::mutex g_heldMutex;
+std::unordered_map<uintptr_t, std::unique_ptr<HeldChains>> g_held;
+
+HeldChains* GetHeld(uintptr_t aComponent)
+{
+    std::scoped_lock lock(g_heldMutex);
+    auto& slot = g_held[aComponent];
+    if (!slot)
+    {
+        slot = std::make_unique<HeldChains>();
+    }
+    return slot.get();
+}
+
+void DropHeld(uintptr_t aComponent)
+{
+    std::scoped_lock lock(g_heldMutex);
+    g_held.erase(aComponent);
+}
+
+const std::array<uint64_t, APM::Pose::PhysicsBones::GroupCount>& GroupHashes()
+{
+    static const auto hashes = []
+    {
+        std::array<uint64_t, APM::Pose::PhysicsBones::GroupCount> out{};
+        for (size_t g = 0; g < out.size(); ++g)
+        {
+            out[g] = Hash(APM::Pose::PhysicsBones::Groups[g].name);
+        }
+        return out;
+    }();
+    return hashes;
+}
+
+void ApplyPhysicsBones(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
+                       const APM::Pose::OverrideSnapshot& aPose)
+{
+    using namespace APM::Pose;
+    if (!aTarget.hasOwnBones || aTarget.chainRoots.size() < aCount || aTarget.groups.size() < aCount ||
+        aTarget.parents.size() < aCount)
+    {
+        return;
+    }
+    constexpr size_t GroupCount = PhysicsBones::GroupCount;
+    thread_local std::vector<int32_t> edits; // pose.bones index per bone
+    thread_local std::vector<uint8_t> held;  // per chain (its first bone): 1 held still, 2 physics kept on
+    edits.assign(aCount, -1);
+    held.assign(aCount, 0);
+    std::array<int32_t, GroupCount> groupEdits;
+    groupEdits.fill(-1);
+    const auto& groupHashes = GroupHashes();
+    bool any = false;
+    for (size_t k = 0; k < aPose.bones.size(); ++k)
+    {
+        const auto& bone = aPose.bones[k];
+        const auto group = std::find(groupHashes.begin(), groupHashes.end(), bone.boneHash);
+        if (group != groupHashes.end())
+        {
+            if (bone.hasRotation || bone.hasTranslation)
+            {
+                groupEdits[static_cast<size_t>(std::distance(groupHashes.begin(), group))] = static_cast<int32_t>(k);
+            }
+            continue;
+        }
+        const int32_t index = IndexOf(aTarget, bone.boneHash);
+        if (index < 0 || static_cast<uint32_t>(index) >= aCount || aTarget.chainRoots[index] < 0)
+        {
+            continue;
+        }
+        edits[index] = static_cast<int32_t>(k);
+        any = true;
+        const int16_t root = aTarget.chainRoots[index];
+        if (bone.keepPhysics && index == root)
+        {
+            held[root] = 2;
+        }
+        else if ((bone.hasRotation || bone.hasTranslation) && held[root] == 0)
+        {
+            held[root] = 1;
+        }
+    }
+    for (size_t g = 0; g < GroupCount; ++g)
+    {
+        if (groupEdits[g] < 0)
+        {
+            continue;
+        }
+        any = true;
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            const int16_t root = aTarget.chainRoots[i];
+            if (aTarget.groups[i] == static_cast<int8_t>(g) && root >= 0 && held[root] == 0)
+            {
+                held[root] = 1;
+            }
+        }
+    }
+    if (!any)
+    {
+        DropHeld(aTarget.animatedComponent);
+        return;
+    }
+
+    HeldChains* chains = GetHeld(aTarget.animatedComponent);
+    if (chains->held.size() != aCount)
+    {
+        chains->held.assign(aCount, RED4ext::QsTransform{});
+        chains->has.assign(aCount, 0);
+    }
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        const int16_t root = aTarget.chainRoots[i];
+        if (root < 0)
+        {
+            continue;
+        }
+        if (held[root] != 1)
+        {
+            chains->has[i] = 0;
+            continue;
+        }
+        if (!chains->has[i])
+        {
+            chains->held[i] = aBones[i];
+            chains->has[i] = 1;
+        }
+        aBones[i] = chains->held[i];
+    }
+    GizmoState::PublishPhysicsAnimated(aTarget, aBones, aCount);
+
+    // Groups: members turned around their middle and moved, in the space of the bone they hang from.
+    for (size_t g = 0; g < GroupCount; ++g)
+    {
+        if (groupEdits[g] < 0)
+        {
+            continue;
+        }
+        const auto& edit = aPose.bones[groupEdits[g]];
+        Vec3 sum{};
+        int32_t members = 0;
+        int16_t parent = -1;
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            if (aTarget.groups[i] == static_cast<int8_t>(g) && (parent < 0 || aTarget.parents[i] == parent))
+            {
+                parent = aTarget.parents[i];
+                sum = sum + Vec3{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+                ++members;
+            }
+        }
+        if (members == 0)
+        {
+            continue;
+        }
+        const Vec3 middle = sum * (1.f / static_cast<float>(members));
+        const Quat turn = edit.hasRotation ? edit.rotation : Quat{0.f, 0.f, 0.f, 1.f};
+        const Vec3 move = edit.hasTranslation ? Vec3{edit.translation[0], edit.translation[1], edit.translation[2]} : Vec3{};
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            if (aTarget.groups[i] != static_cast<int8_t>(g) || aTarget.parents[i] != parent)
+            {
+                continue;
+            }
+            const Vec3 local{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+            const Vec3 moved = middle + APM::Math::Rotate(turn, local - middle) + move;
+            aBones[i].Translation.X = moved.x;
+            aBones[i].Translation.Y = moved.y;
+            aBones[i].Translation.Z = moved.z;
+            SetRotation(aBones[i], APM::Math::Mul(turn, GetRotation(aBones[i])));
+        }
+    }
+
+    // The bones' own edits.
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        if (edits[i] < 0)
+        {
+            continue;
+        }
+        const auto& bone = aPose.bones[edits[i]];
+        if (bone.hasRotation)
+        {
+            SetRotation(aBones[i], APM::Math::Mul(GetRotation(aBones[i]), bone.rotation));
+        }
+        if (bone.hasTranslation)
+        {
+            aBones[i].Translation.X += bone.translation[0];
+            aBones[i].Translation.Y += bone.translation[1];
+            aBones[i].Translation.Z += bone.translation[2];
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Secondary skeletons: FK + IK deltas from the main skeleton
 // ---------------------------------------------------------------------------------------------------------------------
 void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
@@ -1585,6 +1819,7 @@ void ProcessSecondarySkeleton(const APM::Pose::Target& aTarget, RED4ext::QsTrans
         APM::Pose::FacePoses::Apply(aTarget, aBones, aCount, aPose);
     }
     ApplyForwardOverrides(aTarget, aBones, aCount, aPose, false);
+    ApplyPhysicsBones(aTarget, aBones, aCount, aPose);
     if (face)
     {
         FollowMainNeck(aTarget, aBones, aCount);
@@ -1646,6 +1881,10 @@ void ResetCharacter(uint32_t aCharacter)
     {
         std::scoped_lock lock(g_animatedEyeMutex);
         g_animatedEyes[aCharacter] = {};
+    }
+    {
+        std::scoped_lock lock(g_heldMutex); // every component: the held chains are captured again
+        g_held.clear();
     }
 }
 

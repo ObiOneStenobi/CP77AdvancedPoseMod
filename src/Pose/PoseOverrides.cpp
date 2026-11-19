@@ -78,7 +78,7 @@ void PublishLocked(CharacterState& aState)
     snapshot->faceWeights = aState.faceWeights;
     for (const auto& bone : aState.bones)
     {
-        if (bone.hasRotation || bone.hasTranslation)
+        if (bone.hasRotation || bone.hasTranslation || bone.keepPhysics)
         {
             snapshot->bones.push_back(bone);
         }
@@ -118,7 +118,7 @@ bool SameBones(const std::vector<APM::Pose::BoneOverride>& a, const std::vector<
     {
         const auto& x = a[i];
         const auto& y = b[i];
-        if (x.boneHash != y.boneHash || x.hasRotation != y.hasRotation || x.hasTranslation != y.hasTranslation ||
+        if (x.boneHash != y.boneHash || x.hasRotation != y.hasRotation || x.hasTranslation != y.hasTranslation || x.keepPhysics != y.keepPhysics ||
             x.rotation.i != y.rotation.i || x.rotation.j != y.rotation.j || x.rotation.k != y.rotation.k ||
             x.rotation.r != y.rotation.r || x.translation != y.translation || x.uiAngles != y.uiAngles)
         {
@@ -133,8 +133,11 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 {
     for (size_t i = 0; i < a.size(); ++i)
     {
+        const auto& ra = a[i].linkRotation;
+        const auto& rb = b[i].linkRotation;
         if (a[i].enabled != b[i].enabled || a[i].followBody != b[i].followBody || a[i].offset != b[i].offset ||
-            a[i].swivel != b[i].swivel)
+            a[i].swivel != b[i].swivel || a[i].followHand != b[i].followHand || a[i].linkHand != b[i].linkHand ||
+            ra.i != rb.i || ra.j != rb.j || ra.k != rb.k || ra.r != rb.r)
         {
             return false;
         }
@@ -354,6 +357,27 @@ void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, cons
     S().enabled = true;
 }
 
+void SetKeepPhysics(const std::string& aBone, bool aKeep)
+{
+    std::scoped_lock lock(g_mutex);
+    auto& bone = FindOrAddLocked(aBone);
+    bone.keepPhysics = aKeep;
+    if (!bone.hasRotation && !bone.hasTranslation && !bone.keepPhysics)
+    {
+        const uint64_t hash = bone.boneHash;
+        std::erase_if(S().bones, [hash](const auto& b) { return b.boneHash == hash; });
+    }
+    PublishLocked();
+    S().enabled = true;
+}
+
+bool GetKeepPhysics(const std::string& aBone)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto* bone = FindLocked(aBone);
+    return bone && bone->keepPhysics;
+}
+
 bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut)
 {
     std::scoped_lock lock(g_mutex);
@@ -550,6 +574,10 @@ bool Save(const std::string& aName)
         {
             entry["translation"] = bone.translation;
         }
+        if (bone.keepPhysics)
+        {
+            entry["physics"] = true; // first bone of a hair / clothing chain whose physics stays on
+        }
         bones.push_back(std::move(entry));
     }
 
@@ -560,8 +588,16 @@ bool Save(const std::string& aName)
         const auto& chain = snapshot->ik[i];
         if (chain.enabled)
         {
-            ik[GetIkChainName(static_cast<IkChain>(i))] = {
-                {"offset", chain.offset}, {"swivel", chain.swivel}, {"pin", chain.followBody ? "body" : "world"}};
+            auto& entry = ik[GetIkChainName(static_cast<IkChain>(i))] = {
+                {"offset", chain.offset},
+                {"swivel", chain.swivel},
+                {"pin", chain.followHand ? "hand" : chain.followBody ? "body" : "world"}};
+            if (chain.followHand)
+            {
+                const auto& q = chain.linkRotation;
+                entry["handLink"] = {{"rotationQuat", std::array<float, 4>{q.i, q.j, q.k, q.r}},
+                                     {"frame", chain.linkHand ? "hand" : "item"}};
+            }
         }
     }
 
@@ -666,7 +702,19 @@ bool Load(const std::string& aName)
                 settings.enabled = true;
                 settings.offset = entry.value("offset", std::array<float, 3>{});
                 settings.swivel = entry.value("swivel", 0.f);
-                settings.followBody = entry.value("pin", std::string("world")) == "body";
+                const auto pin = entry.value("pin", std::string("world"));
+                settings.followBody = pin == "body";
+                // A hand that follows the other hand (only one of them: the second one is pinned in the world).
+                const auto other = OtherHand(chain);
+                if (pin == "hand" && other != IkChain::Count && !loadedIk[static_cast<size_t>(other)].followHand &&
+                    entry.contains("handLink"))
+                {
+                    const auto& link = entry["handLink"];
+                    const auto q = link.value("rotationQuat", std::array<float, 4>{0.f, 0.f, 0.f, 1.f});
+                    settings.followHand = true;
+                    settings.linkHand = link.value("frame", std::string("item")) == "hand";
+                    settings.linkRotation = Math::Normalize(Math::Quat{q[0], q[1], q[2], q[3]});
+                }
             }
         }
 
@@ -695,6 +743,7 @@ bool Load(const std::string& aName)
                 bone.translation = entry["translation"].get<std::array<float, 3>>();
                 bone.hasTranslation = !IsZero(bone.translation);
             }
+            bone.keepPhysics = entry.value("physics", false);
             loaded.push_back(std::move(bone));
         }
     }

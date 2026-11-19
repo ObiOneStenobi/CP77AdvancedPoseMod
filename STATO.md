@@ -559,6 +559,17 @@ FATTO 10/11 (build 2.5 e 2.31 ok, script ok, dist/dist231/gioco 2.31; NON provat
   oggetti tolti anche a V quando è il puppet di Photo Mode (non sul veicolo: lì RestorePlayerHands).
 - Da provare: arma nella sinistra di V sul veicolo (giocatore vero: inventario, arma del veicolo dopo l'uscita).
 
+## 13/11: passaggio alla 2.5 per le prove
+- Gioco 3.0.88.46235 (2.5), profilo Vortex "2.5 APM" deployato (RED4ext 1.31.0, Codeware 1.21.0, TweakXL 1.12.0,
+  CET 1.38.0, redscript; le altre mod tolte, cartelle vuote). DLL 2.5 di dist e script copiati nel gioco (md5 ok).
+- r6\cache\modded è ancora il deploy REDmod della 2.31 (31/10; nessuna REDmod nel profilo, Vortex non lo rifà): da
+  spostare prima di avviare (modded.old esiste già: è quello del 25/10). FATTO 13/11: rinominata in modded.231.
+  Tornando alla 2.31 Vortex rifà il deploy REDmod (nuova modded); modded.231 e modded.old si possono cancellare.
+- Prova 13/11 sulla 2.5 (log advancedposemod-2026-11-13-00-01-12): prove 1-9 ok secondo l'utente. Log: nessun
+  warning/errore, script compilati senza errori, nessun crash.log né crash dump; 4 sessioni, oggetti piazzati in più
+  sessioni, veicolo (mani del giocatore ripristinate), NPC 1-3 aggiunti con armi in entrambe le mani, uscite con
+  "items gone after 65 ms", viso: "the facial solver poses the face". Correzioni 1.6.0 punti 1-2 provate su 2.31 e 2.5.
+
 ## Prove da fare (aggiornato 12/11; nel gioco: 2.31 con DLL dist231 e script attuali, config Log=1 FaceTracks=1)
 Sulla 2.31:
 1. Veicolo: V in auto/moto, arma nella mano sinistra (e anche nella destra); uscire da Photo Mode: V non deve restare
@@ -606,6 +617,91 @@ PMUIThermalTarget.dll cambiata (md5 diverso); HologramHairHook (Entity/Reassembl
 Nuovo: npc.xl con molti NPC aggiunti alla lista di Photo Mode.
 Da chiedere agli utenti: crash (versione mod/gioco, log con Log=1, momento del crash, oggetti in mano, Look at camera);
 palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpebre).
+
+## 13/11: ritorno alla 2.31 e punto 3 + sonde fisica (build 2.5 e 2.31 ok senza warning, script ok, dist/dist231/gioco 2.31)
+- Gioco 3.0.80 (2.31), profilo completo Vortex; deploy REDmod non rifatto da Vortex: le 478 REDmod erano identiche al
+  deploy del 31/10 -> r6\cache\modded.231 rinominata di nuovo in modded.
+- Punto 3 FATTO (da provare): PropRecords tipo 3 = gamedataGadget_Record + gamedataGrenade_Record (GetRecordsByType dà
+  solo il tipo esatto; Grenade : Gadget : Item); ItemCategory: Gad_Grenade (1), Con_Inhaler/Con_Injector (2),
+  Gen_Misc/Readable/Keycard/Tarot/CraftingMaterial, Con_Skillbook (3); nome di riserva ItemPickerName (DisplayName ->
+  FriendlyName -> EntityName); doppioni con ricerca binaria; con Log=1 "Items: left out <tipo> <record> "<nome>" model
+  ...: <motivo>" (solo record con modello) e il conteggio per tipo. Nativo APM_LogEnabled.
+- Sonde fisica FATTE (da provare): src/Game/PhysicsProbe.* ([Probe] Physics=1 all'avvio; PhysicsTestBone /
+  PhysicsTestAngle a ogni apertura; chiavi in dist e dist231, Physics=0). Log "PhysicsProbe:": classi dei nodi
+  animAnimNode_* (tutte) e agganci a quelle con dangle/dyng/physic/cloth/ragdoll/simul/spring/pendul/jiggle/wind/
+  dynamic (max 16, Sample distinti): in quale scheletro girano e se dentro l'output del grafo; per personaggio tutti i
+  componenti (classe, nome, hash del grafo degli animati) e le catene degli scheletri secondari (attacco, lunghezza,
+  punte); per 30 s ogni 0,5 s l'osso più girato di ogni scheletro secondario (pose on/off); osso di prova girato
+  attorno a Z locale ogni frame + "incoming N gradi dalla nostra scrittura" (0 = la fisica riparte dal nostro osso).
+  AnimGraphHook: NodeVtable, NodeSample, OutputDepth, ComponentFromContext.
+- Decisioni 13/11: catene di capelli/vestiti ricavate dalla gerarchia del rig (niente elenchi di nomi); fisica di una
+  catena spenta quando la si modifica e riaccesa con il reset (come, dipende dalle sonde); IK sulle catene da valutare
+  dopo le sonde. Mani unite: aggancio AUTOMATICO (all'oggetto se la mano guida ne tiene uno, altrimenti alla mano),
+  offset aggiornato quando si sposta la mano che segue.
+- Prova da fare (2.31): lista oggetti (granate, inalatori, iniettori, oggetti vari; log degli scartati); sonde con
+  config del gioco [Probe] Physics=1 (+ PhysicsTestBone/Angle) su V capelli lunghi, cappotto con dangle, Judy, Rogue.
+
+## Prova 13/11 01:00 (log advancedposemod-2026-11-13-00-48-13, 2.31, Physics=1)
+- Fisica: 220 classi di nodi; agganciati animAnimNode_RagdollPose, _Dangle, _BlendByMaskDynamic, _RagdollControl
+  (SpringDamp = stesso Sample; CriticalSpringDamp non agganciabile). animAnimNode_Dangle gira in OGNI scheletro di
+  capelli/vestiti/seno (hair_dangle, breasts, *_dangle, dangle_setup, dangles, AnimatedNNNN, *_graph) DENTRO l'output
+  del grafo: la mod vede il risultato della fisica e lo può sovrascrivere. Nessun componente cloth/fisico: i vestiti
+  hanno entGarmentSkinnedMeshComponent (deformazione) + scheletri dangle. Catene dyng_* sotto Head (capelli 3-8 ossa,
+  4-10 catene), Hips/Spine (cappotto), orecchini 2 punte; giacca di Rogue (Animated2476): ossa jacket_03/04 attaccate a
+  Spine/Spine1 separate (gerarchia piatta, 38 "catene"); breasts = 12 ossa singole su Spine3/braccia. Gli NPC aggiunti
+  hanno 3 copie di ogni componente dangle.
+- Movimento ogni 0,5 s: POSE OFF 0-6 gradi medi; POSE ON 60-90 gradi medi (max ~178) su capelli/orecchini/cinture:
+  con la posa accesa le ossa dangle saltano. Da capire se si vede (tremolio) e perché (input della fisica incoerente?).
+- Slider fisica vestiti degli NPC: non trovato nel log (nessun attributo cambiato a mano; candidato 82 della pagina NPC,
+  sempre 0); non viene da PhotoModeEx, IGPT o PMUI. Da rifare: cambiarlo con il log acceso e annotare l'ora.
+- Oggetti: 592 nella lista (prima 461), granate 102 record (88 scartate: nomi uguali). 6 "no model". Le BD si mettono
+  (slot occupato) ma sono invisibili: il controllo dopo 3 s non le vede.
+
+- Utente: il movimento forte con POSE ON era lui che girava la camera/posa velocemente (nessun tremolio visto).
+  Slider fisica vestiti degli NPC = del gioco (con la fisica spenta la giacca di Rogue resta ferma nel mondo).
+- Richiesta utente: poter modificare anche le ossa del seno (scheletro breasts) -> in lista.
+
+## FATTO 13/11 sera (build 2.5 e 2.31 ok senza warning, script ok, testi 323, dist/dist231/gioco 2.31; DA PROVARE)
+- Mesh degli oggetti: nativo APM_ItemVisibleMeshes(item) (componenti con proprietà "mesh": mesh != 0, isEnabled,
+  chunkMask != 0, visualScale > 0; con Log=1 riga "Items:   <classe> <nome> mesh= enabled= chunks= scale= layers=" per
+  ogni componente mesh); CheckPlacedItem (3 s dopo) toglie anche gli oggetti tenuti ma senza mesh visibile. Oggetti
+  senza modello ricordati in red4ext\plugins\AdvancedPoseMod\items_without_model.txt (APM_ItemMarkWithoutModel /
+  APM_ItemKnownWithoutModel): non compaiono più nella lista (cancellare il file per riaverli).
+- Mani unite: pin IK "Hand" (valore 3 di 7711, solo mani; pulsante pin:3, testi APM-Button-PinHand / APM-Tip-PinHand,
+  4 pulsanti larghi 135). IkChainSettings: followHand, linkHand, linkRotation (offset = posizione nel frame
+  dell'altra mano). Frame = osso WeaponLeft/WeaponRight dell'altra mano (oggetto o punto fisso della mano), o la mano
+  se lo slot è a più di 30 cm (linkHand). SolveIkChains: due passate, la mano che segue dopo, con ComputeModelPose
+  fresco; rotazione = frame * linkRotation * cEdit. Aggancio (LinkToOtherHand) dalla posa finale; sgancio verso
+  World/Body con PinAtCurrentPlace, Off con BakeChainPose; se l'altra mano seguiva questa passa a World dov'è.
+  Trascinare la mano che segue aggiorna l'offset (GizmoIkModelToOffset con il frame, limite 1,6 m). Reset della mano
+  = sgancio; specchio escluso; JSON "pin":"hand" + "handLink" {rotationQuat, frame}; caricamento: una sola mano.
+- Sonde secondo giro: config del gioco PhysicsTestBone=dyng_back_chain_03_03, PhysicsTestAngle=30.
+
+## Prova 19/11 21:32 (2.31, build231)
+- BD: tolte dopo 3 s e salvate in items_without_model.txt (nessun componente mesh). Persistenza tra sessioni da provare.
+  5 oggetti senza nome nel log ("right hand:  placed"): usare l'ID del record come riserva.
+- Sonda capelli: "incoming 30.0" costante -> la fisica non riparte dall'osso scritto (scriviamo dopo il Dangle); ciocca
+  girata, nessun tremolio, resto dei capelli con fisica. Osso 03_03 = 3° di 6 della catena centrale.
+- Slider fisica vestiti NPC = attributo 67, 0/1 (interruttore). Mani unite: un solo pin "Hand" (deciso).
+- Crash utente 1.5.0 su 2.5 (13:26 in CET, 17:48 uscita con NPC adam_smasher.ent di Photomode NPCs Extended): nessun
+  frame della mod, stessa firma (chiamata via vtable di oggetto distrutto). Ha PMUI + Animations, ARP 1.10 (SteadyPose).
+  L'utente (sviluppatore) ha Photomode NPCs Extended installata come REDmod (mods\) + r6\tweaks\xbaebsae.
+- Prossimo: ossa delle catene fisiche (capelli/vestiti/seno), piano proposto 19/11.
+
+## Ossa fisiche (19/11, approvato; C++ fatto, build 2.31/2.5 ok; script in corso; DA PROVARE)
+- Target.chainRoots/groups/hasOwnBones (TargetRegistry::Set -> MarkOwnBones): ossa proprie = non nel "root" dello
+  stesso personaggio; nel seno solo i nomi con "chest" (SHL/deltoid esclusi). Pose/PhysicsBones.hpp: gruppi
+  "APM_group:l_chest"/"r_chest" (osso virtuale, ruota attorno al centro dei membri e sposta, spazio di Spine3).
+- PoseProcessor::ApplyPhysicsBones (dopo ApplyForwardOverrides nei secondari): catena con modifiche tenuta ferma
+  (copia dei locali al primo frame, per animatedComponent; g_held svuotata in ResetCharacter) salvo keepPhysics sul
+  primo osso della catena (BoneOverride.keepPhysics, JSON "physics": true); poi gruppi, poi modifiche dei singoli.
+- GizmoState: g_physics (scheletri fisici del personaggio selezionato, una copia per nome, ossa virtuali dei gruppi in
+  coda), ricerche per hash con ripiego sugli scheletri fisici; PublishPhysicsAnimated; revisione; tolti dopo 3 s.
+- Catalogo: voci fisiche dopo quelle del corpo (gruppo "~Hair"/"~Breasts"/nome componente), RefreshPhysicsEntries
+  solo da APM_PhysicsRevision; ikMove (ossa con indice > 1): GizmoMovePart -> MoveChainBone (CCD, salva rotazioni).
+  Assi pannello dei gruppi = Spine3. Spostamento fisico max 15 cm. Nativi APM_PhysicsRevision, APM_PartSkeleton,
+  APM_PartChain, APM_PartChainIndex, APM_PartKeepsPhysics, APM_PartSetKeepsPhysics.
+- Non fatto: pin World/Body per le catene (l'IK salva rotazioni: segue il corpo), specchio delle ossa fisiche.
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

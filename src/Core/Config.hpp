@@ -22,6 +22,12 @@ struct Values
     bool probeFaceTracks = false;
     std::string probeFaceTrack;
     float probeFaceTrackWeight = 0.f;
+    // Hair and clothing physics probe (research): components, dangle skeletons and their chains, physics nodes of the
+    // anim graphs (hooks installed at game start) and how much those skeletons move. probePhysicsTestBone: a bone of
+    // those skeletons turned by probePhysicsTestAngle degrees (read every time Photo Mode opens).
+    bool probePhysics = false;
+    std::string probePhysicsTestBone;
+    float probePhysicsTestAngle = 0.f;
     bool debugLog = false;            // detailed diagnostics in the log
     bool allowUnknownGameVersion = false; // install the hooks on a game version the plugin was not built for (risky)
 };

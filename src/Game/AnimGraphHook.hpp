@@ -16,4 +16,12 @@ void OnPhotoModeActivated();
 // Diagnostics ([Debug] Log=1): what every skeleton of a character (0 = V, 1-3 = added characters) received from the
 // animation since Photo Mode opened (samples, bone counts, whether they could be posed).
 void LogCharacterSkeletons(uint32_t aCharacter);
+
+// For the research probes (PhysicsProbe): vtable of an animation node class (0 if unknown), the address of a node
+// class's Sample, how many graph outputs this thread is inside right now, and the animated component an animation
+// context belongs to (0 if unknown).
+uintptr_t NodeVtable(const char* aClass);
+uintptr_t NodeSample(uintptr_t aVtable);
+int OutputDepth();
+uintptr_t ComponentFromContext(uintptr_t aContext);
 } // namespace APM::AnimGraphHook

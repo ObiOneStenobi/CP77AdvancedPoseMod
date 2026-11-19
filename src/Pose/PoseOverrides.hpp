@@ -29,6 +29,10 @@ struct BoneOverride
 
     bool hasTranslation = false;
     std::array<float, 3> translation{}; // meters
+
+    // First bone of a hair / clothing chain (physics skeletons): the physics keeps moving the chain while it is edited
+    // (the edits are added to it) instead of holding it still.
+    bool keepPhysics = false;
 };
 
 // Two-bone IK chains of the main skeleton.
@@ -49,13 +53,26 @@ constexpr size_t IkChainCount = static_cast<size_t>(IkChain::Count);
 // `swivel` rotates the elbow/knee around the shoulder->hand (hip->foot) axis, in degrees.
 // With `followBody` the pin moves with the bone the limb hangs from (shoulder / hips) instead: the hand/foot keeps
 // its place relative to the body, and `offset` is expressed in that bone's current orientation.
+// With `followHand` (hands only) the hand follows the other hand: `offset` is its place in the other hand's frame
+// (meters), `linkRotation` its turn there (before the hand's own edit), and the frame is the other hand's item slot
+// (WeaponLeft / WeaponRight: the item it holds, or a point fixed to that hand) or, with `linkHand`, the hand itself.
+// Only one hand follows the other.
 struct IkChainSettings
 {
     bool enabled = false;
     bool followBody = false;
     std::array<float, 3> offset{};
     float swivel = 0.f;
+    bool followHand = false;
+    bool linkHand = false;
+    Math::Quat linkRotation{0.f, 0.f, 0.f, 1.f};
 };
+
+// The other hand's chain for a hand chain (left <-> right), Count for the feet.
+inline IkChain OtherHand(IkChain aChain)
+{
+    return aChain == IkChain::LeftHand ? IkChain::RightHand : aChain == IkChain::RightHand ? IkChain::LeftHand : IkChain::Count;
+}
 
 // A whole saved pose ("full" pose files): local rotations of V's body bones (plus the hips' position) that replace
 // the animated ones before the edits are applied, so the pose no longer depends on the Photo Mode pose underneath.
@@ -152,6 +169,9 @@ void SetTranslation(const std::string& aBone, float aX, float aY, float aZ);
 // Rotation given directly as a quaternion, remembering the UI angles that produced it.
 void SetRotationQuat(const std::string& aBone, const Math::Quat& aRotation, const std::array<float, 3>& aUiAngles);
 bool GetUiAngles(const std::string& aBone, std::array<float, 3>& aOut);
+// Physics of a hair / clothing chain kept on while it is edited (aBone = the chain's first bone).
+void SetKeepPhysics(const std::string& aBone, bool aKeep);
+bool GetKeepPhysics(const std::string& aBone);
 bool GetRotation(const std::string& aBone, std::array<float, 3>& aOut);
 bool GetTranslation(const std::string& aBone, std::array<float, 3>& aOut);
 void SetIkChain(IkChain aChain, const IkChainSettings& aSettings);

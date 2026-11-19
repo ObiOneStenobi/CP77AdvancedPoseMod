@@ -7,7 +7,11 @@
 
 #include <Windows.h>
 
+#include "Pose/PhysicsBones.hpp"
+#include "Pose/PoseOverrides.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -26,9 +30,21 @@ struct Skeleton
     std::vector<Vec3> positions; // model space
     std::vector<Quat> rotations; // model space
     uint64_t lastUpdate = 0;
+    // Physics skeletons only: rig data, virtual group bones appended after the rig's bones, local pose before edits.
+    std::string name;
+    uintptr_t component = 0;
+    size_t rigCount = 0;
+    std::vector<int16_t> chainRoots;
+    std::vector<int8_t> groups;
+    std::vector<Quat> animatedRotations;
+    std::vector<Vec3> animatedTranslations;
+    uint64_t animatedUpdate = 0;
 };
 
 std::mutex g_mutex;
+std::vector<Skeleton> g_physics; // selected character's physics skeletons
+uint32_t g_physicsSlot = UINT32_MAX;
+std::atomic<uint32_t> g_physicsRevision{1};
 uintptr_t g_entity = 0;
 uintptr_t g_component = 0; // main skeleton's animated component
 // The body mesh is skinned by the "deformations" skeleton, which the game can adjust after the main one
@@ -82,6 +98,40 @@ const Skeleton* FindLocked(uint64_t aBoneHash, int32_t& aIndex, bool aPreferMain
             return skeleton;
         }
     }
+    for (const auto& skeleton : g_physics)
+    {
+        if (now - skeleton.lastUpdate > 1000)
+        {
+            continue;
+        }
+        aIndex = IndexOf(skeleton, aBoneHash);
+        if (aIndex >= 0 && (static_cast<size_t>(aIndex) >= skeleton.rigCount ||
+                            (static_cast<size_t>(aIndex) < skeleton.chainRoots.size() && skeleton.chainRoots[aIndex] >= 0)))
+        {
+            return &skeleton;
+        }
+    }
+    return nullptr;
+}
+
+// The main skeleton when it has the bone, else the physics skeleton that owns it (fresh or not; nullptr if none).
+const Skeleton* MainOrPhysicsLocked(uint64_t aBoneHash, int32_t& aIndex)
+{
+    aIndex = IndexOf(g_main, aBoneHash);
+    if (aIndex >= 0)
+    {
+        return &g_main;
+    }
+    for (const auto& skeleton : g_physics)
+    {
+        aIndex = IndexOf(skeleton, aBoneHash);
+        if (aIndex >= 0 && (static_cast<size_t>(aIndex) >= skeleton.rigCount ||
+                            (static_cast<size_t>(aIndex) < skeleton.chainRoots.size() && skeleton.chainRoots[aIndex] >= 0)))
+        {
+            return &skeleton;
+        }
+    }
+    aIndex = -1;
     return nullptr;
 }
 
@@ -100,8 +150,170 @@ void LogLocked()
 }
 } // namespace
 
+namespace
+{
+void PublishPhysics(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    using namespace APM;
+    if (aTarget.parents.size() < aCount || aTarget.chainRoots.size() < aCount || aTarget.groups.size() < aCount)
+    {
+        return;
+    }
+    thread_local std::vector<Vec3> positions;
+    thread_local std::vector<Quat> rotations;
+    positions.resize(aCount);
+    rotations.resize(aCount);
+    for (uint32_t i = 0; i < aCount; ++i)
+    {
+        const Vec3 localPos{aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+        const Quat localRot = GetRotation(aBones[i]);
+        const int16_t parent = aTarget.parents[i];
+        if (parent >= 0 && static_cast<uint32_t>(parent) < i)
+        {
+            positions[i] = positions[parent] + Math::Rotate(rotations[parent], localPos);
+            rotations[i] = Math::Normalize(Math::Mul(rotations[parent], localRot));
+        }
+        else
+        {
+            positions[i] = localPos;
+            rotations[i] = localRot;
+        }
+    }
+
+    // Virtual group bones: at the middle of their members, turned by the group's edit from the bone they hang from.
+    thread_local std::vector<uint64_t> groupNames;
+    thread_local std::vector<int16_t> groupParents;
+    groupNames.clear();
+    groupParents.clear();
+    const auto snapshot = Pose::PoseOverrides::GetSnapshot(aTarget.photoModeSlot);
+    for (size_t g = 0; g < Pose::PhysicsBones::GroupCount; ++g)
+    {
+        Vec3 sum{};
+        int32_t members = 0;
+        int16_t parent = -1;
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            if (aTarget.groups[i] == static_cast<int8_t>(g))
+            {
+                sum = sum + positions[i];
+                ++members;
+                parent = aTarget.parents[i];
+            }
+        }
+        if (members == 0 || parent < 0)
+        {
+            continue;
+        }
+        const uint64_t hash = RED4ext::CName(Pose::PhysicsBones::Groups[g].name).hash;
+        Quat edit{0.f, 0.f, 0.f, 1.f};
+        for (const auto& bone : snapshot->bones)
+        {
+            if (bone.boneHash == hash && bone.hasRotation)
+            {
+                edit = bone.rotation;
+            }
+        }
+        groupNames.push_back(hash);
+        groupParents.push_back(parent);
+        positions.push_back(sum * (1.f / static_cast<float>(members)));
+        rotations.push_back(Math::Normalize(Math::Mul(rotations[parent], edit)));
+    }
+
+    const uint64_t now = GetTickCount64();
+    std::scoped_lock lock(g_mutex);
+    if (g_physicsSlot != aTarget.photoModeSlot)
+    {
+        g_physics.clear();
+        g_physicsSlot = aTarget.photoModeSlot;
+        g_physicsRevision.fetch_add(1);
+    }
+    auto it = std::find_if(g_physics.begin(), g_physics.end(), [&](const Skeleton& s) { return s.name == aTarget.debugName; });
+    if (it != g_physics.end() && it->component != aTarget.animatedComponent && now - it->lastUpdate <= 1000)
+    {
+        return; // another copy of the same skeleton (added characters have several): the first one is shown
+    }
+    if (it == g_physics.end())
+    {
+        g_physics.emplace_back();
+        it = std::prev(g_physics.end());
+        it->name = aTarget.debugName;
+    }
+    auto& skeleton = *it;
+    skeleton.component = aTarget.animatedComponent;
+    const size_t total = aCount + groupNames.size();
+    if (skeleton.rigCount != aCount || skeleton.boneNames.size() != total ||
+        !std::equal(aTarget.boneNames.begin(), aTarget.boneNames.begin() + aCount, skeleton.boneNames.begin()))
+    {
+        skeleton.rigCount = aCount;
+        skeleton.boneNames.assign(aTarget.boneNames.begin(), aTarget.boneNames.begin() + aCount);
+        skeleton.boneNames.insert(skeleton.boneNames.end(), groupNames.begin(), groupNames.end());
+        skeleton.parents.assign(aTarget.parents.begin(), aTarget.parents.begin() + aCount);
+        skeleton.parents.insert(skeleton.parents.end(), groupParents.begin(), groupParents.end());
+        skeleton.chainRoots.assign(aTarget.chainRoots.begin(), aTarget.chainRoots.begin() + aCount);
+        skeleton.groups.assign(aTarget.groups.begin(), aTarget.groups.begin() + aCount);
+        skeleton.animatedRotations.clear();
+        skeleton.animatedTranslations.clear();
+        g_physicsRevision.fetch_add(1);
+    }
+    skeleton.positions = positions;
+    skeleton.rotations = rotations;
+    skeleton.lastUpdate = now;
+}
+} // namespace
+
 namespace APM::Pose::GizmoState
 {
+void PublishPhysicsAnimated(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    if (aTarget.photoModeSlot != Characters::Selected() || !aTarget.hasOwnBones)
+    {
+        return;
+    }
+    std::scoped_lock lock(g_mutex);
+    for (auto& skeleton : g_physics)
+    {
+        if (skeleton.component != aTarget.animatedComponent || skeleton.rigCount != aCount)
+        {
+            continue;
+        }
+        skeleton.animatedRotations.resize(aCount);
+        skeleton.animatedTranslations.resize(aCount);
+        for (uint32_t i = 0; i < aCount; ++i)
+        {
+            skeleton.animatedRotations[i] = GetRotation(aBones[i]);
+            skeleton.animatedTranslations[i] = {aBones[i].Translation.X, aBones[i].Translation.Y, aBones[i].Translation.Z};
+        }
+        skeleton.animatedUpdate = GetTickCount64();
+    }
+}
+
+uint32_t GetPhysicsRevision()
+{
+    return g_physicsRevision.load();
+}
+
+std::vector<PhysicsSkeleton> GetPhysicsSkeletons()
+{
+    std::scoped_lock lock(g_mutex);
+    std::vector<PhysicsSkeleton> result;
+    for (const auto& skeleton : g_physics)
+    {
+        PhysicsSkeleton out;
+        out.name = skeleton.name;
+        for (size_t i = 0; i < skeleton.boneNames.size(); ++i)
+        {
+            PhysicsBone bone;
+            bone.hash = skeleton.boneNames[i];
+            bone.parent = i < skeleton.parents.size() ? skeleton.parents[i] : int16_t(-1);
+            bone.chainRoot = i < skeleton.chainRoots.size() ? skeleton.chainRoots[i] : int16_t(-1);
+            bone.group = i < skeleton.groups.size() ? skeleton.groups[i] : int8_t(-1);
+            out.bones.push_back(bone);
+        }
+        result.push_back(std::move(out));
+    }
+    return result;
+}
+
 void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t)
 {
     if (aTarget.photoModeSlot != Characters::Selected() || aCount != aTarget.boneNames.size())
@@ -111,6 +323,10 @@ void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t
     const bool isMain = aTarget.debugName == "root";
     if (!isMain && aTarget.debugName != "deformations")
     {
+        if (aTarget.hasOwnBones)
+        {
+            PublishPhysics(aTarget, aBones, aCount);
+        }
         return;
     }
 
@@ -150,6 +366,18 @@ void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t
     {
         g_entity = aTarget.entity;
         g_component = aTarget.animatedComponent;
+        // Physics skeletons of another character, or no longer sampled (other hair / outfit): out of the list.
+        const size_t before = g_physics.size();
+        if (g_physicsSlot != aTarget.photoModeSlot)
+        {
+            g_physics.clear();
+            g_physicsSlot = aTarget.photoModeSlot;
+        }
+        std::erase_if(g_physics, [now](const Skeleton& s) { return now - s.lastUpdate > 3000; });
+        if (g_physics.size() != before)
+        {
+            g_physicsRevision.fetch_add(1);
+        }
     }
 
     if (now - g_lastLog >= LogIntervalMs)
@@ -167,6 +395,9 @@ void Clear()
     g_deformations = {};
     g_main = {};
     g_animated = {};
+    g_physics.clear();
+    g_physicsSlot = UINT32_MAX;
+    g_physicsRevision.fetch_add(1);
 }
 
 bool GetBoneModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
@@ -198,12 +429,13 @@ bool GetBoneModelRotation(uint64_t aBoneHash, Math::Quat& aOut)
 bool GetParentModelRotation(uint64_t aBoneHash, Math::Quat& aOut)
 {
     std::scoped_lock lock(g_mutex);
-    const Skeleton& skeleton = g_main;
-    const auto index = IndexOf(skeleton, aBoneHash);
-    if (index < 0 || GetTickCount64() - skeleton.lastUpdate > 1000)
+    int32_t index = -1;
+    const Skeleton* found = MainOrPhysicsLocked(aBoneHash, index);
+    if (!found || GetTickCount64() - found->lastUpdate > 1000)
     {
         return false;
     }
+    const Skeleton& skeleton = *found;
     const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
     aOut = parent >= 0 && static_cast<size_t>(parent) < skeleton.rotations.size() ? skeleton.rotations[parent]
                                                                                    : Quat{0.f, 0.f, 0.f, 1.f};
@@ -246,9 +478,14 @@ void PublishAnimatedPose(const Target& aTarget, const RED4ext::QsTransform* aBon
 bool GetFinalLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTranslation)
 {
     std::scoped_lock lock(g_mutex);
-    const Skeleton& skeleton = g_main;
-    const auto index = IndexOf(skeleton, aBoneHash);
-    if (index < 0 || GetTickCount64() - skeleton.lastUpdate > 1000 || static_cast<size_t>(index) >= skeleton.parents.size())
+    int32_t index = -1;
+    const Skeleton* found = MainOrPhysicsLocked(aBoneHash, index);
+    if (!found)
+    {
+        return false;
+    }
+    const Skeleton& skeleton = *found;
+    if (GetTickCount64() - skeleton.lastUpdate > 1000 || static_cast<size_t>(index) >= skeleton.parents.size())
     {
         return false;
     }
@@ -280,6 +517,24 @@ bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTr
                 return true;
             }
         }
+        int32_t index = -1;
+        const Skeleton* physics = MainOrPhysicsLocked(aBoneHash, index);
+        if (physics && physics != &g_main)
+        {
+            if (static_cast<size_t>(index) >= physics->rigCount)
+            {
+                aRotation = {0.f, 0.f, 0.f, 1.f}; // group: its edit is all of its turn
+                aTranslation = {};
+                return true;
+            }
+            if (static_cast<size_t>(index) < physics->animatedRotations.size() &&
+                GetTickCount64() - physics->animatedUpdate <= 1000)
+            {
+                aRotation = physics->animatedRotations[index];
+                aTranslation = physics->animatedTranslations[index];
+                return true;
+            }
+        }
     }
     // No custom pose applied: what is shown is the animation.
     return GetFinalLocal(aBoneHash, aRotation, aTranslation);
@@ -288,13 +543,14 @@ bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTr
 bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRotation)
 {
     std::scoped_lock lock(g_mutex);
-    const Skeleton& skeleton = g_main;
-    const auto index = IndexOf(skeleton, aBoneHash);
-    if (index < 0 || GetTickCount64() - skeleton.lastUpdate > 1000)
+    int32_t index = -1;
+    const Skeleton* found = MainOrPhysicsLocked(aBoneHash, index);
+    if (!found || GetTickCount64() - found->lastUpdate > 1000)
     {
         return false;
     }
-    const bool fresh = g_animated.boneNames == skeleton.boneNames && GetTickCount64() - g_animated.lastUpdate <= 1000 &&
+    const Skeleton& skeleton = *found;
+    const bool fresh = found == &g_main && g_animated.boneNames == skeleton.boneNames && GetTickCount64() - g_animated.lastUpdate <= 1000 &&
                        g_animated.rotations.size() >= skeleton.positions.size() &&
                        g_animated.translations.size() >= skeleton.positions.size();
     if (!fresh)
@@ -382,12 +638,13 @@ bool CaptureLocalPose(std::vector<CapturedBone>& aOut)
 bool GetAncestorModelPosition(uint64_t aBoneHash, const std::vector<uint64_t>& aCandidates, Math::Vec3& aOut)
 {
     std::scoped_lock lock(g_mutex);
-    const Skeleton& skeleton = g_main;
-    int32_t index = IndexOf(skeleton, aBoneHash);
-    if (index < 0)
+    int32_t index = -1;
+    const Skeleton* found = MainOrPhysicsLocked(aBoneHash, index);
+    if (!found)
     {
         return false;
     }
+    const Skeleton& skeleton = *found;
     for (int32_t guard = 0; guard < 256; ++guard)
     {
         const int16_t parent = static_cast<size_t>(index) < skeleton.parents.size() ? skeleton.parents[index] : int16_t(-1);
@@ -408,12 +665,13 @@ bool GetAncestorModelPosition(uint64_t aBoneHash, const std::vector<uint64_t>& a
 bool GetBoneTipModelPosition(uint64_t aBoneHash, Math::Vec3& aOut)
 {
     std::scoped_lock lock(g_mutex);
-    const Skeleton& skeleton = g_main;
-    const auto index = IndexOf(skeleton, aBoneHash);
-    if (index < 0)
+    int32_t index = -1;
+    const Skeleton* found = MainOrPhysicsLocked(aBoneHash, index);
+    if (!found)
     {
         return false;
     }
+    const Skeleton& skeleton = *found;
     // Children that are not on top of the bone: their average (a hand points at the middle of its fingers, the
     // chest between the neck and the shoulders), or the farthest one when they surround the bone (the hips).
     const Vec3 origin = skeleton.positions[index];

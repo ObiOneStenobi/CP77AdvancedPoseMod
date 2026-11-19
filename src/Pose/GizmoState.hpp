@@ -52,6 +52,26 @@ bool GetAnimatedLocal(uint64_t aBoneHash, Math::Quat& aRotation, Math::Vec3& aTr
 // Model-space position / rotation of a bone before the edits.
 bool GetAnimatedModel(uint64_t aBoneHash, Math::Vec3& aPosition, Math::Quat& aRotation);
 
+// Physics skeletons (hair, clothes, breasts) of the selected character: their own bones are found by the queries above
+// too (one copy per skeleton name), plus a virtual bone per group (PhysicsBones) at the middle of its members.
+// Local pose of a physics skeleton before the edits (physics, or the chain held still), from the pose processor.
+void PublishPhysicsAnimated(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount);
+// Changes whenever the selected character's set of physics skeletons (or their bones) changes.
+uint32_t GetPhysicsRevision();
+struct PhysicsBone
+{
+    uint64_t hash = 0;
+    int16_t parent = -1;   // index in the skeleton
+    int16_t chainRoot = -1; // index of the first bone of its chain (itself for the first one)
+    int8_t group = -1;     // PhysicsBones::Groups index
+};
+struct PhysicsSkeleton
+{
+    std::string name; // component name
+    std::vector<PhysicsBone> bones; // the whole rig, in order (own bones have chainRoot >= 0)
+};
+std::vector<PhysicsSkeleton> GetPhysicsSkeletons();
+
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();
 

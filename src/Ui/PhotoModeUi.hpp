@@ -68,6 +68,13 @@ int32_t MirrorParts(bool aFromLeft, const std::string& aGroup);
 // Turns a part (an eye) so that its forward direction points at a model-space point.
 bool AimPart(int32_t aPart, const Math::Vec3& aModelTarget);
 
+// Physics bones (hair, clothes, breasts) of the selected character, listed after the body parts: rebuilds the list
+// when they changed (call once per frame from the scripts) and returns its revision.
+uint32_t RefreshPhysicsParts();
+// Physics of the part's chain kept on while it is edited (off: the edited chain is held still).
+bool PartKeepsPhysics(int32_t aPart);
+void SetPartKeepsPhysics(int32_t aPart, bool aKeep);
+
 // Hand presets (0 open, 1 relaxed, 2 fist, 3 point, 4 grip): sets the fingers of one hand. Returns false if unknown.
 bool ApplyHandPreset(bool aRightHand, int32_t aPreset);
 

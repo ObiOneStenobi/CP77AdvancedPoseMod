@@ -176,6 +176,8 @@ public class APM_ValueRow extends IScriptable {
 }
 
 public func APM_FaceRowsPerPage() -> Int32 { return 13; }
+public func APM_PhysicsBoneSlots() -> Int32 { return 20; }   // bone buttons of a chain (two rows of ten)
+public func APM_PhysicsChainSlots() -> Int32 { return 6; }   // chain buttons per page (two rows of three)
 
 // --- Gizmo marker --------------------------------------------------------------------------------------------------
 
@@ -199,6 +201,11 @@ public class APM_Marker extends IScriptable {
     public let depth: Float;    // distance from the camera while shown
     public let behindFade: Float; // 0..1: depth behind the nearest marker shown (drawn fainter)
     public let coverFade: Float;  // 0..1: covered on screen by a nearer marker (drawn much fainter)
+    public let isPhysics: Bool;   // hair, clothing or breast bone (Hair & clothes mode only)
+    public let skeleton: String;  // its physics skeleton
+    public let chainIndex: Int32; // 1-based place in its chain, 0 for a group entry
+    public let prevPart: Int32;   // previous bone of its chain (line from it), or -1
+    public let panelOnly: Bool;   // breast bone of a skeleton with group entries: marker only while selected
 }
 
 // Classic gizmo (rotation rings / move arrows on the selected part): one hit square of a ring or an arrow.
@@ -334,6 +341,29 @@ public class APM_PoseEditor extends IScriptable {
     private let m_sectionItems: wref<inkCanvas>;
     private let m_sectionMode: wref<inkCanvas>;   // Body / Face: the panel shows the body sections or the face section
     private let m_faceMode: Bool;
+    // Hair & clothes mode: the physics bones (hair, clothing, breasts), listed after the body parts in the part list
+    // (7701). The list changes at runtime (other character, hair, outfit): APM_PhysicsRevision() tells when.
+    private let m_physicsMode: Bool;
+    private let m_sectionPhysics: wref<inkCanvas>;
+    private let m_physicsHeight: Float;
+    private let m_physicsRevision: Int32;
+    private let m_bodyPartCount: Int32;               // parts before the physics ones
+    private let m_physicsSkeletons: array<String>;    // distinct skeletons, in list order
+    private let m_physicsChainFirst: array<Int32>;    // per chain (all skeletons, list order): its first part
+    private let m_physicsChainCount: array<Int32>;    // its number of parts (1 for a group entry)
+    private let m_physicsChainSkeleton: array<Int32>; // its skeleton (index into m_physicsSkeletons)
+    private let m_physicsChainNames: array<String>;
+    private let m_physicsSkeleton: Int32;             // skeleton shown
+    private let m_physicsChain: Int32;                // chain shown (-1 none)
+    private let m_physicsChainPage: Int32;
+    private let m_physicsPageChain: Int32;            // selected chain the page was last turned to
+    private let m_physicsSkeletonButtons: array<ref<APM_Button>>;
+    private let m_physicsChainButtons: array<ref<APM_Button>>;
+    private let m_physicsChainSlots: array<Int32>;    // chain of each chain button (-1 none)
+    private let m_physicsBoneButtons: array<ref<APM_Button>>;
+    private let m_physicsEmpty: wref<inkText>;
+    private let m_lastBodyPart: Int32;                // selection kept while the other mode is shown
+    private let m_lastPhysicsPart: Int32;
     private let m_sectionFace: wref<inkCanvas>;   // face poses by zone and saved expressions
     private let m_faceBody: wref<inkCanvas>;
     private let m_faceInfo: wref<inkText>;
@@ -478,6 +508,11 @@ public class APM_PoseEditor extends IScriptable {
     private let m_propRight: Bool;            // the hand the picker works on
     private let m_shownRight: Uint64;         // items actually placed on the puppet
     private let m_shownLeft: Uint64;
+    // Building the picker's list: why the last record was left out, and the records left out per type (log only).
+    private let m_itemSkipType: String;
+    private let m_itemSkipReason: String;
+    private let m_skipTypes: array<String>;
+    private let m_skipCounts: array<Int32>;
     // Item the Photo Mode pose itself put in each hand (hand prop 0 = keep it, 1 = hand emptied on purpose)
     private let m_poseItemRight: ItemID;
     // Items placed on the player itself (Photo Mode in a vehicle, no puppet): the player keeps them after Photo Mode,
@@ -509,6 +544,11 @@ public class APM_PoseEditor extends IScriptable {
         this.m_propRight = true;
         this.m_posesOpen = APM_SessionGet("PosesOpen", 1.0) > 0.5; // open when the game starts
         this.m_faceMode = APM_SessionGet("FaceMode", 0.0) > 0.5;
+        this.m_physicsMode = !this.m_faceMode && APM_SessionGet("PhysicsMode", 0.0) > 0.5;
+        this.m_physicsChain = -1;
+        this.m_lastPhysicsPart = -1;
+        this.m_physicsRevision = APM_PhysicsRevision();
+        this.ReadPhysicsParts();
         this.m_faceZone = Cast<Int32>(APM_SessionGet("FaceZone", 4.0) + 0.5); // lips
         this.m_faceLinked = APM_PrefGet("FaceLinked", 1.0) > 0.5;
         APM_FaceSetLinked(this.m_faceLinked);
@@ -622,6 +662,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_clearPressedButton = false;
             this.m_pressedButtonId = "";
         }
+        this.UpdatePhysicsParts();
         this.UpdateMarkers();
         this.UpdateRename();
         this.SyncProps(timeDelta);
@@ -740,13 +781,50 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(tools, "axes:global", "globe", 412.0, 4.0, this.L("APM-Tip-AxesGlobal", "Axes (Ctrl+4): Global, the character's (fixed). Click for Local"));
         this.CreateIconButton(tools, "resetall", "trash-2", 580.0, 4.0, ""); // tooltip in Refresh: Body or Face
 
-        // Body / Face: the panel shows the body sections below, or the face section
+        // Body / Face / Hair & clothes: the panel shows the body sections below, the face section or the physics one
         let modeRow = this.CreateSection(n"APM_Mode");
         this.m_sectionMode = modeRow;
-        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 302.0, 32.0);
+        let bodyMode = this.CreateButton(modeRow, "mode:body", this.L("APM-Button-ModeBody", "Body"), 16.0, 4.0, 199.0, 32.0);
         this.TipL(bodyMode, "APM-Tip-ModeBody", "Pose the body: parts, IK, poses, items");
-        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 322.0, 4.0, 302.0, 32.0);
+        let faceMode = this.CreateButton(modeRow, "mode:face", this.L("APM-Button-ModeFace", "Face"), 220.0, 4.0, 199.0, 32.0);
         this.TipL(faceMode, "APM-Tip-ModeFace", "Expression editor: the Photo Mode expression, pose by pose");
+        let physicsMode = this.CreateButton(modeRow, "mode:physics", this.L("APM-Button-ModePhysics", "Hair & clothes"), 424.0, 4.0, 200.0, 32.0);
+        this.TipL(physicsMode, "APM-Tip-ModePhysics", "Pose hair, clothing and breast bones (the physics ones)");
+
+        // Hair & clothes: skeletons (two rows of four), chains of the skeleton (two rows of three, in pages), bones of
+        // the chain, physics switch of the chain. Placed by LayoutPhysics().
+        let physics = this.CreateSection(n"APM_Physics");
+        this.m_sectionPhysics = physics;
+        this.AddSeparator(physics);
+        this.m_physicsEmpty = this.CreateText(physics, this.L("APM-Msg-NoPhysics", "No hair, clothing or breast bones with physics on this character"), 16.0, 10.0, 608.0, 32.0, 14, APM_ColorDimText());
+        let p = 0;
+        while p < 8 {
+            let skeletonButton = this.CreateButton(physics, "physskel:" + IntToString(p), "", 16.0 + Cast<Float>(p % 4) * 152.0, 10.0 + Cast<Float>(p / 4) * 36.0, 146.0, 32.0);
+            skeletonButton.label.SetLetterCase(textLetterCase.OriginalCase);
+            this.AddDot(skeletonButton);
+            ArrayPush(this.m_physicsSkeletonButtons, skeletonButton);
+            p += 1;
+        }
+        this.CreateButton(physics, "physpage:prev", "<", 16.0, 0.0, 40.0, 68.0);
+        this.CreateButton(physics, "physpage:next", ">", 584.0, 0.0, 40.0, 68.0);
+        p = 0;
+        while p < 6 {
+            let chainButton = this.CreateButton(physics, "physchain:" + IntToString(p), "", 62.0 + Cast<Float>(p % 3) * 174.0, 0.0, 168.0, 32.0);
+            chainButton.label.SetLetterCase(textLetterCase.OriginalCase);
+            this.AddDot(chainButton);
+            ArrayPush(this.m_physicsChainButtons, chainButton);
+            ArrayPush(this.m_physicsChainSlots, -1);
+            p += 1;
+        }
+        p = 0;
+        while p < APM_PhysicsBoneSlots() {
+            let boneButton = this.CreateSmallButton(physics, "physbone:" + IntToString(p), IntToString(p + 1), 16.0 + Cast<Float>(p % 10) * 61.0, 0.0, 56.0, 28.0);
+            this.AddDot(boneButton);
+            ArrayPush(this.m_physicsBoneButtons, boneButton);
+            p += 1;
+        }
+        let keepButton = this.CreateSmallButton(physics, "physkeep", "", 16.0, 0.0, 240.0, 28.0);
+        this.TipL(keepButton, "APM-Tip-PhysicsSwitch", "Held: an edited chain stays still where it was. On: the physics keeps moving it and your edits are added");
 
         // Body part: group tabs (two rows of four), parts of the group (two rows of three)
         let partSection = this.CreateSection(n"APM_Part");
@@ -756,7 +834,8 @@ public class APM_PoseEditor extends IScriptable {
         let i = 0;
         while i < count {
             let group = APM_UiGetOptionGroup(7701u, i);
-            if !ArrayContains(this.m_groupNames, group) {
+            // Physics parts ("~Hair", ...) are in the Hair & clothes section
+            if !StrBeginsWith(group, "~") && !ArrayContains(this.m_groupNames, group) {
                 ArrayPush(this.m_groupNames, group);
             }
             i += 1;
@@ -820,12 +899,14 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         // Pin of the selected limb, on its own row
-        let pinOff = this.CreateSmallButton(ik, "pin:0", this.L("APM-Button-PinOff", "Off"), 60.0, 44.0, 180.0, 28.0);
+        let pinOff = this.CreateSmallButton(ik, "pin:0", this.L("APM-Button-PinOff", "Off"), 60.0, 44.0, 135.0, 28.0);
         this.TipL(pinOff, "APM-Tip-PinOff", "Pin off: the hand / foot follows the arm / leg rotations");
-        let pinWorld = this.CreateSmallButton(ik, "pin:1", this.L("APM-Button-PinWorld", "World"), 246.0, 44.0, 180.0, 28.0);
+        let pinWorld = this.CreateSmallButton(ik, "pin:1", this.L("APM-Button-PinWorld", "World"), 199.0, 44.0, 135.0, 28.0);
         this.TipL(pinWorld, "APM-Tip-PinWorld", "Pin world: the hand / foot stays in its place in the scene, whatever the body does");
-        let pinBody = this.CreateSmallButton(ik, "pin:2", this.L("APM-Button-PinBody", "Body"), 432.0, 44.0, 180.0, 28.0);
+        let pinBody = this.CreateSmallButton(ik, "pin:2", this.L("APM-Button-PinBody", "Body"), 338.0, 44.0, 135.0, 28.0);
         this.TipL(pinBody, "APM-Tip-PinBody", "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them");
+        let pinHand = this.CreateSmallButton(ik, "pin:3", this.L("APM-Button-PinHand", "Hand"), 477.0, 44.0, 135.0, 28.0);
+        this.TipL(pinHand, "APM-Tip-PinHand", "Pin hand: the hand follows the other hand, or the item it holds (hands only)");
         let ikRows = new inkCanvas();
         ikRows.SetName(n"APM_IkRows");
         ikRows.SetAnchor(inkEAnchor.TopLeft);
@@ -967,10 +1048,12 @@ public class APM_PoseEditor extends IScriptable {
         y = this.PlaceSection(this.m_sectionCharacter, y, 46.0, this.HasAddedCharacters());
         y = this.PlaceSection(this.m_sectionTools, y, 38.0, true);
         y = this.PlaceSection(this.m_sectionMode, y, 40.0, true);
-        let body = !this.m_faceMode;
+        let body = !this.m_faceMode && !this.m_physicsMode;
+        let physicsParts = this.m_physicsMode && ArraySize(this.m_physicsChainFirst) > 0;
         y = this.PlaceSection(this.m_sectionPart, y, 160.0, body);
-        y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body);
-        y = this.PlaceSection(this.m_sectionMove, y, 144.0, body && APM_UiIsAttributeEnabled(7705u));
+        y = this.PlaceSection(this.m_sectionPhysics, y, this.m_physicsHeight, this.m_physicsMode);
+        y = this.PlaceSection(this.m_sectionRotation, y, 144.0, body || physicsParts);
+        y = this.PlaceSection(this.m_sectionMove, y, 144.0, (body || physicsParts) && APM_UiIsAttributeEnabled(7705u));
         let pinned = APM_UiGetValue(7711u) > 0.5;
         this.m_ikRows.SetVisible(pinned);
         y = this.PlaceSection(this.m_sectionIk, y, pinned ? 230.0 : 82.0, body);
@@ -982,6 +1065,8 @@ public class APM_PoseEditor extends IScriptable {
         let libraryHeight = (this.m_posesOpen ? 252.0 : 40.0) + (tabs ? 36.0 : 0.0);
         if body {
             y = this.PlaceSection(this.m_sectionPoses, y, libraryHeight, true);
+        } else if this.m_physicsMode {
+            this.m_sectionPoses.SetVisible(false);
         }
         y = this.PlaceSection(this.m_sectionItems, y, 82.0, body);
         if this.m_faceMode {
@@ -1221,72 +1306,158 @@ public class APM_PoseEditor extends IScriptable {
         this.m_rootHit = rootHit;
         this.m_rightEyePart = this.PartIndex("Right eye");
 
-        let s = APM_UiScale();
         let count = APM_UiGetOptionCount(7701u);
         let i = 0;
         while i < count {
-            let label = APM_UiGetOptionLabel(7701u, i);
-            // Eyes: one look marker for both, or one per eye (whichever was chosen last in the Head tab).
-            if true {
-                let root = new inkCanvas();
-                root.SetName(StringToName("APM_gizmo:" + IntToString(i)));
-                root.SetAnchor(inkEAnchor.TopLeft);
-                root.SetAnchorPoint(0.5, 0.5);
-                root.SetSize(22.0 * s, 22.0 * s);
-                root.SetInteractive(true);
-                root.Reparent(this.m_gizmoLayer);
-
-                // Soft square behind the hand / foot marker while its limb is pinned
-                let halo = new inkRectangle();
-                halo.SetAnchor(inkEAnchor.Centered);
-                halo.SetAnchorPoint(0.5, 0.5);
-                halo.SetSize(26.0 * s, 26.0 * s);
-                halo.SetTintColor(APM_ColorIk());
-                halo.SetOpacity(0.35);
-                halo.SetInteractive(false);
-                halo.SetVisible(false);
-                halo.Reparent(root);
-
-                let dot = new inkRectangle();
-                dot.SetAnchor(inkEAnchor.Centered);
-                dot.SetAnchorPoint(0.5, 0.5);
-                dot.SetSize(10.0 * s, 10.0 * s);
-                dot.SetRotation(45.0);
-                dot.Reparent(root);
-
-                root.RegisterToCallback(n"OnPress", this, n"OnMarkerPress");
-                root.RegisterToCallback(n"OnHoverOver", this, n"OnMarkerHoverOver");
-                root.RegisterToCallback(n"OnHoverOut", this, n"OnMarkerHoverOut");
-
-                let marker = new APM_Marker();
-                marker.part = i;
-                marker.chain = APM_GizmoGetPartIkChain(i);
-                marker.swivelChain = APM_GizmoGetPartSwivelChain(i);
-                marker.canMove = APM_GizmoCanMovePart(i);
-                marker.isProp = StrEndsWith(label, "hand prop");
-                marker.group = APM_UiGetOptionGroup(7701u, i);
-                marker.kind = APM_MarkerKindBone();
-                if Equals(label, "Eyes (both)") || i == this.m_leftEyePart || i == this.m_rightEyePart {
-                    marker.kind = APM_MarkerKindEyeLook();
-                } else if APM_GizmoIsPartDetail(i) {
-                    marker.kind = APM_MarkerKindFingerDetail();
-                } else if APM_IsHandGroup(marker.group) {
-                    marker.kind = APM_MarkerKindFinger();
-                }
-                marker.root = root;
-                marker.dot = dot;
-                marker.halo = halo;
-                marker.line = this.CreateLine();
-                if marker.kind == APM_MarkerKindEyeLook() {
-                    if !this.IsSingleEye(i) {
-                        marker.line2 = this.CreateLine();
-                    }
-                } else {
-                    marker.parentLine = this.CreateLine();
-                }
-                ArrayPush(this.m_markers, marker);
-            }
+            this.AddPartMarker(i);
             i += 1;
+        }
+    }
+
+    // Marker of a part (index i of the part list), added at the end of m_markers (m_markers[i].part == i).
+    private func AddPartMarker(i: Int32) {
+        let s = APM_UiScale();
+        let label = APM_UiGetOptionLabel(7701u, i);
+        let isPhysics = this.IsPhysicsPart(i);
+        // Eyes: one look marker for both, or one per eye (whichever was chosen last in the Head tab).
+        let root = new inkCanvas();
+        root.SetName(StringToName("APM_gizmo:" + IntToString(i)));
+        root.SetAnchor(inkEAnchor.TopLeft);
+        root.SetAnchorPoint(0.5, 0.5);
+        root.SetSize(22.0 * s, 22.0 * s);
+        root.SetInteractive(true);
+        root.Reparent(this.m_gizmoLayer);
+
+        // Soft square behind the hand / foot marker while its limb is pinned
+        let halo = new inkRectangle();
+        halo.SetAnchor(inkEAnchor.Centered);
+        halo.SetAnchorPoint(0.5, 0.5);
+        halo.SetSize(26.0 * s, 26.0 * s);
+        halo.SetTintColor(APM_ColorIk());
+        halo.SetOpacity(0.35);
+        halo.SetInteractive(false);
+        halo.SetVisible(false);
+        halo.Reparent(root);
+
+        let dot = new inkRectangle();
+        dot.SetAnchor(inkEAnchor.Centered);
+        dot.SetAnchorPoint(0.5, 0.5);
+        dot.SetSize(10.0 * s, 10.0 * s);
+        dot.SetRotation(45.0);
+        dot.Reparent(root);
+
+        root.RegisterToCallback(n"OnPress", this, n"OnMarkerPress");
+        root.RegisterToCallback(n"OnHoverOver", this, n"OnMarkerHoverOver");
+        root.RegisterToCallback(n"OnHoverOut", this, n"OnMarkerHoverOut");
+
+        let marker = new APM_Marker();
+        marker.part = i;
+        marker.chain = APM_GizmoGetPartIkChain(i);
+        marker.swivelChain = APM_GizmoGetPartSwivelChain(i);
+        marker.canMove = APM_GizmoCanMovePart(i);
+        marker.isProp = StrEndsWith(label, "hand prop");
+        marker.group = APM_UiGetOptionGroup(7701u, i);
+        marker.kind = APM_MarkerKindBone();
+        if isPhysics {
+            // Hair, clothing, breasts: plain bone markers, no IK; the line comes from the previous bone of the chain.
+            marker.chain = -1;
+            marker.swivelChain = -1;
+            marker.isProp = false;
+            marker.isPhysics = true;
+            marker.skeleton = APM_PartSkeleton(i);
+            marker.chainIndex = APM_PartChainIndex(i);
+            marker.prevPart = -1;
+            if marker.chainIndex > 1 && i > 0 && Equals(APM_PartChain(i - 1), APM_PartChain(i)) && Equals(APM_PartSkeleton(i - 1), marker.skeleton) {
+                marker.prevPart = i - 1;
+            }
+            marker.panelOnly = marker.chainIndex > 0 && this.SkeletonHasGroups(marker.skeleton);
+        } else if Equals(label, "Eyes (both)") || i == this.m_leftEyePart || i == this.m_rightEyePart {
+            marker.kind = APM_MarkerKindEyeLook();
+        } else if APM_GizmoIsPartDetail(i) {
+            marker.kind = APM_MarkerKindFingerDetail();
+        } else if APM_IsHandGroup(marker.group) {
+            marker.kind = APM_MarkerKindFinger();
+        }
+        marker.root = root;
+        marker.dot = dot;
+        marker.halo = halo;
+        marker.line = this.CreateLine();
+        if marker.kind == APM_MarkerKindEyeLook() {
+            if !this.IsSingleEye(i) {
+                marker.line2 = this.CreateLine();
+            }
+        } else {
+            marker.parentLine = this.CreateLine();
+        }
+        ArrayPush(this.m_markers, marker);
+    }
+
+    // Physics parts changed (other character, hair, outfit): the markers of the physics parts are made again, one
+    // per part index; the body markers stay as they are.
+    private func RebuildPhysicsMarkers() {
+        if !IsDefined(this.m_gizmoLayer) || !IsDefined(this.m_lineLayer) {
+            return;
+        }
+        // Drop every marker past the body parts (and any past the list), with its lines.
+        while ArraySize(this.m_markers) > 0 {
+            let last = this.m_markers[ArraySize(this.m_markers) - 1];
+            if last.part < this.m_bodyPartCount && last.part == ArraySize(this.m_markers) - 1 {
+                break;
+            }
+            if this.m_dragMarker == last {
+                this.m_dragMarker = null;
+                this.m_dragMode = 0;
+                this.m_centerDrag = false;
+                APM_SetWheelCapture(false);
+            }
+            if this.m_waitMarker == last {
+                this.m_waitMarker = null;
+            }
+            if last.isHovered && !this.m_panelHovered {
+                this.SetHover(false);
+            }
+            this.RemoveMarkerWidgets(last);
+            ArrayPop(this.m_markers);
+        }
+        let count = APM_UiGetOptionCount(7701u);
+        let i = ArraySize(this.m_markers);
+        while i < count {
+            this.AddPartMarker(i);
+            i += 1;
+        }
+        // New markers were added on top: the classic gizmo's rings / arrows and the hint go back above them.
+        let layer = this.m_gizmoLayer;
+        let h = 0;
+        while h < ArraySize(this.m_handles) {
+            layer.ReorderChild(this.m_handles[h].root, layer.GetNumChildren() - 1);
+            if IsDefined(this.m_handles[h].line) {
+                this.m_lineLayer.ReorderChild(this.m_handles[h].line, this.m_lineLayer.GetNumChildren() - 1);
+            }
+            h += 1;
+        }
+        h = 0;
+        while h < ArraySize(this.m_arrowHeads) {
+            this.m_lineLayer.ReorderChild(this.m_arrowHeads[h], this.m_lineLayer.GetNumChildren() - 1);
+            h += 1;
+        }
+        if IsDefined(this.m_hint) {
+            layer.ReorderChild(this.m_hint, layer.GetNumChildren() - 1);
+        }
+        ArrayClear(this.m_raisedParts);
+    }
+
+    private func RemoveMarkerWidgets(marker: ref<APM_Marker>) {
+        if IsDefined(marker.root) {
+            this.m_gizmoLayer.RemoveChild(marker.root);
+        }
+        if IsDefined(marker.line) {
+            this.m_lineLayer.RemoveChild(marker.line);
+        }
+        if IsDefined(marker.line2) {
+            this.m_lineLayer.RemoveChild(marker.line2);
+        }
+        if IsDefined(marker.parentLine) {
+            this.m_lineLayer.RemoveChild(marker.parentLine);
         }
     }
 
@@ -1675,7 +1846,7 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func RefreshFace() {
-        this.SetButton("mode:body", !this.m_faceMode, true);
+        this.SetButton("mode:body", !this.m_faceMode && !this.m_physicsMode, true);
         this.SetButton("mode:face", this.m_faceMode, true);
         this.SetButton("face:linked", this.m_faceLinked, true);
         let unlockButton = this.FindButton("face:unlock");
@@ -2330,32 +2501,71 @@ public class APM_PoseEditor extends IScriptable {
 
     // --- Items in hand -------------------------------------------------------------------------------------------
 
-    // Picker category of an item record: 1 weapon, 2 food & drink, 3 other small item, 0 not offered.
-    // Shards, braindances, quest and misc items are left out: most of them have no model to hold.
+    // Picker category of an item record: 1 weapon (and grenades), 2 food, drink and medicine, 3 other small item,
+    // 0 not offered (m_itemSkipReason says why). Shards, braindances and quest items are left out: most of them have
+    // no model to hold.
     private func ItemCategory(record: ref<Item_Record>) -> Int32 {
         let itemType = record.ItemType();
         if !IsDefined(itemType) {
+            this.m_itemSkipReason = "no item type";
             return 0;
         }
         let typeName = EnumValueToString("gamedataItemType", Cast<Int64>(EnumInt(itemType.Type())));
+        this.m_itemSkipType = typeName;
         // Items without a model to show (no entity) cannot be held.
         if !IsNameValid(record.EntityName()) {
+            this.m_itemSkipReason = "no model";
             return 0;
         }
         if record.TagsContains(n"Quest") || record.TagsContains(n"Shard") || record.TagsContains(n"Braindance") || record.TagsContains(n"HideInUI") {
+            this.m_itemSkipReason = "quest, shard, braindance or hidden";
             return 0;
         }
+        this.m_itemSkipReason = "type not offered";
         if StrBeginsWith(typeName, "Wea_") {
             let usable = !Equals(typeName, "Wea_Fists") && !Equals(typeName, "Wea_VehicleMissileLauncher") && !Equals(typeName, "Wea_VehiclePowerWeapon");
             return usable ? 1 : 0;
         }
-        if Equals(typeName, "Con_Edible") {
+        if Equals(typeName, "Gad_Grenade") {
+            return 1;
+        }
+        if Equals(typeName, "Con_Edible") || Equals(typeName, "Con_Inhaler") || Equals(typeName, "Con_Injector") {
             return 2;
         }
-        if Equals(typeName, "Gen_Junk") || Equals(typeName, "Gen_Jewellery") {
+        if Equals(typeName, "Gen_Junk") || Equals(typeName, "Gen_Jewellery") || Equals(typeName, "Gen_Misc")
+            || Equals(typeName, "Gen_Readable") || Equals(typeName, "Gen_Keycard") || Equals(typeName, "Gen_Tarot")
+            || Equals(typeName, "Gen_CraftingMaterial") || Equals(typeName, "Con_Skillbook") {
             return 3;
         }
         return 0;
+    }
+
+    // Name shown in the picker: the item's display name, else its friendly name, else its model's name.
+    private func ItemPickerName(record: ref<Item_Record>) -> String {
+        let name = GetLocalizedItemNameByCName(record.DisplayName());
+        if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") {
+            return name;
+        }
+        name = record.FriendlyName();
+        if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") {
+            return name;
+        }
+        return IsNameValid(record.EntityName()) ? NameToString(record.EntityName()) : "";
+    }
+
+    // Diagnostics ([Debug] Log=1): records with a model that the picker leaves out, to choose more types to offer.
+    private func NoteSkippedItem(id: TweakDBID, record: ref<Item_Record>, reason: String) {
+        let type = IsDefined(record) ? this.m_itemSkipType : "no record";
+        let i = ArrayFindFirst(this.m_skipTypes, type);
+        if i < 0 {
+            ArrayPush(this.m_skipTypes, type);
+            ArrayPush(this.m_skipCounts, 1);
+        } else {
+            this.m_skipCounts[i] += 1;
+        }
+        if IsDefined(record) && IsNameValid(record.EntityName()) {
+            APM_LogInfo("Items: left out " + type + " " + TDBID.ToStringDEBUG(id) + " \"" + this.ItemPickerName(record) + "\" model " + NameToString(record.EntityName()) + ": " + reason);
+        }
     }
 
     // Every item with a name, one per name, sorted by name (built the first time the picker opens).
@@ -2364,39 +2574,68 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         this.m_itemsBuilt = true;
+        let log = APM_LogEnabled();
+        ArrayClear(this.m_skipTypes);
+        ArrayClear(this.m_skipCounts);
         let kind = 0;
-        while kind < 3 {
+        while kind < 4 {
             let count = APM_PropRecordCount(kind);
             let i = 0;
             while i < count {
-                let id = APM_RecordFromNumber(APM_PropRecordAt(kind, i));
+                let number = APM_PropRecordAt(kind, i);
+                let id = APM_RecordFromNumber(number);
                 let record = TweakDBInterface.GetItemRecord(id);
+                this.m_itemSkipType = "";
+                this.m_itemSkipReason = "no record";
                 let category = IsDefined(record) ? this.ItemCategory(record) : 0;
+                if category > 0 && APM_ItemKnownWithoutModel(number) {
+                    category = 0;
+                    this.m_itemSkipReason = "no visible model (found when held, items_without_model.txt)";
+                }
                 if category > 0 {
-                    let name = GetLocalizedItemNameByCName(record.DisplayName());
-                    if StrLen(name) > 0 && !StrBeginsWith(name, "LocKey") && !ArrayContains(this.m_itemNames, name) {
-                        let low = 0;
-                        let high = ArraySize(this.m_itemNames);
-                        while low < high {
-                            let middle = (low + high) / 2;
-                            if StrCmp(this.m_itemNames[middle], name) < 0 {
-                                low = middle + 1;
-                            } else {
-                                high = middle;
-                            }
+                    let name = this.ItemPickerName(record);
+                    let low = 0;
+                    let high = ArraySize(this.m_itemNames);
+                    while low < high {
+                        let middle = (low + high) / 2;
+                        if StrCmp(this.m_itemNames[middle], name) < 0 {
+                            low = middle + 1;
+                        } else {
+                            high = middle;
                         }
+                    }
+                    if StrLen(name) == 0 {
+                        if log {
+                            this.NoteSkippedItem(id, record, "no name");
+                        }
+                    } else if low < ArraySize(this.m_itemNames) && Equals(this.m_itemNames[low], name) {
+                        if log {
+                            this.NoteSkippedItem(id, record, "same name as another item");
+                        }
+                    } else {
                         ArrayInsert(this.m_itemNames, low, name);
                         ArrayInsert(this.m_itemSearch, low, StrLower(name));
                         ArrayInsert(this.m_itemIds, low, id);
                         ArrayInsert(this.m_itemWeapon, low, category == 1);
                         ArrayInsert(this.m_itemCategory, low, category);
                     }
+                } else if log {
+                    this.NoteSkippedItem(id, record, this.m_itemSkipReason);
                 }
                 i += 1;
             }
             kind += 1;
         }
         APM_LogInfo("Items: " + IntToString(ArraySize(this.m_itemIds)) + " in the picker");
+        if log {
+            let t = 0;
+            while t < ArraySize(this.m_skipTypes) {
+                APM_LogInfo("Items: left out " + IntToString(this.m_skipCounts[t]) + " of type " + this.m_skipTypes[t]);
+                t += 1;
+            }
+            ArrayClear(this.m_skipTypes);
+            ArrayClear(this.m_skipCounts);
+        }
     }
 
     private func PickerRows() -> Int32 {
@@ -2791,11 +3030,17 @@ public class APM_PoseEditor extends IScriptable {
         if leftWeapon {
             APM_LogInfo("Items: left hand weapon after 3 s: right slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponRight")) + ", left slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponLeft")));
         }
-        if IsDefined(transactions.GetItemInSlot(puppet, slot)) {
-            return;
+        // Held, but some items show nothing (e.g. braindances): no mesh component that can be seen.
+        let held = transactions.GetItemInSlot(puppet, slot);
+        if IsDefined(held) {
+            let meshes = APM_ItemVisibleMeshes(held);
+            if meshes != 0 {
+                return; // visible, or unknown (-1): left as it is
+            }
+            APM_LogInfo("Items: held but without a visible mesh");
         }
         APM_SetHandProp(this.m_checkRight, 0ul);
-        if leftWeapon {
+        if leftWeapon && !IsDefined(held) {
             // Not a missing model: the game does not keep this weapon in the left hand (it stays offered for the right).
             ArrayPush(this.m_noLeftItems, this.m_checkRecord);
             this.SetStatus(APM_TextWith("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand", GetLocalizedItemNameByCName(record.DisplayName())));
@@ -2806,6 +3051,7 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         ArrayPush(this.m_noModelItems, this.m_checkRecord);
+        APM_ItemMarkWithoutModel(this.m_checkRecord); // left out of the list in later sessions too
         this.SetStatus(APM_TextWith("APM-Msg-NoModel", "{0} has no model to hold", IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : APM_Text("APM-Item-ThisItem", "This item")));
         APM_LogInfo("Items: no model to hold, removed from the list");
         if this.m_pickerOpen {
@@ -3226,6 +3472,309 @@ public class APM_PoseEditor extends IScriptable {
             resetButton.isEnabled = part >= 0 && part < count && edited[part] && !APM_GizmoIsPartLocked(part);
             resetButton.UpdateLook();
         }
+        this.RefreshPhysics(part, edited);
+    }
+
+    // --- Hair & clothes (physics parts) ----------------------------------------------------------------------------
+
+    private func IsPhysicsPart(part: Int32) -> Bool {
+        return part >= this.m_bodyPartCount && part < APM_UiGetOptionCount(7701u);
+    }
+
+    // Skeletons and chains of the physics parts (after the body parts; the parts of a chain follow each other, a group
+    // entry is a chain of its own).
+    private func ReadPhysicsParts() {
+        ArrayClear(this.m_physicsSkeletons);
+        ArrayClear(this.m_physicsChainFirst);
+        ArrayClear(this.m_physicsChainCount);
+        ArrayClear(this.m_physicsChainSkeleton);
+        ArrayClear(this.m_physicsChainNames);
+        let count = APM_UiGetOptionCount(7701u);
+        this.m_bodyPartCount = count;
+        let i = 0;
+        while i < count && this.m_bodyPartCount == count {
+            if StrLen(APM_PartSkeleton(i)) > 0 {
+                this.m_bodyPartCount = i;
+            }
+            i += 1;
+        }
+        i = this.m_bodyPartCount;
+        while i < count {
+            let skeleton = APM_PartSkeleton(i);
+            let chain = APM_PartChain(i);
+            let place = APM_PartChainIndex(i);
+            let skeletonIndex = -1;
+            let k = 0;
+            while k < ArraySize(this.m_physicsSkeletons) {
+                if Equals(this.m_physicsSkeletons[k], skeleton) {
+                    skeletonIndex = k;
+                }
+                k += 1;
+            }
+            if skeletonIndex < 0 {
+                ArrayPush(this.m_physicsSkeletons, skeleton);
+                skeletonIndex = ArraySize(this.m_physicsSkeletons) - 1;
+            }
+            let last = ArraySize(this.m_physicsChainFirst) - 1;
+            let newChain = last < 0 || place <= 1 || this.m_physicsChainSkeleton[last] != skeletonIndex
+                || !Equals(this.m_physicsChainNames[last], chain) || APM_PartChainIndex(this.m_physicsChainFirst[last]) == 0;
+            if newChain {
+                ArrayPush(this.m_physicsChainFirst, i);
+                ArrayPush(this.m_physicsChainCount, 1);
+                ArrayPush(this.m_physicsChainSkeleton, skeletonIndex);
+                ArrayPush(this.m_physicsChainNames, chain);
+            } else {
+                this.m_physicsChainCount[last] += 1;
+            }
+            i += 1;
+        }
+        this.m_physicsSkeleton = Clamp(this.m_physicsSkeleton, 0, Max(0, ArraySize(this.m_physicsSkeletons) - 1));
+        this.m_physicsChain = -1;
+        this.m_physicsChainPage = 0;
+        this.m_physicsPageChain = -1;
+    }
+
+    // A skeleton whose parts include group entries (the breasts): its single bones are picked in the panel only.
+    private func SkeletonHasGroups(skeleton: String) -> Bool {
+        let c = 0;
+        while c < ArraySize(this.m_physicsChainFirst) {
+            let first = this.m_physicsChainFirst[c];
+            if Equals(this.m_physicsSkeletons[this.m_physicsChainSkeleton[c]], skeleton) && APM_PartChainIndex(first) == 0 {
+                return true;
+            }
+            c += 1;
+        }
+        return false;
+    }
+
+    // Chain holding a part (-1 for a body part).
+    private func PhysicsChainOf(part: Int32) -> Int32 {
+        let c = 0;
+        while c < ArraySize(this.m_physicsChainFirst) {
+            if part >= this.m_physicsChainFirst[c] && part < this.m_physicsChainFirst[c] + this.m_physicsChainCount[c] {
+                return c;
+            }
+            c += 1;
+        }
+        return -1;
+    }
+
+    private func IsGroupChain(chain: Int32) -> Bool {
+        return chain >= 0 && chain < ArraySize(this.m_physicsChainFirst) && APM_PartChainIndex(this.m_physicsChainFirst[chain]) == 0;
+    }
+
+    // Chains of the skeleton shown, in list order.
+    private func PhysicsSkeletonChains() -> array<Int32> {
+        let chains: array<Int32>;
+        let c = 0;
+        while c < ArraySize(this.m_physicsChainFirst) {
+            if this.m_physicsChainSkeleton[c] == this.m_physicsSkeleton {
+                ArrayPush(chains, c);
+            }
+            c += 1;
+        }
+        return chains;
+    }
+
+    // Once per update: the physics parts changed (APM_PhysicsRevision) -> their data, markers and buttons again.
+    private func UpdatePhysicsParts() {
+        let revision = APM_PhysicsRevision();
+        if revision == this.m_physicsRevision {
+            return;
+        }
+        this.m_physicsRevision = revision;
+        this.ReadPhysicsParts();
+        if this.m_lastPhysicsPart >= 0 && !this.IsPhysicsPart(this.m_lastPhysicsPart) {
+            this.m_lastPhysicsPart = -1;
+        }
+        this.RebuildPhysicsMarkers();
+        if IsDefined(this.m_panel) {
+            this.Refresh();
+        }
+    }
+
+    // Selects the first part of a chain (its first bone, or the group entry).
+    private func SelectPhysicsChain(chain: Int32) {
+        if chain >= 0 && chain < ArraySize(this.m_physicsChainFirst) {
+            APM_UiSetValue(7701u, Cast<Float>(this.m_physicsChainFirst[chain]));
+        }
+    }
+
+    // Body / Face / Hair & clothes: each keeps its own selected part (a physics part in Hair & clothes, a body part
+    // in the others).
+    private func SelectPartForMode() {
+        let part = Cast<Int32>(APM_UiGetValue(7701u));
+        if this.m_physicsMode {
+            if !this.IsPhysicsPart(part) && ArraySize(this.m_physicsChainFirst) > 0 {
+                let target = this.IsPhysicsPart(this.m_lastPhysicsPart) ? this.m_lastPhysicsPart : this.m_physicsChainFirst[0];
+                APM_UiSetValue(7701u, Cast<Float>(target));
+            }
+        } else if this.IsPhysicsPart(part) {
+            let bodyPart = this.m_lastBodyPart >= 0 && this.m_lastBodyPart < this.m_bodyPartCount ? this.m_lastBodyPart : 0;
+            APM_UiSetValue(7701u, Cast<Float>(bodyPart));
+        }
+    }
+
+    private func PhysicsSkeletonText(skeleton: String) -> String {
+        if Equals(skeleton, "Hair") {
+            return APM_Text("APM-Physics-Hair", "Hair");
+        }
+        if Equals(skeleton, "Breasts") {
+            return APM_Text("APM-Physics-Breasts", "Breasts");
+        }
+        return skeleton;
+    }
+
+    // Buttons of the Hair & clothes section; places them (LayoutPhysics) and sets the section height.
+    private func RefreshPhysics(part: Int32, edited: array<Bool>) {
+        this.SetButton("mode:physics", this.m_physicsMode, true);
+        let count = ArraySize(edited);
+        // The skeleton and chain shown follow the selected part when it is a physics part.
+        let selectedChain = this.PhysicsChainOf(part);
+        if selectedChain >= 0 {
+            this.m_physicsChain = selectedChain;
+            this.m_physicsSkeleton = this.m_physicsChainSkeleton[selectedChain];
+        }
+        if this.m_physicsChain >= ArraySize(this.m_physicsChainFirst) || (this.m_physicsChain >= 0 && this.m_physicsChainSkeleton[this.m_physicsChain] != this.m_physicsSkeleton) {
+            this.m_physicsChain = -1;
+        }
+        let chains = this.PhysicsSkeletonChains();
+        let perPage = APM_PhysicsChainSlots();
+        let pages = Max(1, (ArraySize(chains) + perPage - 1) / perPage);
+        if selectedChain >= 0 && selectedChain != this.m_physicsPageChain {
+            this.m_physicsPageChain = selectedChain; // newly selected: its page is shown (then the pages can be turned)
+            let k = 0;
+            while k < ArraySize(chains) {
+                if chains[k] == selectedChain {
+                    this.m_physicsChainPage = k / perPage; // the page of the selected chain
+                }
+                k += 1;
+            }
+        }
+        this.m_physicsChainPage = Clamp(this.m_physicsChainPage, 0, pages - 1);
+
+        // Skeletons
+        let any = ArraySize(this.m_physicsChainFirst) > 0;
+        this.m_physicsEmpty.SetVisible(!any);
+        let p = 0;
+        while p < ArraySize(this.m_physicsSkeletonButtons) {
+            let button = this.m_physicsSkeletonButtons[p];
+            let shown = p < ArraySize(this.m_physicsSkeletons);
+            button.root.SetVisible(shown);
+            if shown {
+                button.label.SetText(this.PhysicsSkeletonText(this.m_physicsSkeletons[p]));
+                button.isSelected = p == this.m_physicsSkeleton;
+                button.UpdateLook();
+                let skeletonEdited = false;
+                let c = 0;
+                while c < ArraySize(this.m_physicsChainFirst) && !skeletonEdited {
+                    if this.m_physicsChainSkeleton[c] == p {
+                        skeletonEdited = this.AnyEdited(edited, this.m_physicsChainFirst[c], this.m_physicsChainCount[c]);
+                    }
+                    c += 1;
+                }
+                this.SetDot(button, skeletonEdited);
+            }
+            p += 1;
+        }
+        // Chains of the skeleton (one page)
+        let first = this.m_physicsChainPage * perPage;
+        p = 0;
+        while p < ArraySize(this.m_physicsChainButtons) {
+            let button = this.m_physicsChainButtons[p];
+            let k = first + p;
+            let chain = any && k < ArraySize(chains) ? chains[k] : -1;
+            this.m_physicsChainSlots[p] = chain;
+            button.root.SetVisible(chain >= 0);
+            if chain >= 0 {
+                button.label.SetText(this.m_physicsChainNames[chain]);
+                button.isSelected = chain == this.m_physicsChain;
+                button.UpdateLook();
+                this.SetDot(button, this.AnyEdited(edited, this.m_physicsChainFirst[chain], this.m_physicsChainCount[chain]));
+            }
+            p += 1;
+        }
+        let paged = any && pages > 1;
+        let prev = this.FindButton("physpage:prev");
+        let next = this.FindButton("physpage:next");
+        if IsDefined(prev) && IsDefined(next) {
+            prev.root.SetVisible(paged);
+            next.root.SetVisible(paged);
+        }
+        this.SetButton("physpage:prev", false, this.m_physicsChainPage > 0);
+        this.SetButton("physpage:next", false, this.m_physicsChainPage < pages - 1);
+        // Bones of the chain (none for a group entry), and its physics switch
+        let bones = this.m_physicsChain >= 0 && !this.IsGroupChain(this.m_physicsChain) ? Min(this.m_physicsChainCount[this.m_physicsChain], APM_PhysicsBoneSlots()) : 0;
+        p = 0;
+        while p < ArraySize(this.m_physicsBoneButtons) {
+            let button = this.m_physicsBoneButtons[p];
+            button.root.SetVisible(p < bones);
+            if p < bones {
+                let bonePart = this.m_physicsChainFirst[this.m_physicsChain] + p;
+                button.isSelected = bonePart == part;
+                button.UpdateLook();
+                this.SetDot(button, bonePart < count && edited[bonePart]);
+            }
+            p += 1;
+        }
+        let keepButton = this.FindButton("physkeep");
+        if IsDefined(keepButton) {
+            keepButton.root.SetVisible(bones > 0);
+            if bones > 0 {
+                let keeps = APM_PartKeepsPhysics(this.m_physicsChainFirst[this.m_physicsChain]);
+                keepButton.label.SetText(keeps ? APM_Text("APM-Button-PhysicsOn", "Physics: on") : APM_Text("APM-Button-PhysicsHeld", "Physics: held"));
+                keepButton.isSelected = keeps;
+                keepButton.UpdateLook();
+            }
+        }
+        this.LayoutPhysics(paged ? perPage : ArraySize(chains) - first, bones);
+    }
+
+    private func AnyEdited(edited: array<Bool>, first: Int32, count: Int32) -> Bool {
+        let i = first;
+        while i < first + count && i < ArraySize(edited) {
+            if i >= 0 && edited[i] {
+                return true;
+            }
+            i += 1;
+        }
+        return false;
+    }
+
+    // Rows of the Hair & clothes section: skeletons, chains (left on the page), bones, physics switch.
+    private func LayoutPhysics(chainsLeft: Int32, bones: Int32) {
+        if ArraySize(this.m_physicsChainFirst) == 0 {
+            this.m_physicsHeight = 50.0;
+            return;
+        }
+        let y = 10.0 + Cast<Float>((Min(ArraySize(this.m_physicsSkeletons), 8) + 3) / 4) * 36.0 + 4.0;
+        let chainRows = Clamp((chainsLeft + 2) / 3, 1, 2);
+        let p = 0;
+        while p < ArraySize(this.m_physicsChainButtons) {
+            this.MoveButton(this.m_physicsChainButtons[p], y + Cast<Float>(p / 3) * 36.0);
+            p += 1;
+        }
+        let prev = this.FindButton("physpage:prev");
+        let next = this.FindButton("physpage:next");
+        if IsDefined(prev) && IsDefined(next) {
+            this.MoveButton(prev, y);
+            this.MoveButton(next, y);
+        }
+        y += Cast<Float>(chainRows) * 36.0 + 4.0;
+        if bones > 0 {
+            p = 0;
+            while p < ArraySize(this.m_physicsBoneButtons) {
+                this.MoveButton(this.m_physicsBoneButtons[p], y + Cast<Float>(p / 10) * 32.0);
+                p += 1;
+            }
+            y += Cast<Float>((bones + 9) / 10) * 32.0 + 2.0;
+            let keepButton = this.FindButton("physkeep");
+            if IsDefined(keepButton) {
+                this.MoveButton(keepButton, y);
+            }
+            y += 32.0;
+        }
+        this.m_physicsHeight = y + 4.0;
     }
 
     // --- Refresh -------------------------------------------------------------------------------------------------
@@ -3258,7 +3807,13 @@ public class APM_PoseEditor extends IScriptable {
         this.SetButton("axes:global", false, this.m_classicMode != APM_ClassicOff());
 
         // Body part tabs
+        this.SelectPartForMode();
         let part = Cast<Int32>(APM_UiGetValue(7701u));
+        if this.IsPhysicsPart(part) {
+            this.m_lastPhysicsPart = part;
+        } else {
+            this.m_lastBodyPart = part;
+        }
         let group = APM_UiGetOptionGroup(7701u, part);
         let groupIndex = this.GroupIndexOf(group);
         let i = 0;
@@ -3370,8 +3925,8 @@ public class APM_PoseEditor extends IScriptable {
         }
         let pin = Cast<Int32>(APM_UiGetValue(7711u) + 0.5);
         i = 0;
-        while i < 3 {
-            this.SetButton("pin:" + IntToString(i), i == pin, true);
+        while i < 4 {
+            this.SetButton("pin:" + IntToString(i), i == pin, i < 3 || limb < 2); // Hand: hands only
             i += 1;
         }
 
@@ -3653,68 +4208,21 @@ public class APM_PoseEditor extends IScriptable {
         let selected = Cast<Int32>(APM_UiGetValue(7701u));
         let selectedGroup = APM_UiGetOptionGroup(7701u, selected);
         let s = APM_UiScale();
+        let shownSkeleton = this.m_physicsSkeleton >= 0 && this.m_physicsSkeleton < ArraySize(this.m_physicsSkeletons) ? this.m_physicsSkeletons[this.m_physicsSkeleton] : "";
 
         let i = 0;
         while i < ArraySize(this.m_markers) {
             let marker = this.m_markers[i];
             let isDragged = IsDefined(this.m_dragMarker) && this.m_dragMarker.part == marker.part;
-            let world: Vector4;
-            if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
-                let eyeDistance = this.m_eyeLookDistance > 0.0 ? this.m_eyeLookDistance : this.LookDistance();
-                if isDragged && this.m_dragMode == APM_DragEyeLook() {
-                    let eye = APM_PartWorldPosition(toWorld, marker.part);
-                    eyeDistance = Vector4.Distance(APM_Vector(eye.X, eye.Y, eye.Z, 0.0), APM_Vector(this.m_lookTarget.X, this.m_lookTarget.Y, this.m_lookTarget.Z, 0.0));
-                }
-                world = this.SingleEyePoint(toWorld, marker.part, eyeDistance);
-                if this.m_eyesTogether {
-                    world.W = 0.0; // hidden: both eyes move together
-                }
-            } else if marker.kind == APM_MarkerKindEyeLook() {
-                world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.EyeDirectionPoint(toWorld, this.m_lookTarget) : this.EyeLookPoint(toWorld);
-                if !this.m_eyesTogether {
-                    world.W = 0.0; // hidden: each eye has its own marker
-                }
-            } else {
-                let markerModel = APM_GizmoGetPartMarker(marker.part);
-                world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-                world.W = markerModel.W;
+            // Hair & clothes: only the markers of the skeleton shown (breasts: the group entries, a single bone while
+            // selected); the other modes: only the body markers.
+            let modeShown = !this.m_physicsMode && !marker.isPhysics;
+            if marker.isPhysics && this.m_physicsMode {
+                modeShown = Equals(marker.skeleton, shownSkeleton) && (!marker.panelOnly || marker.part == selected);
             }
-            // In use: has a position, and (fingers) the camera is close enough. Its lines are drawn even when the
-            // marker itself is off screen.
-            let inUse = world.W > 0.5;
-            let anywhere = inUse ? this.ProjectPoint(camera, world, false) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-            // Fingers only up close (or while their hand is being edited), their segments even closer.
-            if inUse && marker.kind == APM_MarkerKindFinger() {
-                inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDistance() || Equals(marker.group, selectedGroup));
-            }
-            if inUse && marker.kind == APM_MarkerKindFingerDetail() {
-                inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && anywhere.Z < this.FingerDistance()));
-            }
-            inUse = inUse || (isDragged && world.W > 0.5);
-            let screen = inUse ? this.ProjectToScreen(camera, world) : APM_Vector(0.0, 0.0, 0.0, 0.0);
-            let show = inUse && screen.W > 0.5;
-
-            let isSelected = marker.part == selected;
-            // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
-            // flat bar across the bone = twist. Orange = IK.
-            let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
-            let locked = APM_GizmoIsPartLocked(marker.part);
-            let color = APM_ColorText();
-            if locked {
-                color = APM_Color(0.45, 0.45, 0.45, 1.0); // turned by Photo Mode's "Look at camera": not editable
-            } else if isSelected {
-                color = APM_ColorAccent();
-            } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
-                color = APM_ColorIk();
-            } else if marker.isProp {
-                color = APM_ColorProp();
-            } else if marker.part == this.m_hipsPart {
-                color = APM_ColorRoot();
-            }
-            let boneAngle = 0.0;
-            if inUse {
-                boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, world, color, isSelected || marker.isHovered);
-            } else {
+            if !modeShown && !isDragged {
+                marker.root.SetVisible(false);
+                marker.isHovered = false;
                 marker.line.SetVisible(false);
                 if IsDefined(marker.line2) {
                     marker.line2.SetVisible(false);
@@ -3722,41 +4230,116 @@ public class APM_PoseEditor extends IScriptable {
                 if IsDefined(marker.parentLine) {
                     marker.parentLine.SetVisible(false);
                 }
-            }
-
-            marker.root.SetVisible(show);
-            if show {
-                marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
-                marker.screenX = screen.X;
-                marker.screenY = screen.Y;
-                marker.depth = anywhere.Z;
-                let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
-                let size = isDetail ? 7.0 : 10.0;
-                if isSelected || marker.isHovered {
-                    size += 4.0;
-                }
-                marker.dot.SetTintColor(color);
-                if IsDefined(marker.halo) {
-                    marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
-                }
-                let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
-                if !isSelected && !marker.isHovered {
-                    opacity *= this.DepthFade(marker); // farther back (last frame's overlap pass)
-                }
-                marker.root.SetOpacity(opacity);
-                if mode == APM_DragTwist() {
-                    marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
-                    marker.dot.SetRotation(boneAngle + 90.0);
-                } else if mode == APM_DragIkMove() || mode == APM_DragEyeLook() || mode == APM_DragMove() {
-                    marker.dot.SetSize(size * 0.85 * s, size * 0.85 * s);
-                    marker.dot.SetRotation(0.0);
-                } else {
-                    marker.dot.SetSize(size * s, size * s);
-                    marker.dot.SetRotation(45.0);
-                }
+            } else {
+                this.UpdateMarker(marker, camera, toWorld, selected, selectedGroup, isDragged, s);
             }
             i += 1;
         }
+        this.FinishMarkers(camera, toWorld, selected, s);
+    }
+
+    // One marker shown in this mode: its place, shape, color and lines.
+    private func UpdateMarker(marker: ref<APM_Marker>, camera: ref<CameraSystem>, toWorld: Matrix, selected: Int32, selectedGroup: String, isDragged: Bool, s: Float) {
+        let world: Vector4;
+        if marker.kind == APM_MarkerKindEyeLook() && this.IsSingleEye(marker.part) {
+            let eyeDistance = this.m_eyeLookDistance > 0.0 ? this.m_eyeLookDistance : this.LookDistance();
+            if isDragged && this.m_dragMode == APM_DragEyeLook() {
+                let eye = APM_PartWorldPosition(toWorld, marker.part);
+                eyeDistance = Vector4.Distance(APM_Vector(eye.X, eye.Y, eye.Z, 0.0), APM_Vector(this.m_lookTarget.X, this.m_lookTarget.Y, this.m_lookTarget.Z, 0.0));
+            }
+            world = this.SingleEyePoint(toWorld, marker.part, eyeDistance);
+            if this.m_eyesTogether {
+                world.W = 0.0; // hidden: both eyes move together
+            }
+        } else if marker.kind == APM_MarkerKindEyeLook() {
+            world = isDragged && this.m_dragMode == APM_DragEyeLook() ? this.EyeDirectionPoint(toWorld, this.m_lookTarget) : this.EyeLookPoint(toWorld);
+            if !this.m_eyesTogether {
+                world.W = 0.0; // hidden: each eye has its own marker
+            }
+        } else {
+            let markerModel = APM_GizmoGetPartMarker(marker.part);
+            world = markerModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(markerModel.X, markerModel.Y, markerModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+            world.W = markerModel.W;
+        }
+        // In use: has a position, and (fingers) the camera is close enough. Its lines are drawn even when the
+        // marker itself is off screen.
+        let inUse = world.W > 0.5;
+        let anywhere = inUse ? this.ProjectPoint(camera, world, false) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        // Fingers only up close (or while their hand is being edited), their segments even closer.
+        if inUse && marker.kind == APM_MarkerKindFinger() {
+            inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDistance() || Equals(marker.group, selectedGroup));
+        }
+        if inUse && marker.kind == APM_MarkerKindFingerDetail() {
+            inUse = anywhere.W > 0.5 && (anywhere.Z < this.FingerDetailDistance() || (Equals(marker.group, selectedGroup) && anywhere.Z < this.FingerDistance()));
+        }
+        inUse = inUse || (isDragged && world.W > 0.5);
+        let screen = inUse ? this.ProjectToScreen(camera, world) : APM_Vector(0.0, 0.0, 0.0, 0.0);
+        let show = inUse && screen.W > 0.5;
+
+        let isSelected = marker.part == selected;
+        // The shape tells what a drag does with the keys held now: diamond = rotate, square = move,
+        // flat bar across the bone = twist. Orange = IK.
+        let mode = isDragged ? this.m_dragMode : this.DragModeFor(marker, this.m_shiftDown, this.m_controlDown);
+        let locked = APM_GizmoIsPartLocked(marker.part);
+        let color = APM_ColorText();
+        if locked {
+            color = APM_Color(0.45, 0.45, 0.45, 1.0); // turned by Photo Mode's "Look at camera": not editable
+        } else if isSelected {
+            color = APM_ColorAccent();
+        } else if mode == APM_DragIkMove() || mode == APM_DragSwivel() || mode == APM_DragEyeLook() {
+            color = APM_ColorIk();
+        } else if marker.isProp {
+            color = APM_ColorProp();
+        } else if marker.part == this.m_hipsPart {
+            color = APM_ColorRoot();
+        }
+        let boneAngle = 0.0;
+        if inUse {
+            boneAngle = this.UpdateMarkerLines(camera, toWorld, marker, world, color, isSelected || marker.isHovered);
+        } else {
+            marker.line.SetVisible(false);
+            if IsDefined(marker.line2) {
+                marker.line2.SetVisible(false);
+            }
+            if IsDefined(marker.parentLine) {
+                marker.parentLine.SetVisible(false);
+            }
+        }
+
+        marker.root.SetVisible(show);
+        if show {
+            marker.root.SetMargin(screen.X, screen.Y, 0.0, 0.0);
+            marker.screenX = screen.X;
+            marker.screenY = screen.Y;
+            marker.depth = anywhere.Z;
+            let isDetail = (marker.kind == APM_MarkerKindFingerDetail() || marker.kind == APM_MarkerKindFinger()) && !marker.isProp;
+            let size = isDetail ? 7.0 : 10.0;
+            if isSelected || marker.isHovered {
+                size += 4.0;
+            }
+            marker.dot.SetTintColor(color);
+            if IsDefined(marker.halo) {
+                marker.halo.SetVisible(marker.chain >= 0 && APM_GizmoIsIkActive(marker.chain));
+            }
+            let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
+            if !isSelected && !marker.isHovered {
+                opacity *= this.DepthFade(marker); // farther back (last frame's overlap pass)
+            }
+            marker.root.SetOpacity(opacity);
+            if mode == APM_DragTwist() {
+                marker.dot.SetSize(size * 1.8 * s, size * 0.45 * s);
+                marker.dot.SetRotation(boneAngle + 90.0);
+            } else if mode == APM_DragIkMove() || mode == APM_DragEyeLook() || mode == APM_DragMove() {
+                marker.dot.SetSize(size * 0.85 * s, size * 0.85 * s);
+                marker.dot.SetRotation(0.0);
+            } else {
+                marker.dot.SetSize(size * s, size * s);
+                marker.dot.SetRotation(45.0);
+            }
+        }
+    }
+
+    private func FinishMarkers(camera: ref<CameraSystem>, toWorld: Matrix, selected: Int32, s: Float) {
         this.ResolveMarkerOverlaps(camera, s);
         // Choosing "Eyes (both)" or a single eye in the Head tab switches the eye markers.
         if selected == this.m_leftEyePart || selected == this.m_rightEyePart {
@@ -3765,7 +4348,11 @@ public class APM_PoseEditor extends IScriptable {
             this.SetEyesTogether(true);
         }
         this.UpdateRootMarker(camera, toWorld, selected);
-        this.UpdateClassicGizmo(camera, toWorld, selected, s);
+        if this.m_physicsMode && !this.IsPhysicsPart(selected) {
+            this.HideClassicGizmo(); // Hair & clothes without physics parts: no body part is edited there
+        } else {
+            this.UpdateClassicGizmo(camera, toWorld, selected, s);
+        }
         this.UpdateHint();
     }
 
@@ -4355,7 +4942,15 @@ public class APM_PoseEditor extends IScriptable {
             }
             return 0.0;
         }
-        let parentModel = APM_GizmoGetPartParent(marker.part);
+        // Physics bones: the line comes from the previous bone of the chain (none for the first one).
+        let parentModel = APM_Vector(0.0, 0.0, 0.0, 0.0);
+        if marker.isPhysics {
+            if marker.prevPart >= 0 {
+                parentModel = APM_GizmoGetPartMarker(marker.prevPart);
+            }
+        } else {
+            parentModel = APM_GizmoGetPartParent(marker.part);
+        }
         let parent = parentModel.W > 0.5 ? Vector4.Transform(toWorld, APM_Vector(parentModel.X, parentModel.Y, parentModel.Z, 1.0)) : APM_Vector(0.0, 0.0, 0.0, 0.0);
         this.DrawWorldLine(camera, marker.parentLine, APM_Vector(parent.X, parent.Y, parent.Z, parentModel.W), world, APM_ColorText(), 1.5 * s, 0.35 * fade);
 
@@ -4619,6 +5214,9 @@ public class APM_PoseEditor extends IScriptable {
         }
         if shift && marker.canMove && !isHips {
             return APM_DragMove();
+        }
+        if marker.isPhysics && marker.chainIndex == 0 {
+            return APM_DragTrackball(); // a whole breast (group entry): turned as seen from the camera
         }
         if marker.chain >= 0 {
             // Auto IK on: drag moves the hand / foot (IK), Shift rotates it. Off: drag rotates it; Shift moves it with IK
@@ -5072,7 +5670,8 @@ public class APM_PoseEditor extends IScriptable {
             }
         } else if Equals(prefix, "pin") {
             APM_HistoryCheckpoint();
-            // World keeps the hand / foot where it is now; body makes it follow the shoulder / hips.
+            // World keeps the hand / foot where it is now; body makes it follow the shoulder / hips; hand makes it
+            // follow the other hand (or its item).
             APM_UiSetValue(7711u, Cast<Float>(StringToInt(arg)));
         } else if Equals(id, "poses:open") || Equals(id, "poses:close") {
             this.m_posesOpen = Equals(id, "poses:open");
@@ -5081,12 +5680,46 @@ public class APM_PoseEditor extends IScriptable {
             this.RunPropButton(arg);
         } else if Equals(prefix, "mode") {
             let faceMode = Equals(arg, "face");
+            let physicsMode = Equals(arg, "physics");
             if NotEquals(faceMode, this.m_faceMode) {
                 this.m_faceMode = faceMode;
                 APM_SessionSet("FaceMode", this.m_faceMode ? 1.0 : 0.0);
                 this.m_selectedPose = ""; // the list switches between the poses and the expressions
                 this.m_posePage = 0;
                 this.ReloadPoses();
+            }
+            if NotEquals(physicsMode, this.m_physicsMode) {
+                this.m_physicsMode = physicsMode;
+                APM_SessionSet("PhysicsMode", this.m_physicsMode ? 1.0 : 0.0);
+            }
+            this.SelectPartForMode(); // a physics part in Hair & clothes, a body part in the others
+        } else if Equals(prefix, "physskel") {
+            let skeleton = StringToInt(arg);
+            if skeleton >= 0 && skeleton < ArraySize(this.m_physicsSkeletons) {
+                this.m_physicsSkeleton = skeleton;
+                let skeletonChains = this.PhysicsSkeletonChains();
+                if ArraySize(skeletonChains) > 0 {
+                    this.SelectPhysicsChain(skeletonChains[0]);
+                }
+            }
+        } else if Equals(prefix, "physchain") {
+            let chainSlot = StringToInt(arg);
+            if chainSlot >= 0 && chainSlot < ArraySize(this.m_physicsChainSlots) {
+                this.SelectPhysicsChain(this.m_physicsChainSlots[chainSlot]);
+            }
+        } else if Equals(prefix, "physpage") {
+            this.m_physicsChainPage += Equals(arg, "next") ? 1 : -1; // clamped by RefreshPhysics
+        } else if Equals(prefix, "physbone") {
+            let bone = StringToInt(arg);
+            let boneChain = this.m_physicsChain;
+            if boneChain >= 0 && boneChain < ArraySize(this.m_physicsChainFirst) && bone >= 0 && bone < this.m_physicsChainCount[boneChain] {
+                APM_UiSetValue(7701u, Cast<Float>(this.m_physicsChainFirst[boneChain] + bone));
+            }
+        } else if Equals(id, "physkeep") {
+            let keepChain = this.m_physicsChain;
+            if keepChain >= 0 && keepChain < ArraySize(this.m_physicsChainFirst) && !this.IsGroupChain(keepChain) {
+                let keepPart = this.m_physicsChainFirst[keepChain];
+                APM_PartSetKeepsPhysics(keepPart, !APM_PartKeepsPhysics(keepPart));
             }
         } else if Equals(id, "face:unlock") || Equals(id, "face:lock") {
             this.SetFaceUnlocked(Equals(id, "face:unlock"));

@@ -51,6 +51,10 @@ void Load()
     v.probeFaceTracks = ReadBool(file, L"Probe", L"FaceTracks", v.probeFaceTracks);
     v.probeFaceTrack = ReadString(file, L"Probe", L"FaceTrack");
     v.probeFaceTrackWeight = static_cast<float>(std::atof(ReadString(file, L"Probe", L"FaceTrackWeight").c_str()));
+    v.probePhysics = ReadBool(file, L"Probe", L"Physics", v.probePhysics);
+    v.probePhysicsTestBone = ReadString(file, L"Probe", L"PhysicsTestBone");
+    v.probePhysicsTestAngle =
+        static_cast<float>(std::atof(ReadString(file, L"Probe", L"PhysicsTestAngle").c_str()));
     v.debugLog = ReadBool(file, L"Debug", L"Log", v.debugLog);
     v.allowUnknownGameVersion = ReadBool(file, L"Compatibility", L"AllowUnknownGameVersion", v.allowUnknownGameVersion);
     Log::g_verbose = v.debugLog;
@@ -66,6 +70,11 @@ void Load()
     if (v.probeFaceTracks)
     {
         Log::Info("Config: face track probe on, track '%s' + %.2f", v.probeFaceTrack.c_str(), v.probeFaceTrackWeight);
+    }
+    if (v.probePhysics)
+    {
+        Log::Info("Config: physics probe on, test bone '%s' %.1f degrees", v.probePhysicsTestBone.c_str(),
+                  v.probePhysicsTestAngle);
     }
 }
 

@@ -13,6 +13,7 @@
 #include "Pose/PoseProcessor.hpp"
 #include "Pose/TargetRegistry.hpp"
 #include "Ui/BoneCatalog.hpp"
+#include "Pose/PhysicsBones.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -38,7 +39,7 @@ using namespace APM::Ui::PhotoModeUi;
 
 constexpr int32_t SlotCount = 10;
 constexpr const char* IkLimbLabels[] = {"Left hand", "Right hand", "Left foot", "Right foot"};
-constexpr const char* IkPinLabels[] = {"Off", "World", "Body"};
+constexpr const char* IkPinLabels[] = {"Off", "World", "Body", "Hand"};
 
 // Mirror mode: every edit of a left / right part is copied, mirrored, to the same part on the other side.
 std::atomic<bool> g_mirror{false};
@@ -103,6 +104,16 @@ std::array<float, 3> CurrentTranslation()
     return translation;
 }
 
+// Panel axes of a bone; a group (Pose/PhysicsBones) uses those of the chest, the bone its members hang from.
+bool GetPanelAxes(const char* aBone, Math::Vec3& aBend1, Math::Vec3& aBend2, Math::Vec3& aTwist)
+{
+    const bool group = Pose::PhysicsBones::IsGroupBone(aBone);
+    return Pose::TargetRegistry::GetBoneAxes(RED4ext::CName(group ? "Spine3" : aBone).hash, aBend1, aBend2, aTwist);
+}
+
+// Physics bones (hair, clothes, breasts) move a few centimeters at most.
+constexpr float PhysicsMaxOffset = 0.15f;
+
 // aSwapBends: fingers point sideways like the arms, but for them "bend forward / back" must be the curl
 // (rotation around the forward axis) and "bend sideways" the spread (rotation around the vertical axis).
 Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngles, bool aSwapBends)
@@ -110,7 +121,7 @@ Math::Quat AnglesToRotation(const char* aBone, const std::array<float, 3>& aAngl
     Math::Vec3 bend1;
     Math::Vec3 bend2;
     Math::Vec3 twist;
-    if (!Pose::TargetRegistry::GetBoneAxes(RED4ext::CName(aBone).hash, bend1, bend2, twist))
+    if (!GetPanelAxes(aBone, bend1, bend2, twist))
     {
         // Main skeleton not available yet: fall back to the bone's raw local axes.
         return Math::FromEulerXYZDegrees(aAngles[0], aAngles[1], aAngles[2]);
@@ -271,9 +282,9 @@ constexpr const char* IkChainParents[] = {"LeftShoulder", "RightShoulder", "Hips
 
 // The pin of the current chain is turned on: pin the hand / foot where it is shown now (after the edits above it),
 // instead of where the animation had it.
-void PinAtCurrentPlace(Pose::IkChainSettings& aSettings)
+void PinAtCurrentPlace(Pose::IkChainSettings& aSettings, size_t aChain = static_cast<size_t>(CurrentChain()))
 {
-    const auto chain = static_cast<size_t>(CurrentChain());
+    const auto chain = aChain;
     const char* end = IkChainEnds[chain];
     const uint64_t endHash = RED4ext::CName(end).hash;
     const uint64_t parentHash = RED4ext::CName(IkChainParents[chain]).hash;
@@ -321,6 +332,56 @@ void PinAtCurrentPlace(Pose::IkChainSettings& aSettings)
         }
         Pose::PoseOverrides::SetRotationQuat(end, AnglesToRotation(end, angles, false), angles);
     }
+}
+
+// The current hand starts following the other hand: its place and turn now, in the frame of the other hand's item slot
+// (the item it holds moves and turns the hand along) or of the other hand itself when that slot is not by the hand.
+bool LinkToOtherHand(Pose::IkChainSettings& aSettings, size_t aChain)
+{
+    if (aChain > 1)
+    {
+        return false;
+    }
+    const bool leftLeads = aChain == 1;
+    const char* end = IkChainEnds[aChain];
+    const uint64_t endHash = RED4ext::CName(end).hash;
+    const uint64_t leaderHandHash = RED4ext::CName(leftLeads ? "LeftHand" : "RightHand").hash;
+    const uint64_t slotHash = RED4ext::CName(leftLeads ? "WeaponLeft" : "WeaponRight").hash;
+    Math::Vec3 hand{};
+    Math::Quat handRotation{};
+    Math::Vec3 leaderHand{};
+    Math::Quat leaderHandRotation{};
+    if (!Pose::GizmoState::GetBoneModelPosition(endHash, hand) ||
+        !Pose::GizmoState::GetBoneModelRotation(endHash, handRotation) ||
+        !Pose::GizmoState::GetBoneModelPosition(leaderHandHash, leaderHand) ||
+        !Pose::GizmoState::GetBoneModelRotation(leaderHandHash, leaderHandRotation))
+    {
+        return false;
+    }
+    Math::Vec3 frame = leaderHand;
+    Math::Quat frameRotation = leaderHandRotation;
+    Math::Vec3 slot{};
+    Math::Quat slotRotation{};
+    // Some poses animate the item slot away from the hand: then the hand is the frame.
+    constexpr float MaxSlotDistance = 0.3f;
+    const bool useSlot = Pose::GizmoState::GetBoneModelPosition(slotHash, slot) &&
+                         Pose::GizmoState::GetBoneModelRotation(slotHash, slotRotation) &&
+                         Math::Length(slot - leaderHand) < MaxSlotDistance;
+    if (useSlot)
+    {
+        frame = slot;
+        frameRotation = slotRotation;
+    }
+    const Math::Vec3 offset = Math::Rotate(Math::Conjugate(frameRotation), hand - frame);
+    std::array<float, 3> angles{};
+    Pose::PoseOverrides::GetUiAngles(end, angles);
+    const Math::Quat edit = AnglesToRotation(end, angles, false);
+    // Solver: hand world rotation = frame * linkRotation * edit.
+    aSettings.linkRotation = Math::Normalize(
+        Math::Mul(Math::Mul(Math::Conjugate(frameRotation), handRotation), Math::Conjugate(edit)));
+    aSettings.offset = {offset.x, offset.y, offset.z};
+    aSettings.linkHand = !useSlot;
+    return true;
 }
 
 // The pin of the current chain is turned off: the arm / leg keeps the pose the IK gave it, as plain rotations
@@ -401,7 +462,7 @@ bool RotationToAngles(const char* aBone, const Math::Quat& q, bool aSwapBends, s
     Math::Vec3 bend1;
     Math::Vec3 bend2;
     Math::Vec3 twist;
-    if (!Pose::TargetRegistry::GetBoneAxes(RED4ext::CName(aBone).hash, bend1, bend2, twist))
+    if (!GetPanelAxes(aBone, bend1, bend2, twist))
     {
         return false;
     }
@@ -542,7 +603,12 @@ void ResetCurrentPart()
             {
                 continue;
             }
-            if (std::string_view(bone) == chainBones[c][2])
+            if (std::string_view(bone) == chainBones[c][2] && settings.followHand)
+            {
+                // A hand that follows the other one: unlinked, back to the pose.
+                Pose::PoseOverrides::SetIkChain(chain, Pose::IkChainSettings{});
+            }
+            else if (std::string_view(bone) == chainBones[c][2])
             {
                 settings.offset = {};
                 settings.swivel = 0.f;
@@ -635,7 +701,7 @@ float GetValue(uint32_t aAttribute)
     case Attr::IkPin:
     {
         const auto chain = Pose::PoseOverrides::GetIkChain(CurrentChain());
-        return chain.enabled ? (chain.followBody ? 2.f : 1.f) : 0.f;
+        return chain.enabled ? (chain.followHand ? 3.f : chain.followBody ? 2.f : 1.f) : 0.f;
     }
     case Attr::IkX:
     case Attr::IkY:
@@ -713,7 +779,11 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
         auto translation = CurrentTranslation();
         auto& component = translation[aAttribute - Attr::MoveX];
-        const float meters = aValue / CentimetersPerMeter;
+        float meters = aValue / CentimetersPerMeter;
+        if (CurrentEntry().skeleton)
+        {
+            meters = std::clamp(meters, -PhysicsMaxOffset, PhysicsMaxOffset);
+        }
         if (!Same(component, meters))
         {
             component = meters;
@@ -743,9 +813,49 @@ void SetValue(uint32_t aAttribute, float aValue)
         auto updated = settings;
         if (aAttribute == Attr::IkPin)
         {
-            updated.enabled = aValue > 0.5f;
-            updated.followBody = aValue > 1.5f;
-            if (settings.enabled && updated.enabled && settings.followBody != updated.followBody)
+            const auto chain = static_cast<size_t>(CurrentChain());
+            int32_t mode = std::clamp<int32_t>(static_cast<int32_t>(std::lround(aValue)), 0, 3);
+            if (mode == 3 && chain > 1)
+            {
+                break; // only a hand follows the other hand
+            }
+            updated.enabled = mode > 0;
+            updated.followBody = mode == 2;
+            updated.followHand = mode == 3;
+            if (updated.followHand && !settings.followHand)
+            {
+                // Only one hand follows: the other one, if it followed this one, stays where it is, pinned in the world.
+                const auto other = Pose::OtherHand(CurrentChain());
+                auto otherSettings = Pose::PoseOverrides::GetIkChain(other);
+                if (otherSettings.followHand)
+                {
+                    otherSettings.followHand = false;
+                    otherSettings.followBody = false;
+                    PinAtCurrentPlace(otherSettings, static_cast<size_t>(other));
+                    Pose::PoseOverrides::SetIkChain(other, otherSettings);
+                }
+                if (!LinkToOtherHand(updated, chain))
+                {
+                    break;
+                }
+                if (!settings.enabled)
+                {
+                    updated.swivel = 0.f; // the solver keeps the elbow where the pose has it
+                }
+            }
+            else if (settings.followHand && !updated.followHand)
+            {
+                // Unlinked: the hand stays where it is (pinned in the world / to the body, or as plain rotations).
+                if (updated.enabled)
+                {
+                    PinAtCurrentPlace(updated);
+                }
+                else
+                {
+                    BakeChainPose();
+                }
+            }
+            else if (settings.enabled && updated.enabled && settings.followBody != updated.followBody)
             {
                 KeepPinnedEndInPlace(updated);
             }
@@ -768,6 +878,7 @@ void SetValue(uint32_t aAttribute, float aValue)
         }
 
         const bool changed = updated.enabled != settings.enabled || updated.followBody != settings.followBody ||
+                             updated.followHand != settings.followHand || aAttribute == Attr::IkPin ||
                              !Same(updated.swivel, settings.swivel) ||
                              !Same(updated.offset[0], settings.offset[0]) ||
                              !Same(updated.offset[1], settings.offset[1]) ||
@@ -1021,14 +1132,21 @@ bool IsPartLookAtLocked(int32_t aPart)
 bool CanMovePart(int32_t aPart)
 {
     const auto& catalog = GetBoneCatalog();
-    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) && catalog[aPart].allowsTranslation;
+    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) &&
+           (catalog[aPart].allowsTranslation || catalog[aPart].ikMove);
 }
+
+bool MoveChainBone(int32_t aPart, const Math::Vec3& aModelDelta);
 
 bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
 {
     if (!CanMovePart(aPart))
     {
         return false;
+    }
+    if (GetBoneCatalog()[aPart].ikMove)
+    {
+        return MoveChainBone(aPart, aModelDelta);
     }
     g_bodyPart = aPart;
     const char* bone = CurrentEntry().bones.front();
@@ -1040,9 +1158,10 @@ bool MovePart(int32_t aPart, const Math::Vec3& aModelDelta)
     }
     const Math::Vec3 local = Math::Rotate(Math::Conjugate(parent), aModelDelta);
     auto translation = CurrentTranslation();
-    translation[0] = std::clamp(translation[0] + local.x, -10.f, 10.f);
-    translation[1] = std::clamp(translation[1] + local.y, -10.f, 10.f);
-    translation[2] = std::clamp(translation[2] + local.z, -10.f, 10.f);
+    const float limit = CurrentEntry().skeleton ? PhysicsMaxOffset : 10.f;
+    translation[0] = std::clamp(translation[0] + local.x, -limit, limit);
+    translation[1] = std::clamp(translation[1] + local.y, -limit, limit);
+    translation[2] = std::clamp(translation[2] + local.z, -limit, limit);
     Pose::PoseOverrides::SetTranslation(bone, translation[0], translation[1], translation[2]);
     MirrorCurrentPart();
     RequestRefresh();
@@ -1080,6 +1199,160 @@ bool SetBoneLocal(const char* aBone, const Math::Quat& aWanted, bool aFingerAxes
     return true;
 }
 } // namespace
+
+// Hair / clothing chain IK: the bone is dragged to a new place and the bones above it in its chain turn to reach it
+// (cyclic coordinate descent), stored as their edits. Several drags in one frame build on the last target.
+bool MoveChainBone(int32_t aPart, const Math::Vec3& aModelDelta)
+{
+    const auto& catalog = GetBoneCatalog();
+    const auto& entry = catalog[aPart];
+    if (!entry.skeleton || !entry.chainRoot || entry.bones.empty())
+    {
+        return false;
+    }
+    const uint64_t moved = RED4ext::CName(entry.bones.front()).hash;
+    const uint64_t root = RED4ext::CName(entry.chainRoot).hash;
+
+    // Bones from the chain's first one down to the dragged bone's parent.
+    std::vector<uint64_t> path;
+    for (const auto& skeleton : Pose::GizmoState::GetPhysicsSkeletons())
+    {
+        const auto it = std::find_if(skeleton.bones.begin(), skeleton.bones.end(), [&](const auto& b) { return b.hash == moved; });
+        if (it == skeleton.bones.end())
+        {
+            continue;
+        }
+        for (int32_t i = it->parent; i >= 0 && static_cast<size_t>(i) < skeleton.bones.size() && path.size() < 64;
+             i = skeleton.bones[i].parent)
+        {
+            path.insert(path.begin(), skeleton.bones[i].hash);
+            if (skeleton.bones[i].hash == root)
+            {
+                break;
+            }
+        }
+        if (path.empty() || path.front() != root)
+        {
+            path.clear();
+        }
+        break;
+    }
+    if (path.empty())
+    {
+        return false;
+    }
+
+    const size_t n = path.size();
+    std::vector<Math::Vec3> positions(n);
+    std::vector<Math::Quat> rotations(n);
+    Math::Vec3 effector{};
+    Math::Quat rootParent{};
+    for (size_t j = 0; j < n; ++j)
+    {
+        if (!Pose::GizmoState::GetBoneModelPosition(path[j], positions[j]) ||
+            !Pose::GizmoState::GetBoneModelRotation(path[j], rotations[j]))
+        {
+            return false;
+        }
+    }
+    if (!Pose::GizmoState::GetBoneModelPosition(moved, effector) ||
+        !Pose::GizmoState::GetParentModelRotation(root, rootParent))
+    {
+        return false;
+    }
+
+    static int32_t s_part = -1;
+    static uint64_t s_time = 0;
+    static Math::Vec3 s_target{};
+    const uint64_t now = GetTickCount64();
+    const Math::Vec3 start = (s_part == aPart && now - s_time < 150) ? s_target : effector;
+    const Math::Vec3 target = start + aModelDelta;
+    s_part = aPart;
+    s_time = now;
+    s_target = target;
+
+    for (int iteration = 0; iteration < 12; ++iteration)
+    {
+        for (size_t step = 0; step < n; ++step)
+        {
+            const size_t j = n - 1 - step;
+            const Math::Vec3 from = effector - positions[j];
+            const Math::Vec3 to = target - positions[j];
+            if (Math::Length(from) < 1e-4f || Math::Length(to) < 1e-4f)
+            {
+                continue;
+            }
+            const Math::Vec3 axis = Math::Cross(Math::Normalize(from), Math::Normalize(to));
+            const float angle = Math::AngleBetween(Math::Normalize(from), Math::Normalize(to));
+            if (Math::Length(axis) < 1e-6f || angle < 1e-4f)
+            {
+                continue;
+            }
+            const Math::Quat turn = Math::FromAxisAngle(Math::Normalize(axis), angle);
+            for (size_t k = j + 1; k < n; ++k)
+            {
+                positions[k] = positions[j] + Math::Rotate(turn, positions[k] - positions[j]);
+                rotations[k] = Math::Normalize(Math::Mul(turn, rotations[k]));
+            }
+            rotations[j] = Math::Normalize(Math::Mul(turn, rotations[j]));
+            effector = positions[j] + Math::Rotate(turn, effector - positions[j]);
+        }
+        if (Math::Length(effector - target) < 0.002f)
+        {
+            break;
+        }
+    }
+
+    bool done = false;
+    for (size_t j = 0; j < n; ++j)
+    {
+        const Math::Quat parent = j == 0 ? rootParent : rotations[j - 1];
+        const char* name = RED4ext::CName(path[j]).ToString();
+        if (name)
+        {
+            done = SetBoneLocal(name, Math::Normalize(Math::Mul(Math::Conjugate(parent), rotations[j])), false) || done;
+        }
+    }
+    g_bodyPart = aPart;
+    RequestRefresh();
+    return done;
+}
+
+uint32_t RefreshPhysicsParts()
+{
+    static uint32_t s_revision = 0;
+    const uint32_t revision = Ui::RefreshPhysicsEntries();
+    if (revision != s_revision)
+    {
+        s_revision = revision;
+        if (g_bodyPart >= static_cast<int32_t>(Ui::GetBodyPartCount()))
+        {
+            g_bodyPart = 0; // the list of physics bones changed under the selection
+        }
+        RequestRefresh();
+    }
+    return revision;
+}
+
+bool PartKeepsPhysics(int32_t aPart)
+{
+    const auto& catalog = GetBoneCatalog();
+    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) && catalog[aPart].chainRoot &&
+           Pose::PoseOverrides::GetKeepPhysics(catalog[aPart].chainRoot);
+}
+
+void SetPartKeepsPhysics(int32_t aPart, bool aKeep)
+{
+    const auto& catalog = GetBoneCatalog();
+    if (aPart < 0 || aPart >= static_cast<int32_t>(catalog.size()) || !catalog[aPart].chainRoot ||
+        catalog[aPart].mode == Ui::EntryMode::Group)
+    {
+        return;
+    }
+    Pose::PoseOverrides::Checkpoint();
+    Pose::PoseOverrides::SetKeepPhysics(catalog[aPart].chainRoot, aKeep);
+    RequestRefresh();
+}
 
 int32_t MirrorParts(bool aFromLeft, const std::string& aGroup)
 {
@@ -1318,6 +1591,10 @@ void MirrorChain(int32_t aSource, const Pose::TargetRegistry::ReferencePose& aRe
     const int32_t target = aSource ^ 1;
     const auto source = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(aSource));
     auto settings = Pose::PoseOverrides::GetIkChain(static_cast<Pose::IkChain>(target));
+    if (source.followHand || settings.followHand)
+    {
+        return; // hands linked to each other: nothing to mirror
+    }
     if (!source.enabled)
     {
         if (settings.enabled)

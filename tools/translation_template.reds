@@ -117,6 +117,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-ModeBody", "Pose the body: parts, IK, poses, items");
         this.Text("APM-Button-ModeFace", "Face");
         this.Text("APM-Tip-ModeFace", "Expression editor: the Photo Mode expression, pose by pose");
+        this.Text("APM-Button-ModePhysics", "Hair & clothes");
+        this.Text("APM-Tip-ModePhysics", "Pose hair, clothing and breast bones (the physics ones)");
+        this.Text("APM-Msg-NoPhysics", "No hair, clothing or breast bones with physics on this character");
+        this.Text("APM-Tip-PhysicsSwitch", "Held: an edited chain stays still where it was. On: the physics keeps moving it and your edits are added");
         this.Text("APM-Button-Reset", "Reset");
         this.Text("APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
         this.Text("APM-Button-EyesBoth", "Both");
@@ -140,6 +144,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-PinWorld", "Pin world: the hand / foot stays in its place in the scene, whatever the body does");
         this.Text("APM-Button-PinBody", "Body");
         this.Text("APM-Tip-PinBody", "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them");
+        this.Text("APM-Button-PinHand", "Hand");
+        this.Text("APM-Tip-PinHand", "Pin hand: the hand follows the other hand, or the item it holds (hands only)");
         this.Text("APM-Row-RightLeft", "Right / left");
         this.Text("APM-Row-ElbowKnee", "Elbow / knee");
         this.Text("APM-Title-Poses", "Poses");
@@ -212,6 +218,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Item-ThisItem", "This item");
         this.Text("APM-Msg-RenameFailed", "Could not rename {0}");
         this.Text("APM-Msg-TurnedByLookAt", "{0} is turned by Look at camera");
+        this.Text("APM-Physics-Hair", "Hair");
+        this.Text("APM-Physics-Breasts", "Breasts");
+        this.Text("APM-Button-PhysicsOn", "Physics: on");
+        this.Text("APM-Button-PhysicsHeld", "Physics: held");
         this.Text("APM-Button-PoseOn", "Pose on");
         this.Text("APM-PartShort-Eyes", "Eyes");
         this.Text("APM-Row-FocusDistance", "Focus distance");

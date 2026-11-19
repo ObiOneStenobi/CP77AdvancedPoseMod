@@ -1,5 +1,6 @@
 #include "Pose/TargetRegistry.hpp"
 #include "Pose/Characters.hpp"
+#include "Pose/PhysicsBones.hpp"
 #include "Pose/PoseProcessor.hpp"
 
 #include <RED4ext/CName.hpp>
@@ -57,10 +58,69 @@ const APM::Pose::Target* FindIn(const std::vector<APM::Pose::Target>& aTargets, 
 }
 } // namespace
 
+namespace APM::Pose
+{
+bool IsPhysicsSkeletonName(const std::string& aDebugName)
+{
+    return !aDebugName.empty() && aDebugName != "root" && aDebugName != "deformations" && aDebugName != "shadow" &&
+           aDebugName != "face_rig";
+}
+} // namespace APM::Pose
+
+namespace
+{
+// Own bones of the physics skeletons and the chain each one belongs to (its topmost own ancestor).
+void MarkOwnBones(std::vector<APM::Pose::Target>& aTargets)
+{
+    for (auto& target : aTargets)
+    {
+        target.chainRoots.assign(target.boneNames.size(), int16_t(-1));
+        target.groups.assign(target.boneNames.size(), int8_t(-1));
+        target.hasOwnBones = false;
+        if (!APM::Pose::IsPhysicsSkeletonName(target.debugName))
+        {
+            continue;
+        }
+        const APM::Pose::Target* main = nullptr;
+        for (const auto& other : aTargets)
+        {
+            if (other.photoModeSlot == target.photoModeSlot && other.debugName == "root")
+            {
+                main = &other;
+                break;
+            }
+        }
+        if (!main)
+        {
+            continue;
+        }
+        for (size_t i = 0; i < target.boneNames.size(); ++i)
+        {
+            if (std::find(main->boneNames.begin(), main->boneNames.end(), target.boneNames[i]) != main->boneNames.end())
+            {
+                continue;
+            }
+            const char* text = RED4ext::CName(target.boneNames[i]).ToString();
+            const std::string_view name = text ? text : "";
+            if (name.empty() || name == "None" || !APM::Pose::PhysicsBones::IsPosable(target.debugName, name))
+            {
+                continue;
+            }
+            target.groups[i] = static_cast<int8_t>(APM::Pose::PhysicsBones::GroupOf(target.debugName, name));
+            const int16_t parent = i < target.parents.size() ? target.parents[i] : int16_t(-1);
+            const bool parentOwn = parent >= 0 && static_cast<size_t>(parent) < i && target.chainRoots[parent] >= 0;
+            target.chainRoots[i] = parentOwn ? target.chainRoots[parent] : static_cast<int16_t>(i);
+            target.hasOwnBones = true;
+        }
+    }
+}
+} // namespace
+
 namespace APM::Pose::TargetRegistry
 {
 void Set(std::vector<Target> aTargets)
 {
+    MarkOwnBones(aTargets);
     auto targets = std::make_shared<const std::vector<Target>>(std::move(aTargets));
     ExclusiveGuard guard;
     g_targets = targets; // the previous list lives on while a reader still holds it
@@ -326,17 +386,40 @@ bool GetBoneAxes(uint32_t aCharacter, uint64_t aBoneHash, Math::Vec3& aBend1, Ma
 {
     using namespace Math;
     const auto targets = Snapshot();
-    for (const auto& target : *targets)
+    // The main skeleton's bones, else the own bones of a physics skeleton (hair, clothes, breasts).
+    const Target* found = nullptr;
+    for (const bool main : {true, false})
     {
-        if (target.photoModeSlot != aCharacter || target.debugName != "root")
+        for (const auto& target : *targets)
         {
-            continue;
+            if (found || target.photoModeSlot != aCharacter || (target.debugName == "root") != main)
+            {
+                continue;
+            }
+            const auto it = std::find(target.boneNames.begin(), target.boneNames.end(), aBoneHash);
+            if (it == target.boneNames.end())
+            {
+                continue;
+            }
+            const auto index = static_cast<size_t>(std::distance(target.boneNames.begin(), it));
+            if (main || (index < target.chainRoots.size() && target.chainRoots[index] >= 0))
+            {
+                found = &target;
+            }
         }
-        const auto it = std::find(target.boneNames.begin(), target.boneNames.end(), aBoneHash);
-        if (it == target.boneNames.end())
+        if (found || main == false)
+        {
+            break;
+        }
+    }
+    for (const Target* pointer : {found})
+    {
+        if (!pointer)
         {
             return false;
         }
+        const auto& target = *pointer;
+        const auto it = std::find(target.boneNames.begin(), target.boneNames.end(), aBoneHash);
         const size_t index = static_cast<size_t>(std::distance(target.boneNames.begin(), it));
         if (index >= target.refRotationsMS.size() || index >= target.refTranslationsLS.size() ||
             index >= target.refRotationsLS.size())

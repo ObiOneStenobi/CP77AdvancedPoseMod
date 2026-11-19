@@ -46,7 +46,15 @@ struct Target
     std::vector<Math::Vec3> refTranslationsLS; // reference pose translations in local (parent) space
     std::vector<LinkedBone> linkedBones;
     std::string debugName;
+    // Physics skeletons (hair, clothes, breasts; filled by TargetRegistry::Set): per bone, the first bone of its chain
+    // when it is one of the skeleton's own bones (not in the character's main skeleton), else -1.
+    std::vector<int16_t> chainRoots;
+    std::vector<int8_t> groups; // per bone: PhysicsBones::Groups index of the own bones moved as one piece, else -1
+    bool hasOwnBones = false;
 };
+
+// True for skeletons whose own bones the physics moves (hair, clothes, breasts), by component name.
+bool IsPhysicsSkeletonName(const std::string& aDebugName);
 
 namespace TargetRegistry
 {

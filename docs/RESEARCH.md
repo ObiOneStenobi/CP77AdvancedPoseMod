@@ -177,6 +177,7 @@ Values reach the native `OnAttributeUpdated` forward (see "Photo Mode menu"); th
 | 55 | NPC page: scene slot a character is being added to | 0-2 |
 | 63 | NPC page: which character is added (list index) | index |
 | 79-81 | Custom look-at values of the selected added character (V: 75-77) | |
+| 67 | NPC page: clothing/hair physics of the selected added character (off: the jacket stays still in the world) | 0 off, 1 on |
 
 ## Eyelids follow the eyes (1.1.0)
 

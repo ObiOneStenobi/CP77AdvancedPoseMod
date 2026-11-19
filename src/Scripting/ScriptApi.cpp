@@ -3,9 +3,12 @@
 #include "Core/Log.hpp"
 #include "Core/NamedFiles.hpp"
 #include "Core/Runtime.hpp"
+#include "Core/SafeMemory.hpp"
 #include "Game/AnimGraphHook.hpp"
+#include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Pose/PhysicsBones.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/FacePoses.hpp"
 #include "Pose/GizmoState.hpp"
@@ -27,10 +30,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <new>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Global native functions exposed to redscript (and to CET through the RTTI).
@@ -449,33 +456,46 @@ void GetBasePoseName(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, CString(APM::Pose::PoseOverrides::GetBasePoseName().c_str()));
 }
 
-// Item records the prop picker offers: 0 weapons, 1 consumables, 2 other items. Cached on first use.
+// Item records the prop picker offers: 0 weapons, 1 consumables, 2 other items, 3 gadgets and grenades (records of
+// each exact type only, so the subtypes are listed on their own). Cached on first use.
 const std::vector<uint64_t>& PropRecords(int32_t aKind)
 {
-    static std::array<std::vector<uint64_t>, 3> lists;
-    static std::array<bool, 3> loaded{};
-    if (aKind < 0 || aKind > 2)
+    constexpr int32_t kinds = 4;
+    static std::array<std::vector<uint64_t>, kinds> lists;
+    static std::array<bool, kinds> loaded{};
+    if (aKind < 0 || aKind >= kinds)
     {
         static const std::vector<uint64_t> empty;
         return empty;
     }
     if (!loaded[aKind])
     {
-        constexpr const char* types[] = {"gamedataWeaponItem_Record", "gamedataConsumableItem_Record",
-                                         "gamedataItem_Record"};
-        auto* type = RED4ext::CRTTISystem::Get()->GetType(types[aKind]);
+        constexpr const char* types[kinds][2] = {{"gamedataWeaponItem_Record", nullptr},
+                                                 {"gamedataConsumableItem_Record", nullptr},
+                                                 {"gamedataItem_Record", nullptr},
+                                                 {"gamedataGadget_Record", "gamedataGrenade_Record"}};
         auto* tweakDb = RED4ext::TweakDB::Get();
-        if (type && tweakDb)
+        if (tweakDb)
         {
-            for (const auto& handle : tweakDb->GetRecordsByType(type))
+            for (const char* name : types[aKind])
             {
-                if (const auto* record = reinterpret_cast<const RED4ext::game::data::TweakDBRecord*>(handle.GetPtr()))
+                auto* type = name ? RED4ext::CRTTISystem::Get()->GetType(name) : nullptr;
+                if (!type)
                 {
-                    lists[aKind].push_back(record->recordID.value);
+                    continue;
                 }
+                const size_t before = lists[aKind].size();
+                for (const auto& handle : tweakDb->GetRecordsByType(type))
+                {
+                    if (const auto* record =
+                            reinterpret_cast<const RED4ext::game::data::TweakDBRecord*>(handle.GetPtr()))
+                    {
+                        lists[aKind].push_back(record->recordID.value);
+                    }
+                }
+                APM::Log::Verbose("Props: %zu records of %s", lists[aKind].size() - before, name);
             }
             loaded[aKind] = true;
-            APM::Log::Verbose("Props: %zu records of %s", lists[aKind].size(), types[aKind]);
         }
     }
     return lists[aKind];
@@ -498,6 +518,127 @@ void PropRecordAt(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     aFrame->code++;
     const auto& list = PropRecords(kind);
     Return(aOut, index >= 0 && index < static_cast<int32_t>(list.size()) ? list[index] : uint64_t{0});
+}
+
+// Items found without a model to show once held (red4ext\plugins\AdvancedPoseMod\items_without_model.txt, one record
+// number per line): left out of the picker in later sessions too. Deleting the file offers them again.
+std::filesystem::path NoModelFile()
+{
+    return APM::GetRuntime().pluginDir / L"items_without_model.txt";
+}
+
+std::unordered_set<uint64_t>& NoModelRecords()
+{
+    static std::unordered_set<uint64_t> records;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        std::ifstream file(NoModelFile());
+        std::string line;
+        while (std::getline(file, line))
+        {
+            const uint64_t value = std::strtoull(line.c_str(), nullptr, 10);
+            if (value > 1)
+            {
+                records.insert(value);
+            }
+        }
+        APM::Log::Verbose("Props: %zu items without a model remembered", records.size());
+    }
+    return records;
+}
+
+void ItemKnownWithoutModel(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    Return(aOut, NoModelRecords().contains(record));
+}
+
+void ItemMarkWithoutModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    if (record > 1 && NoModelRecords().insert(record).second)
+    {
+        std::ofstream file(NoModelFile(), std::ios::app);
+        file << record << '\n';
+    }
+}
+
+// Mesh components of an item in hand that can show something: a mesh resource, enabled, some chunk shown, a visual
+// scale above zero. -1 if the entity cannot be read. With the detailed log, every mesh component is described.
+void ItemVisibleMeshes(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    RED4ext::Handle<RED4ext::ISerializable> item;
+    RED4ext::GetParameter(aFrame, &item);
+    aFrame->code++;
+    int32_t visible = -1;
+    const auto entity = reinterpret_cast<uintptr_t>(item.instance);
+    APM::EngineLayout::ComponentList components;
+    if (entity && APM::EngineLayout::LooksAlive(entity) && APM::EngineLayout::GetComponents(entity, components))
+    {
+        visible = 0;
+        const bool log = APM::Log::g_verbose.load(std::memory_order_relaxed);
+        for (uint32_t c = 0; c < components.size; ++c)
+        {
+            const uintptr_t component = APM::EngineLayout::GetComponent(components, c);
+            auto* cls = component && APM::EngineLayout::LooksAlive(component)
+                            ? reinterpret_cast<RED4ext::ISerializable*>(component)->GetType()
+                            : nullptr;
+            auto* meshProp = cls ? cls->GetProperty("mesh") : nullptr;
+            if (!meshProp)
+            {
+                continue;
+            }
+            uint64_t mesh = 0;
+            APM::SafeMemory::ReadU64(component + meshProp->valueOffset, mesh);
+            uint64_t chunkMask = ~0ull;
+            if (auto* prop = cls->GetProperty("chunkMask"))
+            {
+                APM::SafeMemory::ReadU64(component + prop->valueOffset, chunkMask);
+            }
+            bool enabled = true;
+            if (auto* prop = cls->GetProperty("isEnabled"))
+            {
+                uint8_t value = 1;
+                APM::SafeMemory::ReadBytes(component + prop->valueOffset, &value, 1);
+                enabled = value != 0;
+            }
+            float scale = 1.f;
+            if (auto* prop = cls->GetProperty("visualScale"))
+            {
+                float xyz[3]{1.f, 1.f, 1.f};
+                if (APM::SafeMemory::ReadBytes(component + prop->valueOffset, xyz, sizeof(xyz)))
+                {
+                    scale = std::max({std::fabs(xyz[0]), std::fabs(xyz[1]), std::fabs(xyz[2])});
+                }
+            }
+            uint8_t layers = 0xFF;
+            if (auto* prop = cls->GetProperty("renderSceneLayerMask"))
+            {
+                APM::SafeMemory::ReadBytes(component + prop->valueOffset, &layers, 1);
+            }
+            const bool shows = mesh != 0 && enabled && chunkMask != 0 && scale > 1e-4f;
+            if (shows)
+            {
+                ++visible;
+            }
+            if (log)
+            {
+                const char* clsName = cls->GetName().ToString();
+                const char* name = APM::EngineLayout::GetComponentName(component).ToString();
+                APM::Log::Verbose("Items:   %s %s mesh=%016llx enabled=%d chunks=%016llx scale=%.3f layers=0x%02X -> %s",
+                                  clsName ? clsName : "?", name ? name : "?", static_cast<unsigned long long>(mesh),
+                                  enabled ? 1 : 0, static_cast<unsigned long long>(chunkMask), scale, layers,
+                                  shows ? "shows" : "hidden");
+            }
+        }
+    }
+    Return(aOut, visible);
 }
 
 void RecordFromNumber(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1015,6 +1156,13 @@ void LogInfo(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, true);
 }
 
+// True when the detailed log is on ([Debug] Log=1): the scripts skip building lines that would not be written.
+void LogEnabled(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::Log::g_verbose.load(std::memory_order_relaxed));
+}
+
 // --- Gizmos ------------------------------------------------------------------------------------------------------
 
 // Model-space position (relative to V's entity: X right, Y forward, Z up) of the main bone of a body part
@@ -1130,6 +1278,69 @@ void GizmoMovePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &delta);
     aFrame->code++;
     Return(aOut, APM::Ui::PhotoModeUi::MovePart(part, {delta.X, delta.Y, delta.Z}));
+}
+
+// --- Physics bones (hair, clothes, breasts) -------------------------------------------------------------------------
+
+// Rebuilds the list of the selected character's physics bones when it changed; returns its revision (call each frame).
+void PhysicsRevision(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(APM::Ui::PhotoModeUi::RefreshPhysicsParts()));
+}
+
+const APM::Ui::CatalogEntry* PhysicsEntry(int32_t aPart)
+{
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    return aPart >= 0 && aPart < static_cast<int32_t>(catalog.size()) && catalog[aPart].skeleton ? &catalog[aPart] : nullptr;
+}
+
+// Panel name of the physics skeleton of a part ("" for body parts).
+void PartSkeleton(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    const auto* entry = PhysicsEntry(part);
+    Return(aOut, CString(entry ? entry->skeleton : ""));
+}
+
+// Panel name of the chain of a physics part ("" for body parts).
+void PartChain(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    const auto* entry = PhysicsEntry(part);
+    Return(aOut, CString(entry && entry->chain ? entry->chain : ""));
+}
+
+// 1-based place of a physics part in its chain (0 for groups and body parts).
+void PartChainIndex(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    const auto* entry = PhysicsEntry(part);
+    Return(aOut, entry ? entry->chainIndex : 0);
+}
+
+void PartKeepsPhysics(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+    Return(aOut, APM::Ui::PhotoModeUi::PartKeepsPhysics(part));
+}
+
+void PartSetKeepsPhysics(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t part = 0;
+    bool keep = false;
+    RED4ext::GetParameter(aFrame, &part);
+    RED4ext::GetParameter(aFrame, &keep);
+    aFrame->code++;
+    APM::Ui::PhotoModeUi::SetPartKeepsPhysics(part, keep);
 }
 
 void GizmoCanMovePart(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1270,7 +1481,10 @@ void GizmoGetPartAxis(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
         APM::Math::Vec3 bend2{};
         APM::Math::Vec3 twist{};
         APM::Math::Quat rotation{};
-        if (APM::Pose::TargetRegistry::GetBoneAxes(bone, bend1, bend2, twist) &&
+        // A group (a breast) turns on the axes of the chest, the bone its members hang from.
+        const uint64_t axesBone =
+            APM::Pose::PhysicsBones::IsGroupBone(entry.bones.front()) ? RED4ext::CName("Spine3").hash : bone;
+        if (APM::Pose::TargetRegistry::GetBoneAxes(axesBone, bend1, bend2, twist) &&
             APM::Pose::GizmoState::GetBoneModelRotation(bone, rotation))
         {
             // Fingers use their bends swapped (curl first), as the panel does.
@@ -1350,8 +1564,10 @@ void GizmoIkModelToOffset(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     aFrame->code++;
 
     APM::Math::Vec3 result{model.X, model.Y, model.Z};
-    if (chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount) &&
-        APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain)).followBody)
+    const auto settings = chain >= 0 && chain < static_cast<int32_t>(APM::Pose::IkChainCount)
+                              ? APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain))
+                              : APM::Pose::IkChainSettings{};
+    if (settings.followBody || settings.followHand) // offset in the shoulder / hips frame, or the other hand's
     {
         const auto body = APM::Pose::PoseProcessor::GetIkBodyRotation(static_cast<size_t>(chain));
         result = APM::Math::Rotate(APM::Math::Conjugate(body), result);
@@ -1373,9 +1589,11 @@ void GizmoMoveIk(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
         const APM::Math::Vec3 model{delta.X, delta.Y, delta.Z};
         auto settings = APM::Pose::PoseOverrides::GetIkChain(static_cast<APM::Pose::IkChain>(chain));
         settings.enabled = true;
-        settings.offset[0] = std::clamp(settings.offset[0] + model.x, -0.8f, 0.8f);
-        settings.offset[1] = std::clamp(settings.offset[1] + model.y, -0.8f, 0.8f);
-        settings.offset[2] = std::clamp(settings.offset[2] + model.z, -0.8f, 0.8f);
+        // Following the other hand, the offset is the distance between the hands (moving the hand keeps the link).
+        const float limit = settings.followHand ? 1.6f : 0.8f;
+        settings.offset[0] = std::clamp(settings.offset[0] + model.x, -limit, limit);
+        settings.offset[1] = std::clamp(settings.offset[1] + model.y, -limit, limit);
+        settings.offset[2] = std::clamp(settings.offset[2] + model.z, -limit, limit);
         APM::Pose::PoseOverrides::SetIkChain(static_cast<APM::Pose::IkChain>(chain), settings);
         APM::Ui::PhotoModeUi::RequestRefresh();
     }
@@ -1552,6 +1770,9 @@ void Register()
     ::Register("APM_PropRecordCount", &PropRecordCount, "Int32", {{"Int32", "kind"}});
     ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
     ::Register("APM_RecordFromNumber", &RecordFromNumber, "TweakDBID", {{"Uint64", "number"}});
+    ::Register("APM_ItemKnownWithoutModel", &ItemKnownWithoutModel, "Bool", {{"Uint64", "record"}});
+    ::Register("APM_ItemMarkWithoutModel", &ItemMarkWithoutModel, nullptr, {{"Uint64", "record"}});
+    ::Register("APM_ItemVisibleMeshes", &ItemVisibleMeshes, "Int32", {{"handle:entEntity", "item"}});
     ::Register("APM_SetHandProp", &SetHandProp, nullptr, {{"Bool", "rightHand"}, {"Uint64", "record"}});
     ::Register("APM_GetHandProp", &GetHandProp, "Uint64", {{"Bool", "rightHand"}});
     ::Register("APM_HistoryCheckpoint", &HistoryCheckpoint, nullptr, {});
@@ -1609,6 +1830,7 @@ void Register()
     ::Register("APM_TextEntryGetText", &TextEntryGetText, "String", {});
 
     ::Register("APM_LogInfo", &LogInfo, "Bool", {{"String", "text"}});
+    ::Register("APM_LogEnabled", &LogEnabled, "Bool", {});
     ::Register("APM_PrefGet", &PrefGet, "Float", {{"String", "key"}, {"Float", "fallback"}});
     ::Register("APM_PrefSet", &PrefSet, "Bool", {{"String", "key"}, {"Float", "value"}});
 
@@ -1627,6 +1849,12 @@ void Register()
     ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoMovePart", &GizmoMovePart, "Bool", {{"Int32", "part"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoCanMovePart", &GizmoCanMovePart, "Bool", {{"Int32", "part"}});
+    ::Register("APM_PhysicsRevision", &PhysicsRevision, "Int32", {});
+    ::Register("APM_PartSkeleton", &PartSkeleton, "String", {{"Int32", "part"}});
+    ::Register("APM_PartChain", &PartChain, "String", {{"Int32", "part"}});
+    ::Register("APM_PartChainIndex", &PartChainIndex, "Int32", {{"Int32", "part"}});
+    ::Register("APM_PartKeepsPhysics", &PartKeepsPhysics, "Bool", {{"Int32", "part"}});
+    ::Register("APM_PartSetKeepsPhysics", &PartSetKeepsPhysics, nullptr, {{"Int32", "part"}, {"Bool", "keep"}});
     ::Register("APM_GizmoMoveIk", &GizmoMoveIk, "Bool", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoGetEntity", &GizmoGetEntity, "handle:entEntity", {});
     ::Register("APM_GizmoRotatePart", &GizmoRotatePart, "Bool",
