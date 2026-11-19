@@ -717,6 +717,9 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   (per hash), mesh fallite saltate, attesa max 10 s poi filtro, revisione solo se il catalogo cambia; g_hips per
   personaggio da ProcessMainSkeleton (PublishHips) usato dal pin Body; marker del seno a dimensione normale; pallino
   "modificato" sui 5 pulsanti di modalità. Log 23:46: giacca di Rogue 2 ossa usate su 47.
+- 20/11: controllo d'insieme del seno TOLTO (PhysicsBones::Groups vuoto, regola in commento; ossa del seno spostabili
+  una per una, tutte con marker). Pin delle catene: solo Body (= nessun pin, la catena segue testa/corpo) e World;
+  il pin sui fianchi (2) resta nel codice ma non è offerto.
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

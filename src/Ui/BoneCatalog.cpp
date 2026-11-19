@@ -349,7 +349,7 @@ uint32_t RefreshPhysicsEntries()
                 }
                 const std::string label = single ? chainText : std::string(chainText) + " " + std::to_string(m + 1);
                 // Breast bones can be moved a little; hair and clothing bones turn (and bend their chain when dragged).
-                const bool movable = skeleton.bones[members[m]].group >= 0;
+                const bool movable = category == 1;
                 CatalogEntry entry{group, Intern(label), {Intern(name)}, EntryMode::Single, movable};
                 entry.skeleton = skeletonText;
                 entry.chain = chainText;

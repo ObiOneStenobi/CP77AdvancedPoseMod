@@ -2,6 +2,7 @@
 
 #include <RED4ext/CName.hpp>
 
+#include <array>
 #include <cstdint>
 #include <string_view>
 
@@ -23,11 +24,11 @@ struct GroupRule
     const char* pivot;        // the member it turns around (its main bone), found by this part of its name
 };
 
-inline constexpr GroupRule Groups[] = {
-    {"breasts", "APM_group:l_chest", "l_chest", "Left breast", "C_top"},
-    {"breasts", "APM_group:r_chest", "r_chest", "Right breast", "C_top"},
-};
-constexpr size_t GroupCount = sizeof(Groups) / sizeof(Groups[0]);
+// None for now: a breast moved as one piece (5 bones, same offset, turned around C_top) looked wrong in game
+// (test 20/11); each bone is edited on its own. Kept for a later try, e.g.
+//   {"breasts", "APM_group:l_chest", "l_chest", "Left breast", "C_top"}
+inline constexpr std::array<GroupRule, 0> Groups{};
+constexpr size_t GroupCount = Groups.size();
 
 inline bool IsGroupBone(std::string_view aName)
 {

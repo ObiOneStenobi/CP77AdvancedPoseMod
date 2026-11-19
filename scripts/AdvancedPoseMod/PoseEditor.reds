@@ -854,8 +854,9 @@ public class APM_PoseEditor extends IScriptable {
         this.TipL(keepButton, "APM-Tip-PhysicsSwitch", "Physics Off: an edited chain stays still where it was. Physics On: the physics keeps moving it and your edits are added");
         // Pin of a bone that bends its chain (hair, clothes), as the IK pin of the limbs
         this.m_physicsPinLabel = this.CreateText(physics, this.L("APM-Label-Pin", "Pin"), 232.0, 0.0, 60.0, 28.0, 14, APM_ColorDimText());
-        let pinOffButton = this.CreateSmallButton(physics, "physpin:0", this.L("APM-Button-PinOff", "Off"), 296.0, 0.0, 106.0, 28.0);
-        this.TipL(pinOffButton, "APM-Tip-PhysicsPinOff", "Pin off: moving the bone bends its chain, which keeps its shape afterwards");
+        // Body (no pin): the chain keeps the shape it was bent to and follows the head / body; World: the bone is pinned.
+        let pinOffButton = this.CreateSmallButton(physics, "physpin:0", this.L("APM-Button-PinBody", "Body"), 296.0, 0.0, 106.0, 28.0);
+        this.TipL(pinOffButton, "APM-Tip-PhysicsPinFollow", "Body: moving the bone bends its chain, which keeps that shape and follows the head / body");
         let pinWorldButton = this.CreateSmallButton(physics, "physpin:1", this.L("APM-Button-PinWorld", "World"), 407.0, 0.0, 106.0, 28.0);
         this.TipL(pinWorldButton, "APM-Tip-PhysicsPinWorld", "Pin world: the bone stays where it is in the scene, even if the head / body moves");
         let pinBodyButton = this.CreateSmallButton(physics, "physpin:2", this.L("APM-Button-PinBody", "Body"), 518.0, 0.0, 106.0, 28.0);
@@ -1409,7 +1410,7 @@ public class APM_PoseEditor extends IScriptable {
             }
             marker.pinnable = marker.canMove && (marker.category == 0 || marker.category == 2);
             marker.isSupport = marker.category == 1 && marker.chainIndex > 0 && APM_PartIsSupport(i);
-            marker.noMarker = marker.category == 1 && marker.chainIndex > 0 && !marker.isSupport;
+            marker.noMarker = false; // every breast bone has its marker (no group control: test 20/11)
         } else if Equals(label, "Eyes (both)") || i == this.m_leftEyePart || i == this.m_rightEyePart {
             marker.kind = APM_MarkerKindEyeLook();
         } else if APM_GizmoIsPartDetail(i) {
@@ -3893,7 +3894,7 @@ public class APM_PoseEditor extends IScriptable {
         while p < 3 {
             let pinButton = this.FindButton("physpin:" + IntToString(p));
             if IsDefined(pinButton) {
-                pinButton.root.SetVisible(pinnable);
+                pinButton.root.SetVisible(pinnable && p < 2); // pinned to the hips (2): not offered (test 20/11)
                 pinButton.isSelected = p == pin;
                 pinButton.UpdateLook();
             }

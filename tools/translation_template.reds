@@ -125,11 +125,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-ModeClothes", "Pose the clothing bones (the ones moved by physics: coat tails, skirts, straps)");
         this.Text("APM-Tip-PhysicsSwitch", "Physics Off: an edited chain stays still where it was. Physics On: the physics keeps moving it and your edits are added");
         this.Text("APM-Label-Pin", "Pin");
-        this.Text("APM-Button-PinOff", "Off");
-        this.Text("APM-Tip-PhysicsPinOff", "Pin off: moving the bone bends its chain, which keeps its shape afterwards");
+        this.Text("APM-Button-PinBody", "Body");
+        this.Text("APM-Tip-PhysicsPinFollow", "Body: moving the bone bends its chain, which keeps that shape and follows the head / body");
         this.Text("APM-Button-PinWorld", "World");
         this.Text("APM-Tip-PhysicsPinWorld", "Pin world: the bone stays where it is in the scene, even if the head / body moves");
-        this.Text("APM-Button-PinBody", "Body");
         this.Text("APM-Tip-PhysicsPinBody", "Pin body: the bone keeps its place relative to the hips and moves with them");
         this.Text("APM-Button-Reset", "Reset");
         this.Text("APM-Tip-PartReset", "Undo every edit of this part (an IK pin goes back to the pose's place too)");
@@ -148,6 +147,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Row-UpDown", "Up / down");
         this.Text("APM-Title-Ik", "IK");
         this.Text("APM-Tip-IkLimb", "IK limb: the frame lights up while it is pinned");
+        this.Text("APM-Button-PinOff", "Off");
         this.Text("APM-Tip-PinOff", "Pin off: the hand / foot follows the arm / leg rotations");
         this.Text("APM-Tip-PinWorld", "Pin world: the hand / foot stays in its place in the scene, whatever the body does");
         this.Text("APM-Tip-PinBody", "Pin body: the hand / foot keeps its place relative to the shoulder / hips and moves with them");
