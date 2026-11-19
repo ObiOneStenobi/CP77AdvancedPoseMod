@@ -1637,6 +1637,48 @@ const std::array<uint64_t, APM::Pose::PhysicsBones::GroupCount>& GroupHashes()
     return hashes;
 }
 
+// Hips of each character's main skeleton after the edits (model space), for the hair / clothing pins that follow the
+// body: the physics skeletons do not all have the hips (the hair one hangs from the head).
+struct HipsModel
+{
+    Vec3 position{};
+    Quat rotation{0.f, 0.f, 0.f, 1.f};
+    bool valid = false;
+};
+std::mutex g_hipsMutex;
+std::array<HipsModel, 4> g_hips{};
+
+void PublishHips(const APM::Pose::Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    static const uint64_t hipsHash = Hash("Hips");
+    const int32_t hips = IndexOf(aTarget, hipsHash);
+    const size_t character = CharacterOf(aTarget);
+    if (hips < 0 || static_cast<uint32_t>(hips) >= aCount || character >= g_hips.size())
+    {
+        return;
+    }
+    Vec3 position{};
+    Quat rotation{0.f, 0.f, 0.f, 1.f};
+    std::array<int32_t, 32> chain{};
+    size_t length = 0;
+    for (int32_t i = hips; i >= 0 && length < chain.size(); i = aTarget.parents[i])
+    {
+        chain[length++] = i;
+        if (aTarget.parents[i] >= i)
+        {
+            break;
+        }
+    }
+    for (size_t k = length; k-- > 0;)
+    {
+        const auto& bone = aBones[chain[k]];
+        position = position + APM::Math::Rotate(rotation, Vec3{bone.Translation.X, bone.Translation.Y, bone.Translation.Z});
+        rotation = APM::Math::Normalize(APM::Math::Mul(rotation, GetRotation(bone)));
+    }
+    std::scoped_lock lock(g_hipsMutex);
+    g_hips[character] = {position, rotation, true};
+}
+
 // Pinned hair / clothing bones (chain IK): the bones of the chain above each one turn, every frame, so that it reaches
 // its pin (a model-space point, or a point in the hips' frame), cyclic coordinate descent on the final local pose.
 void SolvePinnedChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aCount,
@@ -1664,7 +1706,6 @@ void SolvePinnedChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
             }
         }
     };
-    static const uint64_t hipsHash = Hash("Hips");
     for (uint32_t p = 0; p < aCount; ++p)
     {
         if (aEdits[p] < 0 || aPose.bones[aEdits[p]].pin == 0)
@@ -1676,11 +1717,16 @@ void SolvePinnedChains(const APM::Pose::Target& aTarget, RED4ext::QsTransform* a
         Vec3 target{bone.pinTarget[0], bone.pinTarget[1], bone.pinTarget[2]};
         if (bone.pin == 2)
         {
-            const int32_t hips = IndexOf(aTarget, hipsHash);
-            if (hips >= 0 && static_cast<uint32_t>(hips) < aCount)
+            HipsModel hips;
             {
-                target = positions[hips] + APM::Math::Rotate(rotations[hips], target);
+                std::scoped_lock lock(g_hipsMutex);
+                hips = CharacterOf(aTarget) < g_hips.size() ? g_hips[CharacterOf(aTarget)] : HipsModel{};
             }
+            if (!hips.valid)
+            {
+                continue;
+            }
+            target = hips.position + APM::Math::Rotate(hips.rotation, target);
         }
         // The chain above the pinned bone, from its first bone down.
         std::array<int32_t, 64> path{};
@@ -2049,6 +2095,7 @@ void Process(const Target& aTarget, RED4ext::QsTransform* aBones, uint32_t aBone
     if (aTarget.debugName == MainSkeletonName)
     {
         ProcessMainSkeleton(aTarget, aBones, aBoneCount, aPose);
+        PublishHips(aTarget, aBones, aBoneCount);
     }
     else
     {

@@ -222,11 +222,21 @@ uint32_t RefreshPhysicsEntries()
     std::unordered_set<uint64_t> used;
     bool complete = false;
     const bool read = !skeletons.empty() && MeshBones::Collect(skeletons.front().entity, used, complete);
-    const bool filter = read && complete;
+    // A mesh still loading: look again in a second, for at most 10 s (then the bones read so far are used).
+    static uint64_t s_waitSince = 0;
     if (read && !complete)
     {
-        g_retryAt = now + 1000;
+        s_waitSince = s_waitSince ? s_waitSince : now;
+        if (now - s_waitSince < 10000)
+        {
+            g_retryAt = now + 1000;
+        }
     }
+    else
+    {
+        s_waitSince = 0;
+    }
+    const bool filter = read && (complete || g_retryAt == 0) && !used.empty();
 
     // A skeleton that went away (other outfit or hair): its edits go too, the physics takes it back.
     std::unordered_set<uint64_t> bones;
@@ -234,7 +244,7 @@ uint32_t RefreshPhysicsEntries()
     {
         for (const auto& bone : skeleton.bones)
         {
-            if (bone.chainRoot >= 0 || bone.group >= 0 || Pose::PhysicsBones::IsGroupBone(NameOf(bone.hash)))
+            if (bone.chainRoot >= 0 || bone.group >= 0 || Pose::PhysicsBones::GroupOfVirtual(bone.hash) >= 0)
             {
                 bones.insert(bone.hash);
             }
@@ -290,23 +300,18 @@ uint32_t RefreshPhysicsEntries()
         // Groups (a breast) first.
         for (const auto& bone : skeleton.bones)
         {
-            const std::string name = NameOf(bone.hash);
-            if (!Pose::PhysicsBones::IsGroupBone(name))
+            const int32_t g = Pose::PhysicsBones::GroupOfVirtual(bone.hash);
+            if (g < 0)
             {
                 continue;
             }
-            for (const auto& rule : Pose::PhysicsBones::Groups)
-            {
-                if (name == rule.name)
-                {
-                    CatalogEntry entry{group, rule.label, {Intern(name)}, EntryMode::Group, true};
-                    entry.skeleton = skeletonText;
-                    entry.category = category;
-                    entry.chain = rule.label;
-                    entry.chainRoot = Intern(name);
-                    catalog.push_back(std::move(entry));
-                }
-            }
+            const auto& rule = Pose::PhysicsBones::Groups[g];
+            CatalogEntry entry{group, rule.label, {rule.name}, EntryMode::Group, true};
+            entry.skeleton = skeletonText;
+            entry.category = category;
+            entry.chain = rule.label;
+            entry.chainRoot = rule.name;
+            catalog.push_back(std::move(entry));
         }
         // Then every chain, its bones from the top down.
         for (size_t root = 0; root < skeleton.bones.size(); ++root)
@@ -356,6 +361,13 @@ uint32_t RefreshPhysicsEntries()
                 catalog.push_back(std::move(entry));
             }
         }
+    }
+    // Unchanged (a look again after a mesh loaded): same revision, so the scripts keep their markers.
+    const auto same = [](const CatalogEntry& a, const CatalogEntry& b)
+    { return std::string_view(a.label) == b.label && a.bones == b.bones && a.group == b.group; };
+    if (catalog.size() == g_catalog.size() && std::equal(catalog.begin(), catalog.end(), g_catalog.begin(), same))
+    {
+        return g_revision;
     }
     g_catalog = std::move(catalog);
     ++g_revision;

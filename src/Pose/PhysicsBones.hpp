@@ -1,5 +1,7 @@
 #pragma once
 
+#include <RED4ext/CName.hpp>
+
 #include <cstdint>
 #include <string_view>
 
@@ -30,6 +32,19 @@ constexpr size_t GroupCount = sizeof(Groups) / sizeof(Groups[0]);
 inline bool IsGroupBone(std::string_view aName)
 {
     return aName.substr(0, GroupPrefix.size()) == GroupPrefix;
+}
+
+// Group whose virtual bone has this name hash, or -1 (the virtual names are not in the game's name pool: by hash).
+inline int32_t GroupOfVirtual(uint64_t aHash)
+{
+    for (size_t i = 0; i < GroupCount; ++i)
+    {
+        if (RED4ext::CName(Groups[i].name).hash == aHash)
+        {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
 }
 
 // Group a bone of a skeleton belongs to, or -1.

@@ -666,20 +666,13 @@ bool Save(const std::string& aName)
                     {
                         edited[b.chainRoot] = 1;
                     }
-                    else if (b.chainRoot < 0) // a group: its members' chains
+                    else if (const int32_t g = PhysicsBones::GroupOfVirtual(bone.boneHash); g >= 0) // a group: its members
                     {
-                        const char* text = RED4ext::CName(bone.boneHash).ToString();
-                        for (size_t g = 0; text && g < PhysicsBones::GroupCount; ++g)
+                        for (const auto& member : skeleton.bones)
                         {
-                            if (std::string_view(text) == PhysicsBones::Groups[g].name)
+                            if (member.group == static_cast<int8_t>(g) && member.chainRoot >= 0)
                             {
-                                for (const auto& member : skeleton.bones)
-                                {
-                                    if (member.group == static_cast<int8_t>(g) && member.chainRoot >= 0)
-                                    {
-                                        edited[member.chainRoot] = 1;
-                                    }
-                                }
+                                edited[member.chainRoot] = 1;
                             }
                         }
                     }

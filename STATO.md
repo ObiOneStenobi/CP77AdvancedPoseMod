@@ -711,6 +711,12 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   0 capelli ("hair" nel nome) / 1 seno / 2 vestiti; pin catena BoneOverride.pin (1 world modello, 2 body nel frame
   di Hips) risolto ogni frame (SolvePinnedChains, CCD); script: modalità Body/Face + Hair/Breasts/Clothes, Physics
   On/Off, pin Off/World/Body, marker IK gialli, C_top senza marker (al suo posto il gruppo), supporti piccoli.
+- Prova 19/11 23:46: gizmo rigenerati ogni 1 s (mesh mai "tutte lette" -> catalogo ricostruito) e filtro mai
+  applicato; gruppi del seno MAI comparsi (i nomi virtuali non sono nel name pool: CName(hash).ToString() nullo);
+  pin Body saltava (lo scheletro dei capelli ha Root->Head, niente Hips). Corretto 20/11: PhysicsBones::GroupOfVirtual
+  (per hash), mesh fallite saltate, attesa max 10 s poi filtro, revisione solo se il catalogo cambia; g_hips per
+  personaggio da ProcessMainSkeleton (PublishHips) usato dal pin Body; marker del seno a dimensione normale; pallino
+  "modificato" sui 5 pulsanti di modalità. Log 23:46: giacca di Rogue 2 ossa usate su 47.
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

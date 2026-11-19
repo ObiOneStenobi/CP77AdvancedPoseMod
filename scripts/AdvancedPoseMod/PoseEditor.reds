@@ -810,6 +810,12 @@ public class APM_PoseEditor extends IScriptable {
         this.TipL(breastsMode, "APM-Tip-ModeBreasts", "Pose the breasts: each one as a whole, or bone by bone");
         let clothesMode = this.CreateButton(modeRow, "mode:clothes", this.L("APM-Button-ModeClothes", "Clothes"), 424.0, 40.0, 200.0, 32.0);
         this.TipL(clothesMode, "APM-Tip-ModeClothes", "Pose the clothing bones (the ones moved by physics: coat tails, skirts, straps)");
+        // A mark on each mode with edits
+        this.AddDot(bodyMode);
+        this.AddDot(faceMode);
+        this.AddDot(hairMode);
+        this.AddDot(breastsMode);
+        this.AddDot(clothesMode);
 
         // Physics modes: skeletons (two rows of four), chains of the skeleton (two rows of three, in pages), bones of
         // the chain, physics switch of the chain and pin of the bone. Placed by LayoutPhysics().
@@ -3497,6 +3503,34 @@ public class APM_PoseEditor extends IScriptable {
             this.SetDot(this.m_partButtons[slot], on);
             slot += 1;
         }
+        // Modes with edits: body parts, face poses, each physics section.
+        let modeEdited: array<Bool>;
+        ArrayResize(modeEdited, 3);
+        let bodyEdited = false;
+        i = 0;
+        while i < count {
+            if edited[i] {
+                let category = APM_PartCategory(i);
+                if category < 0 {
+                    bodyEdited = true;
+                } else if category < 3 {
+                    modeEdited[category] = true;
+                }
+            }
+            i += 1;
+        }
+        let faceEdited = false;
+        let pose = 0;
+        let poses = APM_FacePoseCount();
+        while pose < poses && !faceEdited {
+            faceEdited = APM_FaceIsEdited(pose);
+            pose += 1;
+        }
+        this.SetDot(this.FindButton("mode:body"), bodyEdited);
+        this.SetDot(this.FindButton("mode:face"), faceEdited);
+        this.SetDot(this.FindButton("mode:hair"), modeEdited[0]);
+        this.SetDot(this.FindButton("mode:breasts"), modeEdited[1]);
+        this.SetDot(this.FindButton("mode:clothes"), modeEdited[2]);
         let resetButton = this.FindButton("partreset");
         if IsDefined(resetButton) {
             let eyePart = this.IsSingleEye(part) || Equals(APM_UiGetOptionLabel(7701u, part), "Eyes (both)");
@@ -4465,8 +4499,6 @@ public class APM_PoseEditor extends IScriptable {
             let size = isDetail ? 7.0 : 10.0;
             if marker.isPhysics && marker.chainIndex == 0 {
                 size = 12.0; // a whole breast: the main marker
-            } else if marker.isSupport {
-                size = 6.0;  // breast bones around the main one
             }
             if isSelected || marker.isHovered {
                 size += 4.0;
@@ -4480,9 +4512,6 @@ public class APM_PoseEditor extends IScriptable {
                 marker.halo.SetVisible(pinned);
             }
             let opacity = locked ? 0.5 : (isSelected || marker.isHovered ? 1.0 : 0.75);
-            if marker.isSupport && !isSelected && !marker.isHovered {
-                opacity *= 0.6;
-            }
             if !isSelected && !marker.isHovered {
                 opacity *= this.DepthFade(marker); // farther back (last frame's overlap pass)
             }

@@ -68,6 +68,10 @@ bool Collect(uintptr_t aEntity, std::unordered_set<uint64_t>& aOut, bool& aCompl
         {
             token = loader->LoadAsync<RED4ext::CMesh>(RED4ext::ResourcePath(mesh));
         }
+        if (token && token->IsFailed())
+        {
+            continue; // not a mesh it can read (another kind of resource): nothing to wait for
+        }
         if (!token || !token->IsLoaded())
         {
             aComplete = false;
