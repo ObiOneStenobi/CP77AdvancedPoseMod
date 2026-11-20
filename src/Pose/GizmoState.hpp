@@ -75,6 +75,10 @@ struct PhysicsSkeleton
 };
 std::vector<PhysicsSkeleton> GetPhysicsSkeletons();
 
+// Item slots of the hands (WeaponLeft / WeaponRight) of every character, model space of its main skeleton, from the
+// last sampled pose (edited or not): scene props follow them. False if not seen in the last second.
+bool GetHandSlot(uint32_t aCharacter, bool aRightHand, Math::Vec3& aPosition, Math::Quat& aRotation);
+
 // V's entity (ent::Entity*), 0 if unknown.
 uintptr_t GetEntity();
 

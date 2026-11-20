@@ -86,6 +86,21 @@ public native func APM_ItemKnownWithoutModel(record: Uint64) -> Bool
 public native func APM_PropRecordIsMod(record: Uint64) -> Bool
 // False when the base game's tweakdb files could not be read (nothing is marked as from a mod then)
 public native func APM_ModRecordsAvailable() -> Bool
+// Scene objects (.ent) from World Builder's lists (base game + prop packs): false when the lists were not found
+public native func APM_ScenePropsAvailable() -> Bool
+// Search (every word in the path, any case; prop packs first): the number of results, then each one's prop index
+public native func APM_ScenePropSearch(query: String, max: Int32, modsOnly: Bool) -> Int32
+public native func APM_ScenePropResult(index: Int32) -> Int32
+public native func APM_ScenePropPath(prop: Int32) -> String
+// From a prop pack (not the base game list)
+public native func APM_ScenePropIsMod(prop: Int32) -> Bool
+// The .ent held in a hand of a character ("" none): pose state (saved, loaded, undo / redo, resets)
+public native func APM_SetSceneProp(character: Int32, rightHand: Bool, path: String)
+public native func APM_GetSceneProp(character: Int32, rightHand: Bool) -> String
+// A character's hand item slot (WeaponRight / WeaponLeft) in the model space of its main skeleton (w = 1 when
+// known); to world with APM_CharacterGetComponent(character).GetLocalToWorld()
+public native func APM_CharacterHandSlotPosition(character: Int32, rightHand: Bool) -> Vector4
+public native func APM_CharacterHandSlotRotation(character: Int32, rightHand: Bool) -> Quaternion
 public native func APM_ItemMarkWithoutModel(record: Uint64)
 public native func APM_ItemVisibleMeshes(item: ref<Entity>) -> Int32
 // TweakDBID from TDBID.ToNumber()

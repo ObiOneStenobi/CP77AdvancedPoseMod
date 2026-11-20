@@ -174,10 +174,6 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-ItemClearRight", "Empty the right hand");
         this.Text("APM-Label-LeftHand", "Left");
         this.Text("APM-Tip-ItemClearLeft", "Empty the left hand");
-        this.Text("APM-Button-SceneProp", "Scene prop...");
-        this.Text("APM-Tip-SceneProp", "Test: put a scene object (.ent) in the right hand");
-        this.Text("APM-Button-ScenePropRemove", "Remove prop");
-        this.Text("APM-Tip-ScenePropRemove", "Test: remove the scene object");
         this.Text("APM-Title-Face", "Face");
         this.Text("APM-Tip-FaceUnlock", "Face rows stop at 100% (as the game's expressions). Click to allow up to 400%");
         this.Text("APM-Tip-FaceLock", "Face rows go up to 400%: above 100% the face can deform. Click to stop at 100% again");
@@ -190,6 +186,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Picker-Other", "Other");
         this.Text("APM-Button-ItemsMods", "Mods");
         this.Text("APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
+        this.Text("APM-Button-ItemsScene", "Scene");
+        this.Text("APM-Tip-ItemsScene", "Scene objects (.ent) from World Builder's lists: anything in the game, not only items");
+        this.Text("APM-Button-ScenePath", "Path...");
+        this.Text("APM-Tip-ScenePath", "Type the path of any scene object (.ent); Enter puts it in the hand");
         this.Text("APM-Help-Title", "Info");
         this.Text("APM-Help-ShapeRotate", "rotate");
         this.Text("APM-Help-ShapeMove", "move");
@@ -222,6 +222,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-NeutralUnavailable", "Neutral pose not available");
         this.Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first");
         this.Text("APM-Msg-TypingUnavailable", "Typing is not available");
+        this.Text("APM-Picker-SceneCount", "{0} objects");
         this.Text("APM-Picker-Count", "{0} items");
         this.Text("APM-Picker-ClickToSearch", "Click to search");
         this.Text("APM-Item-Nothing", "Nothing - click to choose");
@@ -229,6 +230,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand");
         this.Text("APM-Msg-NoModel", "{0} has no model to hold");
         this.Text("APM-Item-ThisItem", "This item");
+        this.Text("APM-Msg-ScenePropFailed", "This object could not be created");
         this.Text("APM-Msg-RenameFailed", "Could not rename {0}");
         this.Text("APM-Msg-TurnedByLookAt", "{0} is turned by Look at camera");
         this.Text("APM-Physics-Hair", "Hair");

@@ -232,6 +232,9 @@ bool ResetFaceOf(uint32_t aCharacter, const FaceWeights& aShown);
 // Items held in the hands (TweakDB record ids as numbers, 0 = none); saved with poses.
 void SetHandProp(bool aRightHand, uint64_t aRecord);
 uint64_t GetHandProp(bool aRightHand);
+// Scene prop (.ent path, "" = none) held in a hand of a character: saved with the pose, part of the history.
+void SetSceneProp(uint32_t aCharacter, bool aRightHand, const std::string& aPath);
+std::string GetSceneProp(uint32_t aCharacter, bool aRightHand);
 
 // Undo / redo. Checkpoint() records the state before a change (called when an edit starts).
 void Checkpoint();

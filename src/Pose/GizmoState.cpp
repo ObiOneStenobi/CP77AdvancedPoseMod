@@ -11,6 +11,7 @@
 #include "Pose/PoseOverrides.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <mutex>
 #include <vector>
@@ -44,6 +45,13 @@ struct Skeleton
 };
 
 std::mutex g_mutex;
+struct HandSlots
+{
+    Vec3 positions[2]{};
+    Quat rotations[2]{};
+    uint64_t lastUpdate = 0;
+};
+std::array<HandSlots, 4> g_hands{}; // per character: [0] left, [1] right
 std::vector<Skeleton> g_physics; // selected character's physics skeletons
 uint32_t g_physicsSlot = UINT32_MAX;
 std::atomic<uint32_t> g_physicsRevision{1};
@@ -327,8 +335,66 @@ std::vector<PhysicsSkeleton> GetPhysicsSkeletons()
     return result;
 }
 
+void PublishHands(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount)
+{
+    static const uint64_t slots[2] = {RED4ext::CName("WeaponLeft").hash, RED4ext::CName("WeaponRight").hash};
+    if (aTarget.photoModeSlot >= g_hands.size() || aTarget.parents.size() < aCount)
+    {
+        return;
+    }
+    HandSlots hands;
+    for (int h = 0; h < 2; ++h)
+    {
+        const auto it = std::find(aTarget.boneNames.begin(), aTarget.boneNames.end(), slots[h]);
+        if (it == aTarget.boneNames.end())
+        {
+            return;
+        }
+        std::array<int32_t, 32> chain{};
+        size_t length = 0;
+        for (int32_t i = static_cast<int32_t>(std::distance(aTarget.boneNames.begin(), it));
+             i >= 0 && static_cast<uint32_t>(i) < aCount && length < chain.size(); i = aTarget.parents[i])
+        {
+            chain[length++] = i;
+            if (aTarget.parents[i] >= i)
+            {
+                break;
+            }
+        }
+        Vec3 position{};
+        Quat rotation{0.f, 0.f, 0.f, 1.f};
+        for (size_t k = length; k-- > 0;)
+        {
+            const auto& bone = aBones[chain[k]];
+            position = position + Math::Rotate(rotation, Vec3{bone.Translation.X, bone.Translation.Y, bone.Translation.Z});
+            rotation = Math::Normalize(Math::Mul(rotation, GetRotation(bone)));
+        }
+        hands.positions[h] = position;
+        hands.rotations[h] = rotation;
+    }
+    hands.lastUpdate = GetTickCount64();
+    std::scoped_lock lock(g_mutex);
+    g_hands[aTarget.photoModeSlot] = hands;
+}
+
+bool GetHandSlot(uint32_t aCharacter, bool aRightHand, Math::Vec3& aPosition, Math::Quat& aRotation)
+{
+    std::scoped_lock lock(g_mutex);
+    if (aCharacter >= g_hands.size() || GetTickCount64() - g_hands[aCharacter].lastUpdate > 1000)
+    {
+        return false;
+    }
+    aPosition = g_hands[aCharacter].positions[aRightHand ? 1 : 0];
+    aRotation = g_hands[aCharacter].rotations[aRightHand ? 1 : 0];
+    return true;
+}
+
 void Publish(const Target& aTarget, const RED4ext::QsTransform* aBones, uint32_t aCount, uintptr_t)
 {
+    if (aTarget.debugName == "root" && aCount == aTarget.boneNames.size())
+    {
+        PublishHands(aTarget, aBones, aCount);
+    }
     if (aTarget.photoModeSlot != Characters::Selected() || aCount != aTarget.boneNames.size())
     {
         return;

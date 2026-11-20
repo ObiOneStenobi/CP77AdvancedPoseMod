@@ -732,6 +732,13 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   sullo slot WeaponRight (nativo APM_GizmoGetPartRotation); log "Props test:". Eliminata all'uscita.
   Elenco possibile: World Builder entSpawner data\spawnables\entity\templates\paths_ent.txt (~21.000) + liste delle mod.
 - Nessuna mod installata aggiunge oggetti da tenere in mano (solo vestiti/capelli: ~2.400 record Items.*).
+- Provato 20/11: oggetti delle mod ok (19 dalle mod), prova prop ok (cellphone .ent nato in 0,13 s, gameItemObject,
+  segue la mano con un leggero ritardo). TextEntry: Begin(text, aPath) per i percorsi; digitazione chiusa da ogni clic.
+- Props di scena come funzione (20/11, build ok, script ok, copiato; DA PROVARE): Game/SceneProps (elenchi .txt di
+  entSpawner, paths_ent.txt = base, gli altri = pacchetti; ricerca in C++), GizmoState::GetHandSlot per ogni
+  personaggio (PublishHands sul root), PoseOverrides sceneRight/sceneLeft (EditState, JSON "sceneProps", reset).
+  Script: scheda Scene + "Path...", una prop per mano e personaggio, sincronizzata con lo stato (carica/undo), tolta
+  se non nasce in 3 s, entità eliminate all'uscita (stato tenuto).
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

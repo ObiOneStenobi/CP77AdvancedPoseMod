@@ -8,6 +8,7 @@
 #include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Game/SceneProps.hpp"
 #include "Game/VanillaRecords.hpp"
 #include "Pose/PhysicsBones.hpp"
 #include "Pose/Characters.hpp"
@@ -508,6 +509,114 @@ void PropRecordCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &kind);
     aFrame->code++;
     Return(aOut, static_cast<int32_t>(PropRecords(kind).size()));
+}
+
+// --- Scene props (.ent from World Builder's lists) -------------------------------------------------------------------
+
+std::vector<int32_t> g_scenePropResults;
+
+void ScenePropsAvailable(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::SceneProps::Available());
+}
+
+// Searches the scene props (every word of the query in the path, case-insensitive); returns how many were found
+// (at most max), read with APM_ScenePropResult.
+void ScenePropSearch(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString query;
+    int32_t max = 0;
+    bool modsOnly = false;
+    RED4ext::GetParameter(aFrame, &query);
+    RED4ext::GetParameter(aFrame, &max);
+    RED4ext::GetParameter(aFrame, &modsOnly);
+    aFrame->code++;
+    g_scenePropResults = APM::SceneProps::Search(query.c_str(), static_cast<size_t>(std::max(0, max)), modsOnly);
+    Return(aOut, static_cast<int32_t>(g_scenePropResults.size()));
+}
+
+void ScenePropResult(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    Return(aOut, index >= 0 && index < static_cast<int32_t>(g_scenePropResults.size()) ? g_scenePropResults[index] : -1);
+}
+
+void ScenePropPath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t prop = 0;
+    RED4ext::GetParameter(aFrame, &prop);
+    aFrame->code++;
+    Return(aOut, CString(prop >= 0 ? APM::SceneProps::Path(static_cast<size_t>(prop)).c_str() : ""));
+}
+
+void ScenePropIsMod(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t prop = 0;
+    RED4ext::GetParameter(aFrame, &prop);
+    aFrame->code++;
+    Return(aOut, prop >= 0 && APM::SceneProps::IsFromMod(static_cast<size_t>(prop)));
+}
+
+// Scene prop (.ent path, "" = none) in a hand of a character: part of the pose (saved, undo).
+void SetSceneProp(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t character = 0;
+    bool right = true;
+    CString path;
+    RED4ext::GetParameter(aFrame, &character);
+    RED4ext::GetParameter(aFrame, &right);
+    RED4ext::GetParameter(aFrame, &path);
+    aFrame->code++;
+    APM::Pose::PoseOverrides::SetSceneProp(static_cast<uint32_t>(std::max(0, character)), right, path.c_str());
+}
+
+void GetSceneProp(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    bool right = true;
+    RED4ext::GetParameter(aFrame, &character);
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    Return(aOut, CString(APM::Pose::PoseOverrides::GetSceneProp(static_cast<uint32_t>(std::max(0, character)), right).c_str()));
+}
+
+// Item slot of a character's hand (WeaponLeft / WeaponRight) in the model space of its main skeleton (to the world
+// with APM_CharacterGetComponent(character).GetLocalToWorld()); w = 1 when known.
+void CharacterHandSlotPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    bool right = true;
+    RED4ext::GetParameter(aFrame, &character);
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    RED4ext::Vector4 result{0.f, 0.f, 0.f, 0.f};
+    APM::Math::Vec3 position{};
+    APM::Math::Quat rotation{};
+    if (character >= 0 && APM::Pose::GizmoState::GetHandSlot(static_cast<uint32_t>(character), right, position, rotation))
+    {
+        result = {position.x, position.y, position.z, 1.f};
+    }
+    Return(aOut, result);
+}
+
+void CharacterHandSlotRotation(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t character = 0;
+    bool right = true;
+    RED4ext::GetParameter(aFrame, &character);
+    RED4ext::GetParameter(aFrame, &right);
+    aFrame->code++;
+    RED4ext::Quaternion result{0.f, 0.f, 0.f, 1.f};
+    APM::Math::Vec3 position{};
+    APM::Math::Quat rotation{};
+    if (character >= 0 && APM::Pose::GizmoState::GetHandSlot(static_cast<uint32_t>(character), right, position, rotation))
+    {
+        result = {rotation.i, rotation.j, rotation.k, rotation.r};
+    }
+    Return(aOut, result);
 }
 
 // Item records added by mods (not in the base game's tweakdb.bin / tweakdb_ep1.bin).
@@ -1861,6 +1970,15 @@ void Register()
     ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
     ::Register("APM_PropRecordIsMod", &PropRecordIsMod, "Bool", {{"Uint64", "record"}});
     ::Register("APM_ModRecordsAvailable", &ModRecordsAvailable, "Bool", {});
+    ::Register("APM_ScenePropsAvailable", &ScenePropsAvailable, "Bool", {});
+    ::Register("APM_ScenePropSearch", &ScenePropSearch, "Int32", {{"String", "query"}, {"Int32", "max"}, {"Bool", "modsOnly"}});
+    ::Register("APM_ScenePropResult", &ScenePropResult, "Int32", {{"Int32", "index"}});
+    ::Register("APM_ScenePropPath", &ScenePropPath, "String", {{"Int32", "prop"}});
+    ::Register("APM_ScenePropIsMod", &ScenePropIsMod, "Bool", {{"Int32", "prop"}});
+    ::Register("APM_SetSceneProp", &SetSceneProp, nullptr, {{"Int32", "character"}, {"Bool", "rightHand"}, {"String", "path"}});
+    ::Register("APM_GetSceneProp", &GetSceneProp, "String", {{"Int32", "character"}, {"Bool", "rightHand"}});
+    ::Register("APM_CharacterHandSlotPosition", &CharacterHandSlotPosition, "Vector4", {{"Int32", "character"}, {"Bool", "rightHand"}});
+    ::Register("APM_CharacterHandSlotRotation", &CharacterHandSlotRotation, "Quaternion", {{"Int32", "character"}, {"Bool", "rightHand"}});
     ::Register("APM_RecordFromNumber", &RecordFromNumber, "TweakDBID", {{"Uint64", "number"}});
     ::Register("APM_ItemKnownWithoutModel", &ItemKnownWithoutModel, "Bool", {{"Uint64", "record"}});
     ::Register("APM_ItemMarkWithoutModel", &ItemMarkWithoutModel, nullptr, {{"Uint64", "record"}});

@@ -179,6 +179,34 @@ public func APM_FaceRowsPerPage() -> Int32 { return 13; }
 public func APM_PhysicsBoneSlots() -> Int32 { return 20; }   // bone buttons of a chain (two rows of ten)
 public func APM_PhysicsChainSlots() -> Int32 { return 6; }   // chain buttons per page (two rows of three)
 
+// Scene object's name for the panel: its file name without the folder and ".ent".
+public func APM_ScenePropShortName(path: String) -> String {
+    let name = path;
+    let i = StrLen(name) - 1;
+    while i >= 0 {
+        let c = StrMid(name, i, 1);
+        if Equals(c, "\\") || Equals(c, "/") {
+            name = StrMid(name, i + 1);
+            i = -1;
+        }
+        i -= 1;
+    }
+    if StrEndsWith(StrLower(name), ".ent") {
+        name = StrLeft(name, StrLen(name) - 4);
+    }
+    return name;
+}
+
+// a * b (b applied first).
+public func APM_QuatMultiply(a: Quaternion, b: Quaternion) -> Quaternion {
+    let q: Quaternion;
+    q.i = a.r * b.i + a.i * b.r + a.j * b.k - a.k * b.j;
+    q.j = a.r * b.j - a.i * b.k + a.j * b.r + a.k * b.i;
+    q.k = a.r * b.k + a.i * b.j - a.j * b.i + a.k * b.r;
+    q.r = a.r * b.r - a.i * b.i - a.j * b.j - a.k * b.k;
+    return q;
+}
+
 // --- Gizmo marker --------------------------------------------------------------------------------------------------
 
 public class APM_Marker extends IScriptable {
@@ -537,20 +565,17 @@ public class APM_PoseEditor extends IScriptable {
     private let m_hasPoseItemLeft: Bool;
     private let m_poseItemDelay: Float; // wait after placing before reading the slots again
     private let m_renaming: Bool;     // typing a pose name
-    // Scene props test: a scene object (.ent) spawned with Codeware's DynamicEntitySystem, kept on the right hand
-    // prop slot of the character it belongs to (one at a time).
-    private let m_scenePropTyping: Bool;     // typing its path
-    private let m_typingMouseWasDown: Bool;  // a mouse button was down at the last update (a click elsewhere ends typing)
-    private let m_scenePropActive: Bool;
-    private let m_scenePropId: EntityID;
-    private let m_scenePropOwner: Int32;     // character it belongs to
-    private let m_scenePropPath: String;
-    private let m_scenePropTicks: Int32;     // updates since it was created
-    private let m_scenePropAge: Float;       // seconds since it was created
-    private let m_scenePropSpawned: Bool;    // logged once spawned
-    private let m_scenePropPlaced: Bool;     // logged once moved to the hand
-    private let m_scenePropLate: Bool;       // logged once still not spawned after 3 s
-    private let m_scenePropText: wref<inkText>;
+    // Scene props: scene objects (.ent) held in the hands, spawned with Codeware's DynamicEntitySystem and moved every
+    // update to their character's hand slot. The pose state (APM_GetSceneProp) says what each hand holds; these arrays
+    // (index character * 2 + 1 for the right hand) say what is spawned.
+    private let m_scenePropTyping: Bool;     // typing a path (picker, Scene tab)
+    private let m_scenePropPath: String;     // last path typed
+    private let m_scenePaths: array<String>;
+    private let m_sceneIds: array<EntityID>;
+    private let m_sceneActive: array<Bool>;
+    private let m_sceneAge: array<Float>;     // seconds since it was created
+    private let m_sceneSpawned: array<Bool>;  // spawn logged
+    private let m_typingMouseWasDown: Bool;  // a mouse button was down at the last update (EndTypingOnOutsideClick)
     private let m_renameFrom: String; // pose being renamed
     private let m_refreshTimer: Float;
 
@@ -626,7 +651,8 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Uninitialize() {
         APM_SetWheelCapture(false);
-        this.RemoveSceneProp("panel closed");
+        this.StopScenePropTyping(false);
+        this.DeleteAllSceneProps("panel closed");
         if this.m_pickerTyping {
             APM_TextEntryEnd();
             this.m_pickerTyping = false;
@@ -699,7 +725,7 @@ public class APM_PoseEditor extends IScriptable {
         this.EndTypingOnOutsideClick();
         this.UpdateMarkers();
         this.UpdateRename();
-        this.UpdateSceneProp(timeDelta, active);
+        this.UpdateSceneProps(timeDelta, active);
         this.SyncProps(timeDelta);
         this.UpdatePicker();
         this.UpdateDragWheel();
@@ -1035,14 +1061,6 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateButton(items, "prop:open:l", "", 176.0, 44.0, 356.0, 30.0);
         this.CreateIconButton(items, "prop:restore:l", "rotate-ccw", 538.0, 45.0, this.L("APM-Tip-ItemRestore", "Give back the item of the Photo Mode pose"));
         this.CreateIconButton(items, "prop:clear:l", "x", 584.0, 45.0, this.L("APM-Tip-ItemClearLeft", "Empty the left hand"));
-        // Scene props test: type the path of a scene object (.ent) to put in the right hand
-        let scenePropButton = this.CreateSmallButton(items, "sceneprop:open", this.L("APM-Button-SceneProp", "Scene prop..."), 16.0, 82.0, 150.0, 28.0);
-        this.TipL(scenePropButton, "APM-Tip-SceneProp", "Test: put a scene object (.ent) in the right hand");
-        let scenePropText = this.CreateText(items, "", 174.0, 82.0, 306.0, 28.0, 13, APM_ColorDimText());
-        scenePropText.SetLetterCase(textLetterCase.OriginalCase);
-        this.m_scenePropText = scenePropText;
-        let scenePropRemove = this.CreateSmallButton(items, "sceneprop:remove", this.L("APM-Button-ScenePropRemove", "Remove prop"), 488.0, 82.0, 136.0, 28.0);
-        this.TipL(scenePropRemove, "APM-Tip-ScenePropRemove", "Test: remove the scene object");
 
         // Face (the panel's Face mode): the Photo Mode expression as the game's face poses, one zone tab at a time (a row
         // moved sets that pose; Reset gives the Photo Mode value back), and the saved expressions. Rows and the buttons below them are placed by LayoutFace().
@@ -1132,7 +1150,7 @@ public class APM_PoseEditor extends IScriptable {
         } else if this.m_physicsMode {
             this.m_sectionPoses.SetVisible(false);
         }
-        y = this.PlaceSection(this.m_sectionItems, y, 118.0, body);
+        y = this.PlaceSection(this.m_sectionItems, y, 82.0, body);
         if this.m_faceMode {
             this.LayoutFace();
         }
@@ -1207,13 +1225,16 @@ public class APM_PoseEditor extends IScriptable {
         search.SetInteractive(false);
         this.m_pickerSearch = search;
         this.CreateIconButton(picker, "pick:close", "x", 420.0, 10.0, "");
-        // Tabs: All, Weapons, Food, Other, and Mods (items from mods, only when there are some)
-        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 84.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 104.0, 44.0, 84.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 192.0, 44.0, 84.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 280.0, 44.0, 84.0, 28.0);
-        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 368.0, 44.0, 92.0, 28.0);
+        // Tabs: All, Weapons, Food, Other, Mods (items from mods, only when there are some), Scene (scene objects from
+        // World Builder's lists, only when they were found). Placed by PlacePickerTabs().
+        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 70.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 90.0, 44.0, 70.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 164.0, 44.0, 70.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 238.0, 44.0, 70.0, 28.0);
+        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 312.0, 44.0, 70.0, 28.0);
         this.TipL(modsTab, "APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
+        let sceneTab = this.CreateSmallButton(picker, "pick:tab5", this.L("APM-Button-ItemsScene", "Scene"), 386.0, 44.0, 74.0, 28.0);
+        this.TipL(sceneTab, "APM-Tip-ItemsScene", "Scene objects (.ent) from World Builder's lists: anything in the game, not only items");
         let i = 0;
         while i < this.PickerRows() {
             let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, 80.0 + Cast<Float>(i) * 34.0, 444.0, 30.0);
@@ -1223,8 +1244,10 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
-        this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
-        let pageText = this.CreateText(picker, "", 120.0, footer, 236.0, 34.0, 14, APM_ColorDimText());
+        this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 80.0, 34.0);
+        let pathButton = this.CreateSmallButton(picker, "pick:path", this.L("APM-Button-ScenePath", "Path..."), 102.0, footer + 3.0, 96.0, 28.0);
+        this.TipL(pathButton, "APM-Tip-ScenePath", "Type the path of any scene object (.ent); Enter puts it in the hand");
+        let pageText = this.CreateText(picker, "", 202.0, footer, 154.0, 34.0, 14, APM_ColorDimText());
         pageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
         this.m_pickerPageText = pageText;
         this.CreateButton(picker, "pick:next", ">", 360.0, footer, 100.0, 34.0);
@@ -2761,6 +2784,7 @@ public class APM_PoseEditor extends IScriptable {
 
     private func ClosePicker() {
         this.StopPickerTyping();
+        this.StopScenePropTyping(false);
         this.m_pickerOpen = false;
         this.m_picker.SetVisible(false);
     }
@@ -2788,9 +2812,25 @@ public class APM_PoseEditor extends IScriptable {
         this.m_pickerTyping = false;
     }
 
-    // Results for the current text: recently used items first when nothing is typed.
+    // Results for the current text: recently used items first when nothing is typed. Scene tab: World Builder's
+    // scene objects (prop indices) matching the text, the prop packs' first.
     private func UpdatePickerResults() {
         ArrayClear(this.m_pickerResults);
+        if this.m_pickerCategory == 5 && !APM_ScenePropsAvailable() {
+            this.m_pickerCategory = 0;
+        }
+        if this.m_pickerCategory == 5 {
+            let found = APM_ScenePropSearch(this.m_pickerQuery, 200, false);
+            let k = 0;
+            while k < found {
+                ArrayPush(this.m_pickerResults, APM_ScenePropResult(k));
+                k += 1;
+            }
+            let scenePages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
+            this.m_pickerPage = Clamp(this.m_pickerPage, 0, scenePages - 1);
+            this.RefreshPicker();
+            return;
+        }
         let query = StrLower(this.m_pickerQuery);
         if StrLen(query) == 0 {
             let r = 0;
@@ -2828,6 +2868,8 @@ public class APM_PoseEditor extends IScriptable {
     private func RefreshPicker() {
         let first = this.m_pickerPage * this.PickerRows();
         let held = APM_GetHandProp(this.m_propRight);
+        let scene = this.m_pickerCategory == 5;
+        let heldScene = APM_GetSceneProp(this.m_character, this.m_propRight);
         let i = 0;
         while i < ArraySize(this.m_pickerButtons) {
             let button = this.m_pickerButtons[i];
@@ -2835,21 +2877,31 @@ public class APM_PoseEditor extends IScriptable {
             if result < ArraySize(this.m_pickerResults) {
                 let index = this.m_pickerResults[result];
                 button.root.SetVisible(true);
-                button.label.SetText(this.m_itemNames[index]);
-                button.isSelected = TDBID.ToNumber(this.m_itemIds[index]) == held;
+                if scene {
+                    let path = APM_ScenePropPath(index);
+                    button.label.SetText(APM_ScenePropShortName(path));
+                    button.isSelected = StrLen(heldScene) > 0 && Equals(StrLower(path), StrLower(heldScene));
+                    this.m_pickerModIcons[i].SetVisible(APM_ScenePropIsMod(index));
+                } else {
+                    button.label.SetText(this.m_itemNames[index]);
+                    button.isSelected = StrLen(heldScene) == 0 && TDBID.ToNumber(this.m_itemIds[index]) == held;
+                    this.m_pickerModIcons[i].SetVisible(this.m_itemIsMod[index]);
+                }
                 button.UpdateLook();
-                this.m_pickerModIcons[i].SetVisible(this.m_itemIsMod[index]);
             } else {
                 button.root.SetVisible(false);
             }
             i += 1;
         }
-        let modsTab = this.FindButton("pick:tab4");
-        if IsDefined(modsTab) {
-            modsTab.root.SetVisible(this.m_itemModCount > 0); // none when the base game records could not be read
+        this.PlacePickerTabs();
+        let pathButton = this.FindButton("pick:path");
+        if IsDefined(pathButton) {
+            pathButton.root.SetVisible(scene);
+            pathButton.isSelected = this.m_scenePropTyping;
+            pathButton.UpdateLook();
         }
         let tab = 0;
-        while tab < 5 {
+        while tab < 6 {
             let tabButton = this.FindButton("pick:tab" + IntToString(tab));
             if IsDefined(tabButton) {
                 tabButton.isSelected = tab == this.m_pickerCategory;
@@ -2858,8 +2910,14 @@ public class APM_PoseEditor extends IScriptable {
             tab += 1;
         }
         let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
-        this.m_pickerPageText.SetText(APM_TextWith("APM-Picker-Count", "{0} items", IntToString(ArraySize(this.m_pickerResults))) + "  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
-        if this.m_pickerTyping {
+        let countText = scene ? APM_TextWith("APM-Picker-SceneCount", "{0} objects", IntToString(ArraySize(this.m_pickerResults))) : APM_TextWith("APM-Picker-Count", "{0} items", IntToString(ArraySize(this.m_pickerResults)));
+        this.m_pickerPageText.SetText(countText + "  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
+        if this.m_scenePropTyping {
+            // Typing a path: shown in the search box (its end when long)
+            let typed = APM_TextEntryGetText();
+            this.m_pickerSearch.SetText((StrLen(typed) > 52 ? "..." + StrRight(typed, 49) : typed) + "_");
+            this.m_pickerSearch.SetTintColor(APM_ColorText());
+        } else if this.m_pickerTyping {
             this.m_pickerSearch.SetText(this.m_pickerQuery + "_");
             this.m_pickerSearch.SetTintColor(APM_ColorText());
         } else {
@@ -2889,7 +2947,7 @@ public class APM_PoseEditor extends IScriptable {
         let state = APM_TextEntryGetState();
         if state == 2 {
             if ArraySize(this.m_pickerResults) > 0 {
-                this.ChooseItem(this.m_pickerResults[0]);
+                this.ChoosePickerResult(this.m_pickerResults[0]);
             }
             this.ClosePicker();
             this.Refresh();
@@ -2913,6 +2971,13 @@ public class APM_PoseEditor extends IScriptable {
             this.ClosePicker();
         } else if Equals(arg, "search") {
             this.StartPickerTyping();
+        } else if Equals(arg, "path") {
+            if this.m_scenePropTyping {
+                this.StopScenePropTyping(true); // a second click confirms, as Enter
+            } else {
+                this.StartScenePropTyping();
+            }
+            this.RefreshPicker();
         } else if StrBeginsWith(arg, "tab") {
             this.m_pickerCategory = StringToInt(StrAfterFirst(arg, "tab"));
             this.m_pickerPage = 0;
@@ -2926,16 +2991,41 @@ public class APM_PoseEditor extends IScriptable {
         } else {
             let result = this.m_pickerPage * this.PickerRows() + StringToInt(arg);
             if result >= 0 && result < ArraySize(this.m_pickerResults) {
-                this.ChooseItem(this.m_pickerResults[result]);
+                this.ChoosePickerResult(this.m_pickerResults[result]);
                 this.RefreshPicker();
             }
         }
         this.Refresh();
     }
 
+    // A list entry: an item, or a scene object in the Scene tab.
+    private func ChoosePickerResult(index: Int32) {
+        if this.m_pickerCategory == 5 {
+            this.ChooseSceneProp(APM_ScenePropPath(index));
+        } else {
+            this.ChooseItem(index);
+        }
+    }
+
+    // A scene object in the picker's hand of the selected character: it replaces the item there (one undo step).
+    private func ChooseSceneProp(path: String) {
+        if StrLen(path) == 0 {
+            return;
+        }
+        let right = this.m_propRight;
+        let held = APM_GetHandProp(right);
+        let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
+        APM_HistoryCheckpoint();
+        if held > 1ul || (held == 0ul && hasPose) {
+            APM_SetHandProp(right, hasPose ? 1ul : 0ul); // the hand emptied of its item
+        }
+        APM_SetSceneProp(this.m_character, right, path);
+    }
+
     private func ChooseItem(index: Int32) {
         let id = this.m_itemIds[index];
         APM_HistoryCheckpoint();
+        APM_SetSceneProp(this.m_character, this.m_propRight, ""); // an item replaces the scene object
         APM_SetHandProp(this.m_propRight, TDBID.ToNumber(id));
         ArrayRemove(this.m_recentItems, id);
         ArrayInsert(this.m_recentItems, 0, id);
@@ -2951,11 +3041,13 @@ public class APM_PoseEditor extends IScriptable {
         let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
         if Equals(action, "clear") {
             APM_HistoryCheckpoint();
+            APM_SetSceneProp(this.m_character, right, "");
             APM_SetHandProp(right, hasPose ? 1ul : 0ul);
             return;
         }
         if Equals(action, "restore") {
             APM_HistoryCheckpoint();
+            APM_SetSceneProp(this.m_character, right, "");
             APM_SetHandProp(right, 0ul);
             return;
         }
@@ -3003,11 +3095,15 @@ public class APM_PoseEditor extends IScriptable {
         let suffix = right ? "r" : "l";
         let held = APM_GetHandProp(right);
         let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
-        let shows = held > 1ul || (held == 0ul && hasPose);
+        let scenePath = APM_GetSceneProp(this.m_character, right);
+        let hasScene = StrLen(scenePath) > 0;
+        let shows = hasScene || held > 1ul || (held == 0ul && hasPose);
         let openButton = this.FindButton("prop:open:" + suffix);
         if IsDefined(openButton) {
             let text = APM_Text("APM-Item-Nothing", "Nothing - click to choose");
-            if held > 1ul {
+            if hasScene {
+                text = APM_ScenePropShortName(scenePath);
+            } else if held > 1ul {
                 text = this.ItemName(held);
             } else if held == 0ul && hasPose {
                 let poseItem = right ? this.m_poseItemRight : this.m_poseItemLeft;
@@ -3015,13 +3111,13 @@ public class APM_PoseEditor extends IScriptable {
             }
             openButton.label.SetText(text);
             openButton.isSelected = this.m_pickerOpen && Equals(this.m_propRight, right);
-            openButton.isMarked = held > 1ul;
+            openButton.isMarked = held > 1ul || hasScene;
             openButton.UpdateLook();
         }
         this.SetButton("prop:clear:" + suffix, false, shows);
         let restoreButton = this.FindButton("prop:restore:" + suffix);
         if IsDefined(restoreButton) {
-            restoreButton.root.SetVisible(hasPose && held != 0ul);
+            restoreButton.root.SetVisible(hasPose && (held != 0ul || hasScene));
         }
     }
 
@@ -3223,7 +3319,7 @@ public class APM_PoseEditor extends IScriptable {
     // before leaving does: exits with them could crash). True when something was taken out: the game should leave only
     // once they are gone (ExitItemsGone).
     public func ClearAddedCharacterItems() -> Bool {
-        this.RemoveSceneProp("leaving Photo Mode");
+        this.DeleteAllSceneProps("leaving Photo Mode");
         this.SaveCharacterProps(this.m_character);
         this.m_exiting = true;
         this.m_checkTimer = 0.0;
@@ -3363,18 +3459,18 @@ public class APM_PoseEditor extends IScriptable {
         ArrayClear(this.m_playerGivenItems);
     }
 
-    // --- Scene props test ----------------------------------------------------------------------------------------
-    // A scene object (.ent, e.g. the phone of the scenes) created with Codeware's DynamicEntitySystem and moved every
-    // update to the right hand prop slot of its character. Everything is logged ("Props test:").
+    // --- Scene props -----------------------------------------------------------------------------------------------
+    // Scene objects (.ent) held in the hands: created with Codeware's DynamicEntitySystem (tag APM_SceneProp) and moved
+    // every update to their character's hand slot (WeaponRight / WeaponLeft, so the hand prop part's edits move them).
+    // What each hand holds is pose state (APM_GetSceneProp: saved, loaded, undone, reset); the entities follow it.
 
+    // Typing a path (picker, Scene tab): Enter puts that object in the hand.
     private func StartScenePropTyping() {
         if this.m_renaming {
             this.FinishRename(true);
         }
-        if this.m_pickerOpen {
-            this.ClosePicker();
-        }
-        let path = StrLen(this.m_scenePropPath) > 0 ? this.m_scenePropPath : "base\\items\\interactive\\accessories\\int_accessories_001__cellphone.ent";
+        this.StopPickerTyping();
+        let path = StrLen(this.m_scenePropPath) > 0 ? this.m_scenePropPath : "base\\";
         if !APM_TextEntryBeginPath(path) {
             this.SetStatus(APM_Text("APM-Msg-TypingUnavailable", "Typing is not available"));
             return;
@@ -3390,135 +3486,172 @@ public class APM_PoseEditor extends IScriptable {
         APM_TextEntryEnd();
         this.m_scenePropTyping = false;
         if confirm && StrLen(text) > 0 {
-            this.CreateSceneProp(text);
+            this.m_scenePropPath = text;
+            this.ChooseSceneProp(text);
+        }
+        if this.m_pickerOpen {
+            this.RefreshPicker();
         }
     }
 
-    private func CreateSceneProp(path: String) {
-        this.RemoveSceneProp("replaced");
+    private func EnsureScenePropArrays() {
+        if ArraySize(this.m_scenePaths) == 8 {
+            return;
+        }
+        ArrayResize(this.m_scenePaths, 8);
+        ArrayResize(this.m_sceneIds, 8);
+        ArrayResize(this.m_sceneActive, 8);
+        ArrayResize(this.m_sceneAge, 8);
+        ArrayResize(this.m_sceneSpawned, 8);
+    }
+
+    // World transform of a character's hand slot (w = 0 when unknown); orientation in aOrientation.
+    private func HandSlotWorld(character: Int32, right: Bool, out orientation: Quaternion) -> Vector4 {
+        let component = APM_CharacterGetComponent(character);
+        let model = APM_CharacterHandSlotPosition(character, right);
+        if !IsDefined(component) || model.W < 0.5 {
+            return APM_Vector(0.0, 0.0, 0.0, 0.0);
+        }
+        let toWorld = component.GetLocalToWorld();
+        let world = Vector4.Transform(toWorld, APM_Vector(model.X, model.Y, model.Z, 1.0));
+        orientation = APM_QuatMultiply(Matrix.ToQuat(toWorld), APM_CharacterHandSlotRotation(character, right));
+        return APM_Vector(world.X, world.Y, world.Z, 1.0);
+    }
+
+    private func SpawnSceneProp(slot: Int32, path: String) -> Bool {
         let system = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(system) {
-            APM_LogInfo("Props test: no DynamicEntitySystem (Codeware)");
-            return;
+            return false;
         }
-        let part = this.PartIndex("Right hand prop");
-        let component = APM_GizmoGetComponent();
+        let character = slot / 2;
+        let right = slot % 2 == 1;
+        let orientation: Quaternion;
+        let position = this.HandSlotWorld(character, right, orientation);
+        if position.W < 0.5 {
+            return false; // the hand is not known yet: tried again next update
+        }
         let spec = new DynamicEntitySpec();
         spec.templatePath = ResRef.FromString(path);
+        spec.position = position;
+        spec.orientation = orientation;
         spec.tags = [n"APM_SceneProp"];
-        if part >= 0 && IsDefined(component) {
-            let toWorld = component.GetLocalToWorld();
-            let position = APM_PartWorldPosition(toWorld, part);
-            if position.W > 0.5 {
-                spec.position = APM_Vector(position.X, position.Y, position.Z, 1.0);
-            }
-            spec.orientation = this.ScenePropOrientation(toWorld, part);
-        } else {
-            APM_LogInfo("Props test: right hand prop part " + IntToString(part) + ", component " + (IsDefined(component) ? "found" : "missing") + ": created at the origin");
-        }
-        this.m_scenePropId = system.CreateEntity(spec);
-        this.m_scenePropActive = EntityID.IsDefined(this.m_scenePropId);
-        this.m_scenePropOwner = this.m_character;
-        this.m_scenePropPath = path;
-        this.m_scenePropTicks = 0;
-        this.m_scenePropAge = 0.0;
-        this.m_scenePropSpawned = false;
-        this.m_scenePropPlaced = false;
-        this.m_scenePropLate = false;
-        APM_LogInfo("Props test: CreateEntity " + path + " for character " + IntToString(this.m_character) + ": " + (this.m_scenePropActive ? "id " + EntityID.ToDebugString(this.m_scenePropId) : "no entity id"));
+        this.m_sceneIds[slot] = system.CreateEntity(spec);
+        this.m_scenePaths[slot] = path;
+        this.m_sceneActive[slot] = true;
+        this.m_sceneAge[slot] = 0.0;
+        this.m_sceneSpawned[slot] = false;
+        return true;
     }
 
-    // World orientation of a part's bone: the component's world rotation times the bone's model-space rotation.
-    private func ScenePropOrientation(toWorld: Matrix, part: Int32) -> Quaternion {
-        let a = Matrix.ToQuat(toWorld);
-        let b = APM_GizmoGetPartRotation(part);
-        let q: Quaternion;
-        q.i = a.r * b.i + a.i * b.r + a.j * b.k - a.k * b.j;
-        q.j = a.r * b.j - a.i * b.k + a.j * b.r + a.k * b.i;
-        q.k = a.r * b.k + a.i * b.j - a.j * b.i + a.k * b.r;
-        q.r = a.r * b.r - a.i * b.i - a.j * b.j - a.k * b.k;
-        return q;
-    }
-
-    private func RemoveSceneProp(reason: String) {
-        if this.m_scenePropTyping && !Equals(reason, "replaced") {
-            this.StopScenePropTyping(false);
-        }
-        if !this.m_scenePropActive {
+    private func DeleteSceneProp(slot: Int32) {
+        if slot < 0 || slot >= ArraySize(this.m_sceneActive) || !this.m_sceneActive[slot] {
             return;
         }
-        this.m_scenePropActive = false;
+        this.m_sceneActive[slot] = false;
+        this.m_scenePaths[slot] = "";
         let system = GameInstance.GetDynamicEntitySystem();
-        let deleted = IsDefined(system) && system.DeleteEntity(this.m_scenePropId);
-        APM_LogInfo("Props test: DeleteEntity (" + reason + "): " + (deleted ? "deleted" : "not deleted"));
+        if IsDefined(system) {
+            system.DeleteEntity(this.m_sceneIds[slot]);
+        }
     }
 
-    // Every update: typing the path, then the prop follows the right hand prop slot of its character.
-    private func UpdateSceneProp(timeDelta: Float, active: Bool) {
+    // Every scene object entity goes (the pose state stays: "Pose on remembered" brings them back).
+    private func DeleteAllSceneProps(reason: String) {
+        let any = false;
+        let slot = 0;
+        while slot < ArraySize(this.m_sceneActive) {
+            if this.m_sceneActive[slot] {
+                any = true;
+                this.DeleteSceneProp(slot);
+            }
+            slot += 1;
+        }
+        if any {
+            APM_LogInfo("Scene props: removed (" + reason + ")");
+        }
+    }
+
+    // Every update: the path being typed, then the entities follow the pose state (spawned / deleted) and their
+    // characters' hands.
+    private func UpdateSceneProps(timeDelta: Float, active: Bool) {
         if this.m_scenePropTyping {
             let state = APM_TextEntryGetState();
             if !active || state != 1 {
                 this.StopScenePropTyping(active && state == 2);
                 this.Refresh();
+            } else if this.m_pickerOpen {
+                this.RefreshPicker();
             }
         }
-        if IsDefined(this.m_scenePropText) {
-            if this.m_scenePropTyping {
-                let typed = APM_TextEntryGetText();
-                this.m_scenePropText.SetText((StrLen(typed) > 48 ? "..." + StrRight(typed, 45) : typed) + "_");
-                this.m_scenePropText.SetTintColor(APM_ColorText());
-            } else {
-                let shown = this.m_scenePropActive ? this.m_scenePropPath : "";
-                this.m_scenePropText.SetText(StrLen(shown) > 48 ? "..." + StrRight(shown, 45) : shown);
-                this.m_scenePropText.SetTintColor(APM_ColorDimText());
-            }
-        }
-        if !this.m_scenePropActive {
+        this.EnsureScenePropArrays();
+        if !active || this.m_exiting {
+            this.DeleteAllSceneProps(active ? "leaving Photo Mode" : "Photo Mode closed");
             return;
         }
-        if !active {
-            this.RemoveSceneProp("Photo Mode closed");
-            return;
-        }
-        this.m_scenePropTicks += 1;
-        this.m_scenePropAge += timeDelta;
         let system = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(system) {
             return;
         }
-        if !system.IsSpawned(this.m_scenePropId) {
-            if !this.m_scenePropLate && this.m_scenePropAge > 3.0 {
-                this.m_scenePropLate = true;
-                APM_LogInfo("Props test: still not spawned after " + FloatToStringPrec(this.m_scenePropAge, 1) + " s (" + IntToString(this.m_scenePropTicks) + " updates), spawning " + (system.IsSpawning(this.m_scenePropId) ? "yes" : "no") + ", managed " + (system.IsManaged(this.m_scenePropId) ? "yes" : "no"));
+        let slot = 0;
+        while slot < 8 {
+            let character = slot / 2;
+            let right = slot % 2 == 1;
+            let present = character == 0 || APM_CharacterIsPresent(character);
+            let wanted = present ? APM_GetSceneProp(character, right) : "";
+            if this.m_sceneActive[slot] && !Equals(this.m_scenePaths[slot], wanted) {
+                this.DeleteSceneProp(slot); // another object, none any more, or its character left
             }
-            return;
+            if !this.m_sceneActive[slot] && StrLen(wanted) > 0 {
+                this.SpawnSceneProp(slot, wanted);
+            }
+            if this.m_sceneActive[slot] {
+                this.m_sceneAge[slot] += timeDelta;
+                if !system.IsSpawned(this.m_sceneIds[slot]) {
+                    if this.m_sceneAge[slot] > 3.0 {
+                        APM_LogInfo("Scene props: " + wanted + " could not be created (character " + IntToString(character) + ", " + (right ? "right" : "left") + " hand, not spawned after 3 s)");
+                        this.DeleteSceneProp(slot);
+                        APM_SetSceneProp(character, right, "");
+                        this.SetStatus(APM_Text("APM-Msg-ScenePropFailed", "This object could not be created"));
+                        this.Refresh();
+                    }
+                } else {
+                    let entity = system.GetEntity(this.m_sceneIds[slot]);
+                    if !this.m_sceneSpawned[slot] {
+                        this.m_sceneSpawned[slot] = true;
+                        APM_LogInfo("Scene props: " + wanted + " created in " + FloatToStringPrec(this.m_sceneAge[slot], 2) + " s (character " + IntToString(character) + ", " + (right ? "right" : "left") + " hand, " + (IsDefined(entity) ? NameToString(entity.GetClassName()) : "no entity") + ")");
+                    }
+                    let orientation: Quaternion;
+                    let position = this.HandSlotWorld(character, right, orientation);
+                    if IsDefined(entity) && position.W > 0.5 {
+                        let transform: WorldTransform;
+                        WorldTransform.SetPosition(transform, position);
+                        WorldTransform.SetOrientation(transform, orientation);
+                        entity.SetWorldTransform(transform);
+                    }
+                }
+            }
+            slot += 1;
         }
-        let entity = system.GetEntity(this.m_scenePropId);
-        if !this.m_scenePropSpawned {
-            this.m_scenePropSpawned = true;
-            APM_LogInfo("Props test: spawned after " + IntToString(this.m_scenePropTicks) + " updates (" + FloatToStringPrec(this.m_scenePropAge, 2) + " s), class " + (IsDefined(entity) ? NameToString(entity.GetClassName()) : "no entity"));
-        }
-        if !IsDefined(entity) || this.m_scenePropOwner != this.m_character {
-            return;
-        }
-        let part = this.PartIndex("Right hand prop");
-        let component = APM_GizmoGetComponent();
-        if part < 0 || !IsDefined(component) {
-            return;
-        }
-        let toWorld = component.GetLocalToWorld();
-        let position = APM_PartWorldPosition(toWorld, part);
-        if position.W < 0.5 {
-            return;
-        }
-        let transform: WorldTransform;
-        WorldTransform.SetPosition(transform, APM_Vector(position.X, position.Y, position.Z, 1.0));
-        WorldTransform.SetOrientation(transform, this.ScenePropOrientation(toWorld, part));
-        entity.SetWorldTransform(transform);
-        if !this.m_scenePropPlaced {
-            this.m_scenePropPlaced = true;
-            let placed = entity.GetWorldPosition();
-            APM_LogInfo("Props test: first SetWorldTransform to " + FloatToStringPrec(position.X, 3) + ", " + FloatToStringPrec(position.Y, 3) + ", " + FloatToStringPrec(position.Z, 3) + "; entity now at " + FloatToStringPrec(placed.X, 3) + ", " + FloatToStringPrec(placed.Y, 3) + ", " + FloatToStringPrec(placed.Z, 3));
+    }
+
+    // Tab buttons of the picker: Mods only with items from mods, Scene only with World Builder's lists; the shown
+    // ones side by side.
+    private func PlacePickerTabs() {
+        let s = APM_UiScale();
+        let x = 16.0;
+        let tab = 0;
+        while tab < 6 {
+            let button = this.FindButton("pick:tab" + IntToString(tab));
+            if IsDefined(button) {
+                let shown = tab < 4 || (tab == 4 && this.m_itemModCount > 0) || (tab == 5 && APM_ScenePropsAvailable());
+                button.root.SetVisible(shown);
+                if shown {
+                    button.x = x;
+                    button.root.SetMargin(x * s, button.y * s, 0.0, 0.0);
+                    x += button.w + 4.0;
+                }
+            }
+            tab += 1;
         }
     }
 
@@ -6008,7 +6141,7 @@ public class APM_PoseEditor extends IScriptable {
             this.StopPickerTyping();
             this.RefreshPicker();
         }
-        if this.m_scenePropTyping && !Equals(keepId, "sceneprop:open") {
+        if this.m_scenePropTyping && !Equals(keepId, "pick:path") {
             this.StopScenePropTyping(false);
         }
         if this.m_renaming && !Equals(keepId, "rename") {
@@ -6058,23 +6191,6 @@ public class APM_PoseEditor extends IScriptable {
                 this.Refresh();
                 return;
             }
-        }
-        if this.m_scenePropTyping && !Equals(id, "sceneprop:open") {
-            this.StopScenePropTyping(false);
-        }
-        if Equals(id, "sceneprop:open") {
-            if this.m_scenePropTyping {
-                this.StopScenePropTyping(true); // a second click confirms, as Enter
-            } else {
-                this.StartScenePropTyping();
-            }
-            this.Refresh();
-            return;
-        }
-        if Equals(id, "sceneprop:remove") {
-            this.RemoveSceneProp("Remove prop");
-            this.Refresh();
-            return;
         }
         if Equals(id, "hide") {
             this.SetOpen(false);

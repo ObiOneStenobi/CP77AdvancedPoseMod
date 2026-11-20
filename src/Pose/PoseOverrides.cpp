@@ -37,6 +37,8 @@ struct EditState
     std::string faceName;
     uint64_t propRight = 0;
     uint64_t propLeft = 0;
+    std::string sceneRight; // scene props (.ent) held instead of an item
+    std::string sceneLeft;
 };
 constexpr size_t MaxHistory = 100;
 
@@ -53,6 +55,8 @@ struct CharacterState
     std::vector<EditState> redo;
     std::atomic<uint64_t> propRight{0};
     std::atomic<uint64_t> propLeft{0};
+    std::string sceneRight; // scene props (.ent paths) in the hands, guarded by g_mutex
+    std::string sceneLeft;
     std::shared_ptr<const std::vector<APM::Pose::HeldBone>> held; // from the last loaded pose
     uint32_t heldGeneration = 0;
     // Read by the animation threads (guarded by g_snapshotMutex, held for a pointer copy only).
@@ -111,6 +115,8 @@ void ClearLocked(CharacterState& aState)
     ++aState.heldGeneration;
     aState.propRight = 0;
     aState.propLeft = 0;
+    aState.sceneRight.clear();
+    aState.sceneLeft.clear();
     PublishLocked(aState);
     aState.enabled = false;
 }
@@ -155,8 +161,8 @@ bool SameIk(const std::array<APM::Pose::IkChainSettings, APM::Pose::IkChainCount
 // Must be called with g_mutex held.
 EditState CurrentStateLocked(const CharacterState& aState)
 {
-    return {aState.bones, aState.ik, aState.base, aState.faceWeights, aState.faceName, aState.propRight.load(),
-            aState.propLeft.load()};
+    return {aState.bones,           aState.ik,       aState.base,      aState.faceWeights, aState.faceName,
+            aState.propRight.load(), aState.propLeft.load(), aState.sceneRight, aState.sceneLeft};
 }
 
 EditState CurrentStateLocked()
@@ -168,7 +174,8 @@ bool SameAsCurrentLocked(const EditState& aState, const CharacterState& aCurrent
 {
     return aState.base == aCurrent.base && aState.faceWeights == aCurrent.faceWeights &&
            aState.faceName == aCurrent.faceName && aState.propRight == aCurrent.propRight &&
-           aState.propLeft == aCurrent.propLeft && SameIk(aState.ik, aCurrent.ik) && SameBones(aState.bones, aCurrent.bones);
+           aState.propLeft == aCurrent.propLeft && aState.sceneRight == aCurrent.sceneRight &&
+           aState.sceneLeft == aCurrent.sceneLeft && SameIk(aState.ik, aCurrent.ik) && SameBones(aState.bones, aCurrent.bones);
 }
 
 bool SameAsCurrentLocked(const EditState& aState)
@@ -185,6 +192,8 @@ void RestoreLocked(EditState&& aState)
     S().faceName = std::move(aState.faceName);
     S().propRight = aState.propRight;
     S().propLeft = aState.propLeft;
+    S().sceneRight = std::move(aState.sceneRight);
+    S().sceneLeft = std::move(aState.sceneLeft);
 }
 
 // Records the current state before a change, unless nothing changed since the last record.
@@ -480,6 +489,8 @@ void ResetAll(bool aKeepFace)
     S().base.reset();
     S().propRight = 0; // the hands hold the items of the Photo Mode pose again
     S().propLeft = 0;
+    S().sceneRight.clear();
+    S().sceneLeft.clear();
     if (!aKeepFace)
     {
         S().faceWeights = UnsetFaceWeights();
@@ -525,7 +536,8 @@ bool HasEdits(uint32_t aCharacter)
         std::scoped_lock lock(g_snapshotMutex);
         snapshot = state.snapshot;
     }
-    return !snapshot->IsEmpty() || state.propRight != 0 || state.propLeft != 0;
+    return !snapshot->IsEmpty() || state.propRight != 0 || state.propLeft != 0 || !state.sceneRight.empty() ||
+           !state.sceneLeft.empty();
 }
 
 bool IsEnabled(uint32_t aCharacter)
@@ -743,6 +755,21 @@ bool Save(const std::string& aName)
             props["left"] = text(S().propLeft.load());
         }
     }
+    {
+        std::scoped_lock lock(g_mutex);
+        if (!S().sceneRight.empty() || !S().sceneLeft.empty())
+        {
+            auto& scene = root["sceneProps"] = nlohmann::json::object(); // .ent held in the hands
+            if (!S().sceneRight.empty())
+            {
+                scene["right"] = S().sceneRight;
+            }
+            if (!S().sceneLeft.empty())
+            {
+                scene["left"] = S().sceneLeft;
+            }
+        }
+    }
 
     std::filesystem::path path;
     NamedFiles::Resolve(GetPoseDirectory(), name, path);
@@ -934,6 +961,14 @@ bool Load(const std::string& aName)
         };
         S().propRight = prop("right");
         S().propLeft = prop("left");
+        const auto scene = [&](const char* aKey) -> std::string
+        {
+            return root.contains("sceneProps") && root["sceneProps"].contains(aKey) && root["sceneProps"][aKey].is_string()
+                       ? root["sceneProps"][aKey].get<std::string>()
+                       : std::string();
+        };
+        S().sceneRight = scene("right");
+        S().sceneLeft = scene("left");
     }
     S().enabled = true;
     Log::Info("Pose loaded: %s (%zu edits, %zu base pose bones)", name.c_str(), Count(),
@@ -1025,6 +1060,20 @@ void SetHandProp(bool aRightHand, uint64_t aRecord)
 uint64_t GetHandProp(bool aRightHand)
 {
     return (aRightHand ? S().propRight : S().propLeft).load();
+}
+
+void SetSceneProp(uint32_t aCharacter, bool aRightHand, const std::string& aPath)
+{
+    std::scoped_lock lock(g_mutex);
+    auto& state = g_states[aCharacter < Characters::Count ? aCharacter : 0];
+    (aRightHand ? state.sceneRight : state.sceneLeft) = aPath;
+}
+
+std::string GetSceneProp(uint32_t aCharacter, bool aRightHand)
+{
+    std::scoped_lock lock(g_mutex);
+    const auto& state = g_states[aCharacter < Characters::Count ? aCharacter : 0];
+    return aRightHand ? state.sceneRight : state.sceneLeft;
 }
 
 void Checkpoint()
