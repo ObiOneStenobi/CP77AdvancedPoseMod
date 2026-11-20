@@ -719,7 +719,19 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   "modificato" sui 5 pulsanti di modalità. Log 23:46: giacca di Rogue 2 ossa usate su 47.
 - 20/11: controllo d'insieme del seno TOLTO (PhysicsBones::Groups vuoto, regola in commento; ossa del seno spostabili
   una per una, tutte con marker). Pin delle catene: solo Body (= nessun pin, la catena segue testa/corpo) e World;
-  il pin sui fianchi (2) resta nel codice ma non è offerto.
+  il pin sui fianchi (2) resta nel codice ma non è offerto. Provato: tutto ok.
+
+## Oggetti delle mod + props di scena (20/11, build 2.31/2.5 ok, script ok, copiato; DA PROVARE)
+- Game/VanillaRecords: ID dei record da r6\cache\tweakdb.bin + tweakdb_ep1.bin (magic 0x0BB1DB47, offset record =
+  header[5], int32 count + count x {u64 id, u32 tipo}; confronto sui 40 bit bassi). Nativi APM_PropRecordIsMod,
+  APM_ModRecordsAvailable. Selettore 476 px, scheda Mods, icona puzzle (Icons.reds), regole larghe per le mod
+  (no Clo_/Cyb_/Prt_). Oggetti Quest/HideInUI ora offerti (telefoni Items.cellphone ecc.); esclusi Shard, Braindance,
+  Gen_MoneyShard.
+- Prova props (.ent): pulsante "Scene prop..." (testo, default int_accessories_001__cellphone.ent), Codeware
+  DynamicEntitySystem.CreateEntity (ResRef.FromString, tag APM_SceneProp), ogni update Entity.SetWorldTransform
+  sullo slot WeaponRight (nativo APM_GizmoGetPartRotation); log "Props test:". Eliminata all'uscita.
+  Elenco possibile: World Builder entSpawner data\spawnables\entity\templates\paths_ent.txt (~21.000) + liste delle mod.
+- Nessuna mod installata aggiunge oggetti da tenere in mano (solo vestiti/capelli: ~2.400 record Items.*).
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

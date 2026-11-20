@@ -174,6 +174,10 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-ItemClearRight", "Empty the right hand");
         this.Text("APM-Label-LeftHand", "Left");
         this.Text("APM-Tip-ItemClearLeft", "Empty the left hand");
+        this.Text("APM-Button-SceneProp", "Scene prop...");
+        this.Text("APM-Tip-SceneProp", "Test: put a scene object (.ent) in the right hand");
+        this.Text("APM-Button-ScenePropRemove", "Remove prop");
+        this.Text("APM-Tip-ScenePropRemove", "Test: remove the scene object");
         this.Text("APM-Title-Face", "Face");
         this.Text("APM-Tip-FaceUnlock", "Face rows stop at 100% (as the game's expressions). Click to allow up to 400%");
         this.Text("APM-Tip-FaceLock", "Face rows go up to 400%: above 100% the face can deform. Click to stop at 100% again");
@@ -184,6 +188,8 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Picker-Weapons", "Weapons");
         this.Text("APM-Picker-Food", "Food");
         this.Text("APM-Picker-Other", "Other");
+        this.Text("APM-Button-ItemsMods", "Mods");
+        this.Text("APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
         this.Text("APM-Help-Title", "Info");
         this.Text("APM-Help-ShapeRotate", "rotate");
         this.Text("APM-Help-ShapeMove", "move");

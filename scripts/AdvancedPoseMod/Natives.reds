@@ -82,6 +82,10 @@ public native func APM_RenameHandPose(oldName: String, newName: String) -> Strin
 public native func APM_PropRecordCount(kind: Int32) -> Int32
 public native func APM_PropRecordAt(kind: Int32, index: Int32) -> Uint64
 public native func APM_ItemKnownWithoutModel(record: Uint64) -> Bool
+// The item record comes from a mod (not in the base game's tweakdb files); same record numbers as APM_PropRecordAt
+public native func APM_PropRecordIsMod(record: Uint64) -> Bool
+// False when the base game's tweakdb files could not be read (nothing is marked as from a mod then)
+public native func APM_ModRecordsAvailable() -> Bool
 public native func APM_ItemMarkWithoutModel(record: Uint64)
 public native func APM_ItemVisibleMeshes(item: ref<Entity>) -> Int32
 // TweakDBID from TDBID.ToNumber()
@@ -180,6 +184,8 @@ public native func APM_SessionSet(key: String, value: Float)
 // Gizmos
 // Model-space position (relative to V: X right, Y forward, Z up) of the main bone of a body part; w = 1 when valid
 public native func APM_GizmoGetPartPosition(part: Int32) -> Vector4
+// Model-space rotation of a part's bone of the selected character (same space as APM_GizmoGetPartPosition)
+public native func APM_GizmoGetPartRotation(part: Int32) -> Quaternion
 // Model-space point where a part's gizmo is drawn (the joint, or halfway along palm bones); w = 1 when valid
 public native func APM_GizmoGetPartMarker(part: Int32) -> Vector4
 // Model-space point the main bone of a body part points at (its child); w = 1 when valid

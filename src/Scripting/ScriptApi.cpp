@@ -8,6 +8,7 @@
 #include "Game/EngineLayout.hpp"
 #include "Game/PhotoModeMenuGuard.hpp"
 #include "Game/PhotoModeTracker.hpp"
+#include "Game/VanillaRecords.hpp"
 #include "Pose/PhysicsBones.hpp"
 #include "Pose/Characters.hpp"
 #include "Pose/FacePoses.hpp"
@@ -507,6 +508,21 @@ void PropRecordCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     RED4ext::GetParameter(aFrame, &kind);
     aFrame->code++;
     Return(aOut, static_cast<int32_t>(PropRecords(kind).size()));
+}
+
+// Item records added by mods (not in the base game's tweakdb.bin / tweakdb_ep1.bin).
+void PropRecordIsMod(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    Return(aOut, APM::VanillaRecords::IsFromMod(record));
+}
+
+void ModRecordsAvailable(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, APM::VanillaRecords::Available());
 }
 
 void PropRecordAt(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1184,6 +1200,25 @@ void GizmoGetPartPosition(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t
     Return(aOut, result);
 }
 
+// Model-space rotation of the main bone of a body part (relative to the animated component); w of the quaternion is 1
+// with x = y = z = 0 when unknown. Used to keep a scene prop (an entity) in a hand.
+void GizmoGetPartRotation(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t part = 0;
+    RED4ext::GetParameter(aFrame, &part);
+    aFrame->code++;
+
+    RED4ext::Quaternion result{0.f, 0.f, 0.f, 1.f};
+    const auto& catalog = APM::Ui::GetBoneCatalog();
+    APM::Math::Quat rotation{};
+    if (part >= 0 && part < static_cast<int32_t>(catalog.size()) &&
+        APM::Pose::GizmoState::GetBoneModelRotation(RED4ext::CName(catalog[part].bones.front()).hash, rotation))
+    {
+        result = {rotation.i, rotation.j, rotation.k, rotation.r};
+    }
+    Return(aOut, result);
+}
+
 // Model-space point where a part's gizmo is drawn: the joint, or halfway to the tip for palm bones; w = 1 when valid.
 void GizmoGetPartMarker(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
@@ -1815,6 +1850,8 @@ void Register()
     ::Register("APM_GetBasePoseName", &GetBasePoseName, "String", {});
     ::Register("APM_PropRecordCount", &PropRecordCount, "Int32", {{"Int32", "kind"}});
     ::Register("APM_PropRecordAt", &PropRecordAt, "Uint64", {{"Int32", "kind"}, {"Int32", "index"}});
+    ::Register("APM_PropRecordIsMod", &PropRecordIsMod, "Bool", {{"Uint64", "record"}});
+    ::Register("APM_ModRecordsAvailable", &ModRecordsAvailable, "Bool", {});
     ::Register("APM_RecordFromNumber", &RecordFromNumber, "TweakDBID", {{"Uint64", "number"}});
     ::Register("APM_ItemKnownWithoutModel", &ItemKnownWithoutModel, "Bool", {{"Uint64", "record"}});
     ::Register("APM_ItemMarkWithoutModel", &ItemMarkWithoutModel, nullptr, {{"Uint64", "record"}});
@@ -1895,6 +1932,7 @@ void Register()
     ::Register("APM_GizmoIkModelToOffset", &GizmoIkModelToOffset, "Vector4", {{"Int32", "chain"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoMovePart", &GizmoMovePart, "Bool", {{"Int32", "part"}, {"Vector4", "modelDelta"}});
     ::Register("APM_GizmoCanMovePart", &GizmoCanMovePart, "Bool", {{"Int32", "part"}});
+    ::Register("APM_GizmoGetPartRotation", &GizmoGetPartRotation, "Quaternion", {{"Int32", "part"}});
     ::Register("APM_PhysicsRevision", &PhysicsRevision, "Int32", {});
     ::Register("APM_PartSkeleton", &PartSkeleton, "String", {{"Int32", "part"}});
     ::Register("APM_PartChain", &PartChain, "String", {{"Int32", "part"}});
