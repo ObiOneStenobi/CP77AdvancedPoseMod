@@ -1229,18 +1229,19 @@ public class APM_PoseEditor extends IScriptable {
         // Tabs: Favorites (star), All, Weapons, Food, Other, Mods (items from mods, only when there are some), Scene
         // (scene objects: our list of the game's + World Builder's prop packs, when a list was found). Placed by
         // PlacePickerTabs().
+        // Two rows: Favorites, All, Weapons, Food, Other; then Mods, Scene.
         this.CreateIconButton(picker, "pick:tab6", "star", 16.0, 44.0, this.L("APM-Tip-Favorites", "Favorites: the items and scene objects starred in the list"), 28.0);
-        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 60.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 90.0, 44.0, 60.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 164.0, 44.0, 60.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 238.0, 44.0, 60.0, 28.0);
-        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 312.0, 44.0, 66.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 60.0, 44.0, 97.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 161.0, 44.0, 97.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 262.0, 44.0, 97.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 363.0, 44.0, 97.0, 28.0);
+        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 16.0, 76.0, 97.0, 28.0);
         this.TipL(modsTab, "APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
-        let sceneTab = this.CreateSmallButton(picker, "pick:tab5", this.L("APM-Button-ItemsScene", "Scene"), 386.0, 44.0, 74.0, 28.0);
+        let sceneTab = this.CreateSmallButton(picker, "pick:tab5", this.L("APM-Button-ItemsScene", "Scene"), 117.0, 76.0, 97.0, 28.0);
         this.TipL(sceneTab, "APM-Tip-ItemsScene", "Scene objects (.ent): anything in the game, not only items (no characters)");
         let i = 0;
         while i < this.PickerRows() {
-            let rowY = 80.0 + Cast<Float>(i) * 34.0;
+            let rowY = 112.0 + Cast<Float>(i) * 34.0;
             let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, rowY, 400.0, 30.0);
             button.label.SetLetterCase(textLetterCase.OriginalCase);
             ArrayPush(this.m_pickerButtons, button);
@@ -1251,7 +1252,7 @@ public class APM_PoseEditor extends IScriptable {
             ArrayPush(this.m_pickerStarFills, this.AddIconOverlay(star, "star-filled"));
             i += 1;
         }
-        let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
+        let footer = 112.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
         this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
         // Placed by its center (238 = middle of the picker): the text widget shrinks to its text, so centering the
         // text inside a wide box left it near the left edge.
@@ -3678,11 +3679,14 @@ public class APM_PoseEditor extends IScriptable {
     private func PlacePickerTabs() {
         let s = APM_UiScale();
         let x = 16.0;
-        let order = [6, 0, 1, 2, 3, 4, 5]; // Favorites first
+        let order = [6, 0, 1, 2, 3, 4, 5]; // Favorites first; Mods and Scene on the second row
         let k = 0;
         while k < ArraySize(order) {
             let tab = order[k];
             k += 1;
+            if tab == 4 {
+                x = 16.0;
+            }
             let button = this.FindButton("pick:tab" + IntToString(tab));
             if IsDefined(button) {
                 let shown = tab < 4 || tab == 6 || (tab == 4 && this.m_itemModCount > 0) || (tab == 5 && APM_ScenePropsAvailable());

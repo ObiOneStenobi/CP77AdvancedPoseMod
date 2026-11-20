@@ -773,8 +773,11 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   FavoriteStar (359).
 - Crash: tutti e tre (player_wa_fpp_ep1 = PlayerPuppet, 3dmap_view = gameuiWorldMapGameObject, q305_av_camera_drone
   = vehicleBaseObject) sono classi con un sistema nativo dietro e crashano 0,1-0,2 s dopo la nascita con lettura a
-  indirizzo quasi nullo (0xD9, 0x5D, 0xB5). Proposta: tenere solo le classi "semplici" o almeno scartare le classi
-  nuove non viste.
+  indirizzo quasi nullo (0xD9, 0x5D, 0xB5). DECISO: solo classi semplici (PLAIN_TYPES: entEntity, gameObject,
+  gameItemObject, gameweaponObject, entGameEntity, gameItemDropObject); tolte 2.291 voci di classi speciali
+  (dispositivi, porte, luci, loot...). Elenco 9.176 voci, copiato.
+- Linguette del selettore su due righe: stella (40) + All/Weapons/Food/Other (97) a y 44; Mods/Scene (97) a y 76;
+  righe da y 112 (prima 80), piè di pagina di conseguenza. Script copiati.
 - Proposto: oggetti delle schede All/Weapons/Food/Other senza mesh trovati prima (factory + .ent/.app con WolvenKit).
 - Gomma: svuota senza selezionare il campo. Pagina centrata con SetAnchorPoint(0.5, 0) a x 238 (il testo si
   restringe al contenuto, la centratura nel riquadro largo non bastava). Da verificare in gioco.

@@ -11,6 +11,7 @@ A template is left out when:
   - it is a game system (world map, UI previews, cameras, Photo Mode's light, debug spawners, covers...): the world
     map crashed the game;
   - it is a whole vehicle (vehicle* entity classes): an AV drone crashed the game;
+  - its class is not a plain one (PLAIN_TYPES): devices, doors, lights, loot... run by game systems like the crashes;
   - it has nothing to see (no mesh, particles, decal, light or appearance);
   - it could not be read.
 Usage: python -I scene_props_list.py <extracted folder> <output scene_props.txt> [report.txt]
@@ -40,6 +41,8 @@ SYSTEM_TYPES = {
     "gameuiWorldMapGameObject", "gameuiEntityPreviewGameObject", "gamePhotomodeLightObject", "dbgSpawner",
     "gameCoverObject", "NcartStationMarker",
 }
+# Entity classes kept (plain objects, no game system behind them).
+PLAIN_TYPES = {"entEntity", "gameObject", "gameItemObject", "gameweaponObject", "entGameEntity", "gameItemDropObject"}
 # Components that render to a texture or drive the UI's cameras.
 SYSTEM_COMPONENTS = {"entRenderToTextureCameraComponent", "gameuiHolocallCameraComponent"}
 # Something to see: meshes, particles, decals, lights (or an appearance, checked apart).
@@ -67,6 +70,10 @@ def classify(path):
     # vehicles\) stay.
     if kind.startswith("vehicle"):
         return False, "vehicle", kind
+    # Only plain classes: every crash so far (player, world map, AV drone) came from a class run by a game system,
+    # 0.1-0.2 s after it was created alone (a read near address 0). Devices, doors, lights, loot... are left out too.
+    if kind not in PLAIN_TYPES:
+        return False, "special class", kind
     if not (root.get("appearances") or []) and not any(v in t for t in types for v in VISIBLE):
         return False, "nothing visible", kind
     for appearance in root.get("appearances", []) or []:
