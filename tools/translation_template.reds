@@ -221,8 +221,6 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-NeutralUnavailable", "Neutral pose not available");
         this.Text("APM-Msg-HandPoseNoHand", "Open the tab of a hand (or of its arm) first");
         this.Text("APM-Msg-TypingUnavailable", "Typing is not available");
-        this.Text("APM-Picker-SceneCount", "{0} objects");
-        this.Text("APM-Picker-Count", "{0} items");
         this.Text("APM-Picker-ClickToSearch", "Click to search");
         this.Text("APM-Msg-ScenePropBlocked", "Characters cannot be held: choose an object");
         this.Text("APM-Item-Nothing", "Nothing - click to choose");

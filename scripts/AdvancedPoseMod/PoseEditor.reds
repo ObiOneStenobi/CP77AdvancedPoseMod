@@ -427,7 +427,7 @@ public class APM_PoseEditor extends IScriptable {
     private let m_helpOpen: Bool;
     private let m_pickerSearch: wref<inkText>;
     private let m_pickerTyping: Bool; // the search box has the keyboard (after a click on it)
-    private let m_pickerPageText: wref<inkText>;
+    private let m_pickerPageText: wref<inkText>; // n/N, big in the accent color as the pose list's pages
     private let m_pickerButtons: array<ref<APM_Button>>;
     private let m_pickerOpen: Bool;
     private let m_pickerQuery: String;
@@ -1244,7 +1244,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
         this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
-        let pageText = this.CreateText(picker, "", 120.0, footer, 236.0, 34.0, 14, APM_ColorDimText());
+        let pageText = this.CreateText(picker, "", 120.0, footer - 2.0, 236.0, 34.0, 22, APM_ColorAccent());
         pageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
         this.m_pickerPageText = pageText;
         this.CreateButton(picker, "pick:next", ">", 360.0, footer, 100.0, 34.0);
@@ -2899,8 +2899,7 @@ public class APM_PoseEditor extends IScriptable {
             tab += 1;
         }
         let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
-        let countText = scene ? APM_TextWith("APM-Picker-SceneCount", "{0} objects", IntToString(ArraySize(this.m_pickerResults))) : APM_TextWith("APM-Picker-Count", "{0} items", IntToString(ArraySize(this.m_pickerResults)));
-        this.m_pickerPageText.SetText(countText + "  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
+        this.m_pickerPageText.SetText(IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
         if this.m_pickerTyping {
             this.m_pickerSearch.SetText(this.m_pickerQuery + "_");
             this.m_pickerSearch.SetTintColor(APM_ColorText());
