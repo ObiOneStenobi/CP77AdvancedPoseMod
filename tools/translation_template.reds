@@ -225,7 +225,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Picker-SceneCount", "{0} objects");
         this.Text("APM-Picker-Count", "{0} items");
         this.Text("APM-Picker-ClickToSearch", "Click to search");
-        this.Text("APM-Msg-ScenePropBlocked", "This object cannot be used: it is the player itself");
+        this.Text("APM-Msg-ScenePropBlocked", "Characters cannot be held: choose an object");
         this.Text("APM-Item-Nothing", "Nothing - click to choose");
         this.Text("APM-Item-FromPose", "{0} (pose)");
         this.Text("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand");

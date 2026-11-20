@@ -35,7 +35,9 @@ bool IsAllowedLower(const std::string& aLower)
     std::replace(path.begin(), path.end(), '/', '\\');
     const size_t slash = path.find_last_of('\\');
     const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
-    return path.find("characters\\entities\\player\\") == std::string::npos && file.rfind("player_", 0) != 0;
+    // Characters and their pieces (garments, heads, crowd...) are left out: they stand still in a T pose or as loose
+    // parts (test 20/11), and the player's own crash the game.
+    return path.find("characters\\") == std::string::npos && file.rfind("player_", 0) != 0;
 }
 
 void Load()

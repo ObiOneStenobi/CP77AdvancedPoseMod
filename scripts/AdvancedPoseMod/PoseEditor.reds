@@ -2820,7 +2820,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_pickerCategory = 0;
         }
         if this.m_pickerCategory == 5 {
-            let found = APM_ScenePropSearch(this.m_pickerQuery, 200, false);
+            let found = APM_ScenePropSearch(this.m_pickerQuery, 30000, false);
             let k = 0;
             while k < found {
                 ArrayPush(this.m_pickerResults, APM_ScenePropResult(k));
@@ -2931,7 +2931,7 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    // While the picker is open: follow the typed text, Enter takes the first result, Esc closes.
+    // While the picker is open: follow the typed text; Enter or Esc stop typing (the list stays open).
     private func UpdatePicker() {
         if !this.m_pickerOpen {
             return;
@@ -2943,16 +2943,8 @@ public class APM_PoseEditor extends IScriptable {
         if !this.m_pickerTyping {
             return;
         }
-        // Enter takes the first result and closes the list; Esc just stops typing.
+        // Enter confirms the search (the list stays open to choose from), Esc stops typing: both end it.
         let state = APM_TextEntryGetState();
-        if state == 2 {
-            if ArraySize(this.m_pickerResults) > 0 {
-                this.ChoosePickerResult(this.m_pickerResults[0]);
-            }
-            this.ClosePicker();
-            this.Refresh();
-            return;
-        }
         if state != 1 {
             this.StopPickerTyping();
             this.RefreshPicker();
@@ -3013,8 +3005,8 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         if !APM_ScenePropAllowed(path) {
-            // The player's own templates: a second player crashes the game.
-            this.SetStatus(APM_Text("APM-Msg-ScenePropBlocked", "This object cannot be used: it is the player itself"));
+            // Characters and their pieces: a second player crashes the game, the others stand still.
+            this.SetStatus(APM_Text("APM-Msg-ScenePropBlocked", "Characters cannot be held: choose an object"));
             return;
         }
         let right = this.m_propRight;

@@ -9,8 +9,8 @@
 namespace APM::SceneProps
 {
 bool Available();
-// False for templates that must never be created a second time: the player's (a second PlayerPuppet crashed the game,
-// test 20/11: ep1\characters\entities\player\player_wa_fpp_ep1.ent).
+// False for characters and their pieces (any "characters\" folder, files "player_*"): a second player crashed the game
+// (test 20/11), other characters stood still and their pieces were loose parts.
 bool IsAllowed(const std::string& aPath);
 size_t Count();
 const std::string& Path(size_t aIndex); // empty if out of range
