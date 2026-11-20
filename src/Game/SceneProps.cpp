@@ -29,6 +29,15 @@ std::string Lower(std::string aText)
     return aText;
 }
 
+bool IsAllowedLower(const std::string& aLower)
+{
+    std::string path = aLower;
+    std::replace(path.begin(), path.end(), '/', '\\');
+    const size_t slash = path.find_last_of('\\');
+    const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
+    return path.find("characters\\entities\\player\\") == std::string::npos && file.rfind("player_", 0) != 0;
+}
+
 void Load()
 {
     if (g_loaded)
@@ -80,7 +89,8 @@ void Load()
             }
             line = line.substr(start);
             const std::string lower = Lower(line);
-            if (lower.size() < 5 || lower.substr(lower.size() - 4) != ".ent" || !seen.insert(lower).second)
+            if (lower.size() < 5 || lower.substr(lower.size() - 4) != ".ent" || !IsAllowedLower(lower) ||
+                !seen.insert(lower).second)
             {
                 continue;
             }
@@ -95,6 +105,11 @@ void Load()
 
 namespace APM::SceneProps
 {
+bool IsAllowed(const std::string& aPath)
+{
+    return IsAllowedLower(Lower(aPath));
+}
+
 bool Available()
 {
     Load();

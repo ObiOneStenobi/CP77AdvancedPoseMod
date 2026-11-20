@@ -9,6 +9,9 @@
 namespace APM::SceneProps
 {
 bool Available();
+// False for templates that must never be created a second time: the player's (a second PlayerPuppet crashed the game,
+// test 20/11: ep1\characters\entities\player\player_wa_fpp_ep1.ent).
+bool IsAllowed(const std::string& aPath);
 size_t Count();
 const std::string& Path(size_t aIndex); // empty if out of range
 bool IsFromMod(size_t aIndex);          // listed by a prop pack, not by World Builder's base game list

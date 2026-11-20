@@ -3012,6 +3012,11 @@ public class APM_PoseEditor extends IScriptable {
         if StrLen(path) == 0 {
             return;
         }
+        if !APM_ScenePropAllowed(path) {
+            // The player's own templates: a second player crashes the game.
+            this.SetStatus(APM_Text("APM-Msg-ScenePropBlocked", "This object cannot be used: it is the player itself"));
+            return;
+        }
         let right = this.m_propRight;
         let held = APM_GetHandProp(right);
         let hasPose = right ? this.m_hasPoseItemRight : this.m_hasPoseItemLeft;
@@ -3519,6 +3524,9 @@ public class APM_PoseEditor extends IScriptable {
     }
 
     private func SpawnSceneProp(slot: Int32, path: String) -> Bool {
+        if !APM_ScenePropAllowed(path) {
+            return false; // never the player's own templates (a pose file could name one)
+        }
         let system = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(system) {
             return false;

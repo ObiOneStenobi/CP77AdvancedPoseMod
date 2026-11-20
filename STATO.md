@@ -739,6 +739,9 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   personaggio (PublishHands sul root), PoseOverrides sceneRight/sceneLeft (EditState, JSON "sceneProps", reset).
   Script: scheda Scene + "Path...", una prop per mano e personaggio, sincronizzata con lo stato (carica/undo), tolta
   se non nasce in 3 s, entità eliminate all'uscita (stato tenuto).
+- Crash 20/11 22:27: scelta la prima voce dell'elenco, ep1\characters\entities\player\player_wa_fpp_ep1.ent (creata
+  come PlayerPuppet, crash 0,2 s dopo: lettura a 0xD9). Ora SceneProps::IsAllowed esclude characters\entities\player\
+  e i file "player_*" (dall'elenco, da Path... e dalle pose caricate; nativo APM_ScenePropAllowed).
 
 ## Prossimi lavori del piano 1.6.0 (in ordine)
 3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).

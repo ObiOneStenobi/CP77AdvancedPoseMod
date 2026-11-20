@@ -544,6 +544,15 @@ void ScenePropResult(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, index >= 0 && index < static_cast<int32_t>(g_scenePropResults.size()) ? g_scenePropResults[index] : -1);
 }
 
+// False for templates that must not be created (the player's own: a second player crashes the game).
+void ScenePropAllowed(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString path;
+    RED4ext::GetParameter(aFrame, &path);
+    aFrame->code++;
+    Return(aOut, APM::SceneProps::IsAllowed(path.c_str()));
+}
+
 void ScenePropPath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t prop = 0;
@@ -1975,6 +1984,7 @@ void Register()
     ::Register("APM_ScenePropResult", &ScenePropResult, "Int32", {{"Int32", "index"}});
     ::Register("APM_ScenePropPath", &ScenePropPath, "String", {{"Int32", "prop"}});
     ::Register("APM_ScenePropIsMod", &ScenePropIsMod, "Bool", {{"Int32", "prop"}});
+    ::Register("APM_ScenePropAllowed", &ScenePropAllowed, "Bool", {{"String", "path"}});
     ::Register("APM_SetSceneProp", &SetSceneProp, nullptr, {{"Int32", "character"}, {"Bool", "rightHand"}, {"String", "path"}});
     ::Register("APM_GetSceneProp", &GetSceneProp, "String", {{"Int32", "character"}, {"Bool", "rightHand"}});
     ::Register("APM_CharacterHandSlotPosition", &CharacterHandSlotPosition, "Vector4", {{"Int32", "character"}, {"Bool", "rightHand"}});

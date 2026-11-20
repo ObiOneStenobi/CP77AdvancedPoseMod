@@ -94,6 +94,8 @@ public native func APM_ScenePropResult(index: Int32) -> Int32
 public native func APM_ScenePropPath(prop: Int32) -> String
 // From a prop pack (not the base game list)
 public native func APM_ScenePropIsMod(prop: Int32) -> Bool
+// False for templates that must not be created (the player's own: a second player crashes the game).
+public native func APM_ScenePropAllowed(path: String) -> Bool
 // The .ent held in a hand of a character ("" none): pose state (saved, loaded, undo / redo, resets)
 public native func APM_SetSceneProp(character: Int32, rightHand: Bool, path: String)
 public native func APM_GetSceneProp(character: Int32, rightHand: Bool) -> String
