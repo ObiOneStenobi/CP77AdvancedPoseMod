@@ -99,6 +99,15 @@ public native func APM_ScenePropIsMod(prop: Int32) -> Bool
 public native func APM_ScenePropAllowed(path: String) -> Bool
 // A template that turned out to be a character when created: left out from now on (scene_props_excluded.txt)
 public native func APM_ScenePropExclude(path: String)
+// Favorites of the item picker (favorites.txt), in the order they were starred: an item (record, path "") or a scene
+// prop (record 0, its path)
+public native func APM_FavoriteCount() -> Int32
+public native func APM_FavoriteRecord(index: Int32) -> Uint64
+public native func APM_FavoritePath(index: Int32) -> String
+public native func APM_FavoriteHasRecord(record: Uint64) -> Bool
+public native func APM_FavoriteHasPath(path: String) -> Bool
+public native func APM_FavoriteSetRecord(record: Uint64, on: Bool)
+public native func APM_FavoriteSetPath(path: String, on: Bool)
 // The .ent held in a hand of a character ("" none): pose state (saved, loaded, undo / redo, resets)
 public native func APM_SetSceneProp(character: Int32, rightHand: Bool, path: String)
 public native func APM_GetSceneProp(character: Int32, rightHand: Bool) -> String

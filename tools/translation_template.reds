@@ -181,6 +181,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         this.Text("APM-Msg-FaceDataMissing", "Face data not found: reinstall the mod (red4ext\\plugins\\AdvancedPoseMod\\face)");
         this.Text("APM-Tip-ClearSearch", "Clear the search");
+        this.Text("APM-Tip-Favorites", "Favorites: the items and scene objects starred in the list");
         this.Text("APM-Picker-All", "All");
         this.Text("APM-Picker-Weapons", "Weapons");
         this.Text("APM-Picker-Food", "Food");
@@ -189,6 +190,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
         this.Text("APM-Button-ItemsScene", "Scene");
         this.Text("APM-Tip-ItemsScene", "Scene objects (.ent): anything in the game, not only items (no characters)");
+        this.Text("APM-Tip-FavoriteStar", "Add to / remove from the favorites");
         this.Text("APM-Help-Title", "Info");
         this.Text("APM-Help-ShapeRotate", "rotate");
         this.Text("APM-Help-ShapeMove", "move");

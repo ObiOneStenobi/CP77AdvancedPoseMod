@@ -763,6 +763,19 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   luce di Photo Mode, dbgSpawner, coperture, NcartStationMarker, componenti RenderToTexture/HolocallCamera) e template
   senza niente da vedere (1.054: niente mesh/particelle/decal/luci/distruzione/cloth né aspetto; es. pezzi d'arma,
   slot del loot). Elenco ora 11.557 voci, copiato in dist, dist231 e gioco.
+- Crash 20/11 23:29: q305_av_camera_drone.ent (vehicleBaseObject) in mano -> crash (lettura 0xB5). Tolti tutti i
+  veicoli interi (classi vehicle*, 393; i pezzi entEntity sotto vehicles\ restano). Elenco 11.215 voci, copiato.
+- Preferiti (FATTO 20/11, build 2.31/2.5 ok, script ok, copiato; DA PROVARE): stellina (pick:starN, icone Lucide
+  star / star-filled generate dal poligono, overlay AddIconOverlay) a destra di ogni riga (righe larghe 400);
+  scheda Preferiti (categoria 6, icona stella, prima di All; All/Weapons/Food/Other 60, Mods 66); risultati: indice
+  oggetto o -(preferito+1) per le props (ResultIsScene/ResultScenePath); ultimi aggiunti in cima. C++ in ScriptApi.cpp
+  (favorites.txt: "item <record>" / "scene <percorso>", nativi APM_Favorite*). Testi APM-Tip-Favorites /
+  FavoriteStar (359).
+- Crash: tutti e tre (player_wa_fpp_ep1 = PlayerPuppet, 3dmap_view = gameuiWorldMapGameObject, q305_av_camera_drone
+  = vehicleBaseObject) sono classi con un sistema nativo dietro e crashano 0,1-0,2 s dopo la nascita con lettura a
+  indirizzo quasi nullo (0xD9, 0x5D, 0xB5). Proposta: tenere solo le classi "semplici" o almeno scartare le classi
+  nuove non viste.
+- Proposto: oggetti delle schede All/Weapons/Food/Other senza mesh trovati prima (factory + .ent/.app con WolvenKit).
 - Gomma: svuota senza selezionare il campo. Pagina centrata con SetAnchorPoint(0.5, 0) a x 238 (il testo si
   restringe al contenuto, la centratura nel riquadro largo non bastava). Da verificare in gioco.
 - Selettore: pagina n/N 22 px accento (come la lista pose); conteggio oggetti tolto (testi APM-Picker-Count /

@@ -440,8 +440,10 @@ public class APM_PoseEditor extends IScriptable {
     private let m_itemCategory: array<Int32>; // 1 weapon, 2 food & drink, 3 other
     private let m_itemIsMod: array<Bool>;     // the item comes from a mod (puzzle icon, Mods tab)
     private let m_itemModCount: Int32;
-    private let m_pickerCategory: Int32;      // 0 all, 4 items from mods
+    private let m_pickerCategory: Int32;      // 0 all, 1-3 weapons / food / other, 4 items from mods, 5 scene, 6 favorites
     private let m_pickerModIcons: array<wref<inkCanvas>>; // puzzle icon of each list row
+    private let m_pickerStars: array<ref<APM_Button>>;     // star button beside each list row (favorite on / off)
+    private let m_pickerStarFills: array<wref<inkCanvas>>; // the filled star drawn over it when the entry is a favorite
     private let m_itemsBuilt: Bool;
     private let m_recentItems: array<TweakDBID>;
     private let m_noModelItems: array<Uint64>; // items that showed nothing in the hand (this session)
@@ -1224,22 +1226,29 @@ public class APM_PoseEditor extends IScriptable {
         // Eraser next to the field (empties the search), the close X apart on the right.
         this.CreateIconButton(picker, "pick:clear", "eraser", 372.0, 10.0, this.L("APM-Tip-ClearSearch", "Clear the search"));
         this.CreateIconButton(picker, "pick:close", "x", 420.0, 10.0, "");
-        // Tabs: All, Weapons, Food, Other, Mods (items from mods, only when there are some), Scene (scene objects: our
-        // list of the game's + World Builder's prop packs, when a list was found). Placed by PlacePickerTabs().
-        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 70.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 90.0, 44.0, 70.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 164.0, 44.0, 70.0, 28.0);
-        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 238.0, 44.0, 70.0, 28.0);
-        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 312.0, 44.0, 70.0, 28.0);
+        // Tabs: Favorites (star), All, Weapons, Food, Other, Mods (items from mods, only when there are some), Scene
+        // (scene objects: our list of the game's + World Builder's prop packs, when a list was found). Placed by
+        // PlacePickerTabs().
+        this.CreateIconButton(picker, "pick:tab6", "star", 16.0, 44.0, this.L("APM-Tip-Favorites", "Favorites: the items and scene objects starred in the list"), 28.0);
+        this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 60.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 90.0, 44.0, 60.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 164.0, 44.0, 60.0, 28.0);
+        this.CreateSmallButton(picker, "pick:tab3", this.L("APM-Picker-Other", "Other"), 238.0, 44.0, 60.0, 28.0);
+        let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 312.0, 44.0, 66.0, 28.0);
         this.TipL(modsTab, "APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
         let sceneTab = this.CreateSmallButton(picker, "pick:tab5", this.L("APM-Button-ItemsScene", "Scene"), 386.0, 44.0, 74.0, 28.0);
         this.TipL(sceneTab, "APM-Tip-ItemsScene", "Scene objects (.ent): anything in the game, not only items (no characters)");
         let i = 0;
         while i < this.PickerRows() {
-            let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, 80.0 + Cast<Float>(i) * 34.0, 444.0, 30.0);
+            let rowY = 80.0 + Cast<Float>(i) * 34.0;
+            let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, rowY, 400.0, 30.0);
             button.label.SetLetterCase(textLetterCase.OriginalCase);
             ArrayPush(this.m_pickerButtons, button);
             ArrayPush(this.m_pickerModIcons, this.AddRowIcon(button, "puzzle", false));
+            // Star beside the row: empty, filled when the entry is a favorite; a click adds or removes it.
+            let star = this.CreateIconButton(picker, "pick:star" + IntToString(i), "star", 420.0, rowY, this.L("APM-Tip-FavoriteStar", "Add to / remove from the favorites"), 30.0);
+            ArrayPush(this.m_pickerStars, star);
+            ArrayPush(this.m_pickerStarFills, this.AddIconOverlay(star, "star-filled"));
             i += 1;
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
@@ -2760,7 +2769,7 @@ public class APM_PoseEditor extends IScriptable {
             if !this.m_itemIsMod[index] {
                 return false;
             }
-        } else if this.m_pickerCategory > 0 && this.m_itemCategory[index] != this.m_pickerCategory {
+        } else if this.m_pickerCategory > 0 && this.m_pickerCategory < 5 && this.m_itemCategory[index] != this.m_pickerCategory {
             return false;
         }
         return !ArrayContains(this.m_noModelItems, number);
@@ -2830,6 +2839,29 @@ public class APM_PoseEditor extends IScriptable {
             return;
         }
         let query = StrLower(this.m_pickerQuery);
+        if this.m_pickerCategory == 6 {
+            // Favorites, the last starred first: items as their index, scene objects as -(favorite + 1).
+            let f = APM_FavoriteCount() - 1;
+            while f >= 0 {
+                let record = APM_FavoriteRecord(f);
+                if record > 0ul {
+                    let index = this.ItemIndexOfNumber(record);
+                    if index >= 0 && this.ItemAllowed(index) && (StrLen(query) == 0 || StrContains(this.m_itemSearch[index], query)) {
+                        ArrayPush(this.m_pickerResults, index);
+                    }
+                } else {
+                    let path = APM_FavoritePath(f);
+                    if APM_ScenePropAllowed(path) && (StrLen(query) == 0 || StrContains(StrLower(path), query)) {
+                        ArrayPush(this.m_pickerResults, -(f + 1));
+                    }
+                }
+                f -= 1;
+            }
+            let favoritePages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
+            this.m_pickerPage = Clamp(this.m_pickerPage, 0, favoritePages - 1);
+            this.RefreshPicker();
+            return;
+        }
         if StrLen(query) == 0 {
             let r = 0;
             while r < ArraySize(this.m_recentItems) {
@@ -2852,6 +2884,42 @@ public class APM_PoseEditor extends IScriptable {
         this.RefreshPicker();
     }
 
+    private func ItemIndexOfNumber(number: Uint64) -> Int32 {
+        let i = 0;
+        while i < ArraySize(this.m_itemIds) {
+            if TDBID.ToNumber(this.m_itemIds[i]) == number {
+                return i;
+            }
+            i += 1;
+        }
+        return -1;
+    }
+
+    // A list result of the current tab: a scene object (Scene tab: prop index; Favorites: negative) or an item index.
+    private func ResultIsScene(value: Int32) -> Bool {
+        return this.m_pickerCategory == 5 || (this.m_pickerCategory == 6 && value < 0);
+    }
+
+    private func ResultScenePath(value: Int32) -> String {
+        return this.m_pickerCategory == 6 ? APM_FavoritePath(-value - 1) : APM_ScenePropPath(value);
+    }
+
+    private func ResultIsFavorite(value: Int32) -> Bool {
+        if this.ResultIsScene(value) {
+            return APM_FavoriteHasPath(this.ResultScenePath(value));
+        }
+        return APM_FavoriteHasRecord(TDBID.ToNumber(this.m_itemIds[value]));
+    }
+
+    private func ToggleFavorite(value: Int32) {
+        let on = !this.ResultIsFavorite(value);
+        if this.ResultIsScene(value) {
+            APM_FavoriteSetPath(this.ResultScenePath(value), on);
+        } else {
+            APM_FavoriteSetRecord(TDBID.ToNumber(this.m_itemIds[value]), on);
+        }
+    }
+
     private func ItemIndex(id: TweakDBID) -> Int32 {
         let i = 0;
         while i < ArraySize(this.m_itemIds) {
@@ -2866,34 +2934,37 @@ public class APM_PoseEditor extends IScriptable {
     private func RefreshPicker() {
         let first = this.m_pickerPage * this.PickerRows();
         let held = APM_GetHandProp(this.m_propRight);
-        let scene = this.m_pickerCategory == 5;
         let heldScene = APM_GetSceneProp(this.m_character, this.m_propRight);
         let i = 0;
         while i < ArraySize(this.m_pickerButtons) {
             let button = this.m_pickerButtons[i];
+            let star = this.m_pickerStars[i];
             let result = first + i;
             if result < ArraySize(this.m_pickerResults) {
                 let index = this.m_pickerResults[result];
                 button.root.SetVisible(true);
-                if scene {
-                    let path = APM_ScenePropPath(index);
+                star.root.SetVisible(true);
+                if this.ResultIsScene(index) {
+                    let path = this.ResultScenePath(index);
                     button.label.SetText(APM_ScenePropShortName(path));
                     button.isSelected = StrLen(heldScene) > 0 && Equals(StrLower(path), StrLower(heldScene));
-                    this.m_pickerModIcons[i].SetVisible(APM_ScenePropIsMod(index));
+                    this.m_pickerModIcons[i].SetVisible(this.m_pickerCategory == 5 && APM_ScenePropIsMod(index));
                 } else {
                     button.label.SetText(this.m_itemNames[index]);
                     button.isSelected = StrLen(heldScene) == 0 && TDBID.ToNumber(this.m_itemIds[index]) == held;
                     this.m_pickerModIcons[i].SetVisible(this.m_itemIsMod[index]);
                 }
+                this.m_pickerStarFills[i].SetVisible(this.ResultIsFavorite(index));
                 button.UpdateLook();
             } else {
                 button.root.SetVisible(false);
+                star.root.SetVisible(false);
             }
             i += 1;
         }
         this.PlacePickerTabs();
         let tab = 0;
-        while tab < 6 {
+        while tab < 7 {
             let tabButton = this.FindButton("pick:tab" + IntToString(tab));
             if IsDefined(tabButton) {
                 tabButton.isSelected = tab == this.m_pickerCategory;
@@ -2955,6 +3026,17 @@ public class APM_PoseEditor extends IScriptable {
             this.m_pickerQuery = "";
             this.m_pickerPage = 0;
             this.UpdatePickerResults();
+        } else if StrBeginsWith(arg, "star") {
+            // Favorite on / off; in the Favorites tab the entry leaves the list at once.
+            let row = this.m_pickerPage * this.PickerRows() + StringToInt(StrAfterFirst(arg, "star"));
+            if row >= 0 && row < ArraySize(this.m_pickerResults) {
+                this.ToggleFavorite(this.m_pickerResults[row]);
+                if this.m_pickerCategory == 6 {
+                    this.UpdatePickerResults();
+                } else {
+                    this.RefreshPicker();
+                }
+            }
         } else if StrBeginsWith(arg, "tab") {
             this.m_pickerCategory = StringToInt(StrAfterFirst(arg, "tab"));
             this.m_pickerPage = 0;
@@ -2977,8 +3059,8 @@ public class APM_PoseEditor extends IScriptable {
 
     // A list entry: an item, or a scene object in the Scene tab.
     private func ChoosePickerResult(index: Int32) {
-        if this.m_pickerCategory == 5 {
-            this.ChooseSceneProp(APM_ScenePropPath(index));
+        if this.ResultIsScene(index) {
+            this.ChooseSceneProp(this.ResultScenePath(index));
         } else {
             this.ChooseItem(index);
         }
@@ -3591,16 +3673,19 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    // Tab buttons of the picker: Mods only with items from mods, Scene only with a list of scene objects (ours ships
-    // with the mod); the shown ones side by side.
+    // Tab buttons of the picker: Favorites (star) first, Mods only with items from mods, Scene only with a list of
+    // scene objects (ours ships with the mod); the shown ones side by side.
     private func PlacePickerTabs() {
         let s = APM_UiScale();
         let x = 16.0;
-        let tab = 0;
-        while tab < 6 {
+        let order = [6, 0, 1, 2, 3, 4, 5]; // Favorites first
+        let k = 0;
+        while k < ArraySize(order) {
+            let tab = order[k];
+            k += 1;
             let button = this.FindButton("pick:tab" + IntToString(tab));
             if IsDefined(button) {
-                let shown = tab < 4 || (tab == 4 && this.m_itemModCount > 0) || (tab == 5 && APM_ScenePropsAvailable());
+                let shown = tab < 4 || tab == 6 || (tab == 4 && this.m_itemModCount > 0) || (tab == 5 && APM_ScenePropsAvailable());
                 button.root.SetVisible(shown);
                 if shown {
                     button.x = x;
@@ -3608,7 +3693,6 @@ public class APM_PoseEditor extends IScriptable {
                     x += button.w + 4.0;
                 }
             }
-            tab += 1;
         }
     }
 
@@ -3768,6 +3852,37 @@ public class APM_PoseEditor extends IScriptable {
             i += 4;
         }
         return lock;
+    }
+
+    // A second icon drawn exactly over an icon button's own (same grid as CreateIconButton), hidden until shown and
+    // tinted with the button: the filled star of the picker's favorites.
+    private func AddIconOverlay(button: ref<APM_Button>, name: String) -> wref<inkCanvas> {
+        let s = APM_UiScale();
+        let overlay = new inkCanvas();
+        overlay.SetAnchor(inkEAnchor.TopLeft);
+        overlay.SetMargin(0.0, 0.0, 0.0, 0.0);
+        overlay.SetSize(button.w * s, button.h * s);
+        overlay.SetInteractive(false);
+        overlay.SetVisible(false);
+        overlay.Reparent(button.root);
+        let cell = 22.0 / 24.0;
+        let left = 9.0;
+        let top = (button.h - 22.0) * 0.5;
+        let spans = APM_IconSpans(name);
+        let i = 0;
+        while i + 3 < ArraySize(spans) {
+            let rect = new inkRectangle();
+            rect.SetAnchor(inkEAnchor.TopLeft);
+            rect.SetMargin((left + spans[i] * cell) * s, (top + spans[i + 1] * cell) * s, 0.0, 0.0);
+            rect.SetSize(spans[i + 2] * cell * s, cell * s);
+            rect.SetOpacity(spans[i + 3]);
+            rect.SetInteractive(false);
+            rect.Reparent(overlay);
+            ArrayPush(button.icon, rect);
+            i += 4;
+        }
+        button.UpdateLook();
+        return overlay;
     }
 
     private func SetDot(button: ref<APM_Button>, on: Bool) {

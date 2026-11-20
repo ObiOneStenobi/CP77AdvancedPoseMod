@@ -10,6 +10,7 @@ A template is left out when:
   - it is an instanced crowd (entInstancedAnimationComponent: stadium and street crowds);
   - it is a game system (world map, UI previews, cameras, Photo Mode's light, debug spawners, covers...): the world
     map crashed the game;
+  - it is a whole vehicle (vehicle* entity classes): an AV drone crashed the game;
   - it has nothing to see (no mesh, particles, decal, light or appearance);
   - it could not be read.
 Usage: python -I scene_props_list.py <extracted folder> <output scene_props.txt> [report.txt]
@@ -62,6 +63,10 @@ def classify(path):
     camera = "Camera" in kind and kind != "SurveillanceCamera"  # security cameras are devices with a mesh
     if kind in SYSTEM_TYPES or camera or any(t in SYSTEM_COMPONENTS for t in types):
         return False, "game system", kind
+    # Whole vehicles (physics, AI, mounting): an AV drone crashed the game (test 20/11). Their parts (entEntity under
+    # vehicles\) stay.
+    if kind.startswith("vehicle"):
+        return False, "vehicle", kind
     if not (root.get("appearances") or []) and not any(v in t for t in types for v in VISIBLE):
         return False, "nothing visible", kind
     for appearance in root.get("appearances", []) or []:

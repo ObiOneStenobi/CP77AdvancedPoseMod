@@ -712,6 +712,176 @@ void ItemMarkWithoutModel(IScriptable*, CStackFrame* aFrame, void*, int64_t)
     }
 }
 
+// --- Favorites (item picker) -----------------------------------------------------------------------------------------
+// Items (record numbers) and scene props (.ent paths) starred in the picker, in the order they were starred:
+// red4ext\plugins\AdvancedPoseMod\favorites.txt, lines "item <record>" or "scene <path>".
+struct Favorite
+{
+    uint64_t record = 0; // 0 for a scene prop
+    std::string path;    // lower case, backslashes; empty for an item
+    std::string shown;   // the path as given
+};
+
+std::filesystem::path FavoritesFile()
+{
+    return APM::GetRuntime().pluginDir / L"favorites.txt";
+}
+
+std::string FavoriteKey(const std::string& aPath)
+{
+    std::string key = aPath;
+    std::transform(key.begin(), key.end(), key.begin(),
+                   [](unsigned char c) { return static_cast<char>(c == '/' ? '\\' : std::tolower(c)); });
+    return key;
+}
+
+std::vector<Favorite>& Favorites()
+{
+    static std::vector<Favorite> favorites;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        std::ifstream file(FavoritesFile());
+        std::string line;
+        while (std::getline(file, line))
+        {
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+            {
+                line.pop_back();
+            }
+            if (line.rfind("item ", 0) == 0)
+            {
+                const uint64_t record = std::strtoull(line.c_str() + 5, nullptr, 10);
+                if (record > 1)
+                {
+                    favorites.push_back({record, {}, {}});
+                }
+            }
+            else if (line.rfind("scene ", 0) == 0 && line.size() > 6)
+            {
+                favorites.push_back({0, FavoriteKey(line.substr(6)), line.substr(6)});
+            }
+        }
+        APM::Log::Verbose("Favorites: %zu", favorites.size());
+    }
+    return favorites;
+}
+
+void SaveFavorites()
+{
+    std::ofstream file(FavoritesFile(), std::ios::trunc);
+    for (const auto& favorite : Favorites())
+    {
+        if (favorite.record)
+        {
+            file << "item " << favorite.record << '\n';
+        }
+        else
+        {
+            file << "scene " << favorite.shown << '\n';
+        }
+    }
+}
+
+// Index of a favorite (record, or path when record is 0), -1 if not starred.
+int32_t FindFavorite(uint64_t aRecord, const std::string& aPath)
+{
+    const auto& favorites = Favorites();
+    const std::string key = aRecord ? std::string{} : FavoriteKey(aPath);
+    for (size_t i = 0; i < favorites.size(); ++i)
+    {
+        if (aRecord ? favorites[i].record == aRecord : (!favorites[i].record && favorites[i].path == key))
+        {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+void SetFavorite(uint64_t aRecord, const std::string& aPath, bool aOn)
+{
+    if (aRecord <= 1 && aPath.empty())
+    {
+        return;
+    }
+    const int32_t index = FindFavorite(aRecord, aPath);
+    if (aOn == (index >= 0))
+    {
+        return;
+    }
+    auto& favorites = Favorites();
+    if (aOn)
+    {
+        favorites.push_back(aRecord > 1 ? Favorite{aRecord, {}, {}} : Favorite{0, FavoriteKey(aPath), aPath});
+    }
+    else
+    {
+        favorites.erase(favorites.begin() + index);
+    }
+    SaveFavorites();
+}
+
+void FavoriteCount(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    aFrame->code++;
+    Return(aOut, static_cast<int32_t>(Favorites().size()));
+}
+
+void FavoriteRecord(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    const auto& favorites = Favorites();
+    Return(aOut, index >= 0 && index < static_cast<int32_t>(favorites.size()) ? favorites[index].record : uint64_t{0});
+}
+
+void FavoritePath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    int32_t index = 0;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    const auto& favorites = Favorites();
+    Return(aOut, CString(index >= 0 && index < static_cast<int32_t>(favorites.size()) ? favorites[index].shown.c_str() : ""));
+}
+
+void FavoriteHasRecord(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    uint64_t record = 0;
+    RED4ext::GetParameter(aFrame, &record);
+    aFrame->code++;
+    Return(aOut, record > 1 && FindFavorite(record, {}) >= 0);
+}
+
+void FavoriteHasPath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString path;
+    RED4ext::GetParameter(aFrame, &path);
+    aFrame->code++;
+    Return(aOut, path.Length() > 0 && FindFavorite(0, path.c_str()) >= 0);
+}
+
+void FavoriteSetRecord(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    uint64_t record = 0;
+    bool on = false;
+    RED4ext::GetParameter(aFrame, &record);
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    SetFavorite(record, {}, on);
+}
+
+void FavoriteSetPath(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    CString path;
+    bool on = false;
+    RED4ext::GetParameter(aFrame, &path);
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    SetFavorite(0, path.c_str(), on);
+}
+
 // Mesh components of an item in hand that can show something: a mesh resource, enabled, some chunk shown, a visual
 // scale above zero. -1 if the entity cannot be read. With the detailed log, every mesh component is described.
 void ItemVisibleMeshes(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
@@ -1995,6 +2165,13 @@ void Register()
     ::Register("APM_ScenePropIsMod", &ScenePropIsMod, "Bool", {{"Int32", "prop"}});
     ::Register("APM_ScenePropAllowed", &ScenePropAllowed, "Bool", {{"String", "path"}});
     ::Register("APM_ScenePropExclude", &ScenePropExclude, nullptr, {{"String", "path"}});
+    ::Register("APM_FavoriteCount", &FavoriteCount, "Int32", {});
+    ::Register("APM_FavoriteRecord", &FavoriteRecord, "Uint64", {{"Int32", "index"}});
+    ::Register("APM_FavoritePath", &FavoritePath, "String", {{"Int32", "index"}});
+    ::Register("APM_FavoriteHasRecord", &FavoriteHasRecord, "Bool", {{"Uint64", "record"}});
+    ::Register("APM_FavoriteHasPath", &FavoriteHasPath, "Bool", {{"String", "path"}});
+    ::Register("APM_FavoriteSetRecord", &FavoriteSetRecord, nullptr, {{"Uint64", "record"}, {"Bool", "on"}});
+    ::Register("APM_FavoriteSetPath", &FavoriteSetPath, nullptr, {{"String", "path"}, {"Bool", "on"}});
     ::Register("APM_SetSceneProp", &SetSceneProp, nullptr, {{"Int32", "character"}, {"Bool", "rightHand"}, {"String", "path"}});
     ::Register("APM_GetSceneProp", &GetSceneProp, "String", {{"Int32", "character"}, {"Bool", "rightHand"}});
     ::Register("APM_CharacterHandSlotPosition", &CharacterHandSlotPosition, "Vector4", {{"Int32", "character"}, {"Bool", "rightHand"}});
