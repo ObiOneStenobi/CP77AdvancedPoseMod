@@ -86,7 +86,8 @@ public native func APM_ItemKnownWithoutModel(record: Uint64) -> Bool
 public native func APM_PropRecordIsMod(record: Uint64) -> Bool
 // False when the base game's tweakdb files could not be read (nothing is marked as from a mod then)
 public native func APM_ModRecordsAvailable() -> Bool
-// Scene objects (.ent) from World Builder's lists (base game + prop packs): false when the lists were not found
+// Scene objects (.ent): our list of the game's templates (scene_props.txt) + World Builder's prop packs; false when
+// no list was found
 public native func APM_ScenePropsAvailable() -> Bool
 // Search (every word in the path, any case; prop packs first): the number of results, then each one's prop index
 public native func APM_ScenePropSearch(query: String, max: Int32, modsOnly: Bool) -> Int32
@@ -96,6 +97,8 @@ public native func APM_ScenePropPath(prop: Int32) -> String
 public native func APM_ScenePropIsMod(prop: Int32) -> Bool
 // False for templates that must not be created (the player's own: a second player crashes the game).
 public native func APM_ScenePropAllowed(path: String) -> Bool
+// A template that turned out to be a character when created: left out from now on (scene_props_excluded.txt)
+public native func APM_ScenePropExclude(path: String)
 // The .ent held in a hand of a character ("" none): pose state (saved, loaded, undo / redo, resets)
 public native func APM_SetSceneProp(character: Int32, rightHand: Bool, path: String)
 public native func APM_GetSceneProp(character: Int32, rightHand: Bool) -> String

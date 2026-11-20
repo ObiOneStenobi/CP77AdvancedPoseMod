@@ -553,6 +553,15 @@ void ScenePropAllowed(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::SceneProps::IsAllowed(path.c_str()));
 }
 
+// A template that turned out to be a character when created: never offered again.
+void ScenePropExclude(IScriptable*, CStackFrame* aFrame, void*, int64_t)
+{
+    CString path;
+    RED4ext::GetParameter(aFrame, &path);
+    aFrame->code++;
+    APM::SceneProps::Exclude(path.c_str());
+}
+
 void ScenePropPath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
 {
     int32_t prop = 0;
@@ -1985,6 +1994,7 @@ void Register()
     ::Register("APM_ScenePropPath", &ScenePropPath, "String", {{"Int32", "prop"}});
     ::Register("APM_ScenePropIsMod", &ScenePropIsMod, "Bool", {{"Int32", "prop"}});
     ::Register("APM_ScenePropAllowed", &ScenePropAllowed, "Bool", {{"String", "path"}});
+    ::Register("APM_ScenePropExclude", &ScenePropExclude, nullptr, {{"String", "path"}});
     ::Register("APM_SetSceneProp", &SetSceneProp, nullptr, {{"Int32", "character"}, {"Bool", "rightHand"}, {"String", "path"}});
     ::Register("APM_GetSceneProp", &GetSceneProp, "String", {{"Int32", "character"}, {"Bool", "rightHand"}});
     ::Register("APM_CharacterHandSlotPosition", &CharacterHandSlotPosition, "Vector4", {{"Int32", "character"}, {"Bool", "rightHand"}});

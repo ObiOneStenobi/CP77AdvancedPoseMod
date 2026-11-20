@@ -17,10 +17,37 @@ struct Prop
     std::string path;
     std::string lower; // for the search
     bool mod = false;
+    bool excluded = false; // found to be a character when created
 };
 
 std::vector<Prop> g_props;
+std::unordered_set<std::string> g_excluded; // lower case, backslashes
 bool g_loaded = false;
+
+std::filesystem::path ExcludedFile()
+{
+    return APM::GetRuntime().pluginDir / L"scene_props_excluded.txt";
+}
+
+// One path per line, blanks trimmed (any case, "/" or "\").
+template<typename F>
+void ReadLines(const std::filesystem::path& aFile, F&& aLine)
+{
+    std::ifstream file(aFile);
+    std::string line;
+    while (std::getline(file, line))
+    {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+        {
+            line.pop_back();
+        }
+        const size_t start = line.find_first_not_of(" \t");
+        if (start != std::string::npos)
+        {
+            aLine(line.substr(start));
+        }
+    }
+}
 
 std::string Lower(std::string aText)
 {
@@ -37,7 +64,14 @@ bool IsAllowedLower(const std::string& aLower)
     const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
     // Characters and their pieces (garments, heads, crowd...) are left out: they stand still in a T pose or as loose
     // parts (test 20/11), and the player's own crash the game.
-    return path.find("characters\\") == std::string::npos && file.rfind("player_", 0) != 0;
+    return path.find("characters\\") == std::string::npos && file.rfind("player_", 0) != 0 && !g_excluded.contains(path);
+}
+
+std::string Normalized(const std::string& aPath)
+{
+    std::string path = Lower(aPath);
+    std::replace(path.begin(), path.end(), '/', '\\');
+    return path;
 }
 
 void Load()
@@ -47,61 +81,66 @@ void Load()
         return;
     }
     g_loaded = true;
+    std::error_code ec;
+    ReadLines(ExcludedFile(), [](const std::string& aLine) { g_excluded.insert(Normalized(aLine)); });
+
+    std::unordered_set<std::string> seen;
+    const auto add = [&](const std::string& aLine, bool aMod)
+    {
+        const std::string lower = Lower(aLine);
+        if (lower.size() < 5 || lower.substr(lower.size() - 4) != ".ent" || !IsAllowedLower(lower) ||
+            !seen.insert(Normalized(lower)).second)
+        {
+            return false;
+        }
+        g_props.push_back({aLine, lower, aMod});
+        return true;
+    };
+
+    // Ours first: the game's templates without characters.
+    size_t ours = 0;
+    const auto ourList = APM::GetRuntime().pluginDir / L"scene_props.txt";
+    if (std::filesystem::is_regular_file(ourList, ec))
+    {
+        ReadLines(ourList, [&](const std::string& aLine) { ours += add(aLine, false) ? 1 : 0; });
+    }
+    else
+    {
+        APM::Log::Warn("Scene props: %s not found", ourList.string().c_str());
+    }
+
+    // Then World Builder's: the prop packs' (its base game list only without ours, it also names characters).
     const auto game = APM::GetRuntime().pluginDir.parent_path().parent_path().parent_path();
     const auto dir = game / L"bin" / L"x64" / L"plugins" / L"cyber_engine_tweaks" / L"mods" / L"entSpawner" / L"data" /
                      L"spawnables" / L"entity" / L"templates";
-    std::error_code ec;
-    if (!std::filesystem::is_directory(dir, ec))
-    {
-        APM::Log::Info("Scene props: World Builder's lists not found (%s)", dir.string().c_str());
-        return;
-    }
-    std::unordered_set<std::string> seen;
     size_t files = 0;
-    // The base game list first, then the prop packs'.
-    std::vector<std::filesystem::path> lists;
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
-    {
-        if (entry.is_regular_file(ec) && Lower(entry.path().extension().string()) == ".txt")
-        {
-            lists.push_back(entry.path());
-        }
-    }
-    std::sort(lists.begin(), lists.end(), [](const auto& a, const auto& b)
-              { return (Lower(a.filename().string()) != "paths_ent.txt") < (Lower(b.filename().string()) != "paths_ent.txt") ||
-                       ((Lower(a.filename().string()) != "paths_ent.txt") == (Lower(b.filename().string()) != "paths_ent.txt") &&
-                        a.filename() < b.filename()); });
     size_t mods = 0;
-    for (const auto& list : lists)
+    if (std::filesystem::is_directory(dir, ec))
     {
-        const bool mod = Lower(list.filename().string()) != "paths_ent.txt";
-        std::ifstream file(list);
-        std::string line;
-        ++files;
-        while (std::getline(file, line))
+        std::vector<std::filesystem::path> lists;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
         {
-            while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+            if (entry.is_regular_file(ec) && Lower(entry.path().extension().string()) == ".txt" &&
+                (ours == 0 || Lower(entry.path().filename().string()) != "paths_ent.txt"))
             {
-                line.pop_back();
+                lists.push_back(entry.path());
             }
-            const size_t start = line.find_first_not_of(" \t");
-            if (start == std::string::npos)
-            {
-                continue;
-            }
-            line = line.substr(start);
-            const std::string lower = Lower(line);
-            if (lower.size() < 5 || lower.substr(lower.size() - 4) != ".ent" || !IsAllowedLower(lower) ||
-                !seen.insert(lower).second)
-            {
-                continue;
-            }
-            g_props.push_back({line, lower, mod});
-            mods += mod ? 1 : 0;
+        }
+        // World Builder's base game list first, then the prop packs'.
+        const auto isBase = [](const std::filesystem::path& aList)
+        { return Lower(aList.filename().string()) == "paths_ent.txt"; };
+        std::sort(lists.begin(), lists.end(), [&](const auto& a, const auto& b)
+                  { return isBase(a) != isBase(b) ? isBase(a) : a.filename() < b.filename(); });
+        for (const auto& list : lists)
+        {
+            const bool mod = !isBase(list);
+            ++files;
+            ReadLines(list, [&](const std::string& aLine) { mods += add(aLine, mod) && mod ? 1 : 0; });
         }
     }
-    APM::Log::Info("Scene props: %zu from World Builder's lists (%zu files, %zu from prop packs)", g_props.size(), files,
-                   mods);
+    APM::Log::Info("Scene props: %zu (%zu from our list, %zu from World Builder's prop packs in %zu files, %zu left out "
+                   "as characters)",
+                   g_props.size(), ours, mods, files, g_excluded.size());
 }
 } // namespace
 
@@ -109,7 +148,29 @@ namespace APM::SceneProps
 {
 bool IsAllowed(const std::string& aPath)
 {
+    Load();
     return IsAllowedLower(Lower(aPath));
+}
+
+void Exclude(const std::string& aPath)
+{
+    Load();
+    const std::string path = Normalized(aPath);
+    if (path.empty() || !g_excluded.insert(path).second)
+    {
+        return;
+    }
+    for (auto& prop : g_props)
+    {
+        if (Normalized(prop.lower) == path)
+        {
+            prop.excluded = true;
+        }
+    }
+    std::ofstream file(ExcludedFile(), std::ios::app);
+    file << aPath << '\n';
+    APM::Log::Info("Scene props: %s is a character, left out from now on (%s)", aPath.c_str(),
+                   ExcludedFile().filename().string().c_str());
 }
 
 bool Available()
@@ -152,7 +213,7 @@ std::vector<int32_t> Search(const std::string& aQuery, size_t aMax, bool aModsOn
         for (size_t i = 0; i < g_props.size() && result.size() < aMax; ++i)
         {
             const auto& prop = g_props[i];
-            if (prop.mod != modPass || (aModsOnly && !prop.mod))
+            if (prop.excluded || prop.mod != modPass || (aModsOnly && !prop.mod))
             {
                 continue;
             }

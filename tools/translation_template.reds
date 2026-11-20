@@ -180,6 +180,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Button-FaceLinked", "L+R");
         this.Text("APM-Tip-FaceLinked", "L+R: one row moves the left and right pose together. Off: a row for each side");
         this.Text("APM-Msg-FaceDataMissing", "Face data not found: reinstall the mod (red4ext\\plugins\\AdvancedPoseMod\\face)");
+        this.Text("APM-Tip-ClearSearch", "Clear the search");
         this.Text("APM-Picker-All", "All");
         this.Text("APM-Picker-Weapons", "Weapons");
         this.Text("APM-Picker-Food", "Food");
@@ -232,6 +233,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Msg-NoModel", "{0} has no model to hold");
         this.Text("APM-Item-ThisItem", "This item");
         this.Text("APM-Msg-ScenePropFailed", "This object could not be created");
+        this.Text("APM-Msg-ScenePropCharacter", "Characters cannot be held");
         this.Text("APM-Msg-RenameFailed", "Could not rename {0}");
         this.Text("APM-Msg-TurnedByLookAt", "{0} is turned by Look at camera");
         this.Text("APM-Physics-Hair", "Hair");

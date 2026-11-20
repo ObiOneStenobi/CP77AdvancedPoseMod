@@ -1,6 +1,6 @@
-# STATO – AdvancedPoseMod 1.5.0 (pronta per Nexus)
+# STATO – AdvancedPoseMod 1.6.0 in sviluppo (1.5.0 su Nexus)
 
-Aggiornato: 2026-10-30
+Aggiornato: 2026-11-20 (riprendere da "DA FARE (20/11)" in fondo)
 
 ## Obiettivo 1.4.0
 1. Supporto gioco 2.5 (3.0.88.46235) oltre alla 2.31 (3.0.80.51928).
@@ -743,19 +743,47 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   come PlayerPuppet, crash 0,2 s dopo: lettura a 0xD9). Ora SceneProps::IsAllowed esclude characters\entities\player\
   e i file "player_*" (dall'elenco, da Path... e dalle pose caricate; nativo APM_ScenePropAllowed).
 
-## Prossimi lavori del piano 1.6.0 (in ordine)
-3. Lista oggetti estesa (vedi "Piano 1.6.0" sopra: Con_Drink non esiste).
-4. Oggetti delle mod (tweakdb.bin, icona "puzzle", scheda Mods come filtro, lista 476 px).
-5. Mani unite: opzione "Hand" nel pin IK di ogni mano.
-6. Rilascio 1.6.0.
+## Elenco Scene nostro, senza NPC + gomma nella ricerca (20/11, build 2.31/2.5 ok, script ok, copiato; DA PROVARE)
+- Causa NPC rimasti (es. receptionist): il filtro toglieva solo "characters\" e "player_*", ma molti NPC sono in
+  quest\, open_world\vendors\, community\...\npc_instances.
+- tools\scene_props_list.ps1 (+ .py): WolvenKit estrae tutti i .ent di content+ep1 (21.565, 23 s), serializza (14.641
+  senza characters\, ~2 min), classifica: tolti puppet (NPCPuppet ecc., 180), aspetto da characters\ (133), mesh
+  skinnata da characters\ (90), folle istanziate (entInstancedAnimationComponent, 87), rig da characters\ (15).
+  -> dist(231)\red4ext\plugins\AdvancedPoseMod\scene_props.txt (12.762 voci, 1 MB; dist è gitignored: si rigenera con
+  lo script). Generato dagli archivi 2.31 (gioco installato): voci solo-2.5 mancano.
+- SceneProps: prima scene_props.txt, poi le liste dei pacchetti di World Builder (il suo paths_ent.txt solo se manca
+  il nostro); scene_props_excluded.txt = template trovati personaggi in gioco (SceneProps::Exclude, nativo
+  APM_ScenePropExclude). Script: se l'entità creata è gamePuppet -> eliminata, esclusa, messaggio
+  APM-Msg-ScenePropCharacter. Scheda Scene (e Path...) sempre visibile, anche senza World Builder.
+- Ricerca oggetti: pulsante gomma (pick:clear, icona eraser) tra il campo (ora 352) e la X: svuota e riapre la
+  digitazione. Testo APM-Tip-ClearSearch (template 361 testi).
 
-## Prossimi passi
-- Test in gioco (2.31, dist231) dei punti del 24/10: reset Body/Face/all (oggetti in mano), liste con voci interne,
-  rinomina espressioni, pagine viso, pallini, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
-- Dopo il downgrade a 2.31: check_scripts.ps1 (bundle 2.31), test in gioco di dist231 (editor espressioni, FacePoses).
-- Quando escono RED4ext/redscript/Codeware per 2.5: check_scripts sul bundle 2.5, test in gioco di tutto
-  (soprattutto verso degli anelli, limiti talloni, log "Layout:"), test veicoli (piano in RESEARCH.md).
-- In attesa: pose adattate all'altezza (rimandato dall'utente), area clic marker (non serve per ora).
+## DA FARE (20/11) - riprendere da qui
+Stato: tutto committato (ultimo commit 477530c "Item search: Enter only confirms..."), resta solo STATO.md.
+Build 2.31 e 2.5 aggiornate e copiate in dist, dist231 e gioco. Gioco installato:
+2.31 (DLL di build231). Provato in gioco sulla 2.31: ossa fisiche, mani unite, oggetti senza mesh, oggetti delle mod,
+prova props; le props di scena come funzione completa e gli ultimi ritocchi sono DA PROVARE.
+
+1. Provare in gioco (2.31): scheda Scene (12.837 oggetti senza personaggi, pagine, ricerca, Path...), props in tutte e
+   due le mani e sugli NPC aggiunti, salvataggio/caricamento della posa con props, undo/redo, Reset body, uscita e
+   rientro da Photo Mode (la posa ricordata ricrea le props), prop che non nasce in 3 s (messaggio); Invio nella
+   ricerca oggetti; telefoni (Items.cellphone ecc.) nella lista; BD che non tornano dopo aver riaperto Photo Mode.
+2. Provare tutto sulla 2.5 (dist, DLL di build): ossa fisiche, MeshBones (ResourceLoader::LoadAsync), mani unite,
+   oggetti delle mod (tweakdb.bin della 2.5), props di scena (Codeware 2.5), e le correzioni dell'uscita da Photo Mode
+   con NPC aggiunti (crash segnalati dagli utenti, mai provate sulla 2.5).
+3. Piccole cose aperte: nome vuoto di alcuni oggetti nel log (usare l'ID del record); specchio sinistra/destra per le
+   ossa fisiche (ciocche left/right, ossa del seno); APM_GizmoGetPartRotation dichiarato ma non più usato; ritardo
+   delle props (si aggiornano dagli script: si potrebbe fare dal C++); props: rotazione/offset si regolano solo con
+   la parte "hand prop".
+4. Prima del rilascio: decidere sulle sonde (PhysicsProbe, FaceTracks: in dist Physics=0) e sul config.ini del gioco
+   (Physics=1, FaceTracks=1, PhysicsTestBone vuoto); README (ossa fisiche Hair/Breasts/Clothes, pin catena,
+   mani unite, oggetti delle mod e nascosti, props di scena con World Builder, oggetti senza mesh);
+   release\CHANGELOG-1.6.0.md; versione 1.6.0 in CMakeLists; zip dist e dist231 (controllare che coincidano con
+   scripts\ e le build).
+5. Vecchi punti mai segnati come provati (24/10): reset Body/Face/all con oggetti in mano, liste con voci interne,
+   rinomina espressioni, pagine viso, icone gizmo, centro in Move, anelli al limite, opacità per profondità.
+6. In attesa (scelta dell'utente): pose adattate all'altezza; controllo d'insieme del seno (codice spento in
+   PhysicsBones::Groups) e pin catena sui fianchi (2, non offerto).
 
 ## Note
 - Cartella download Vortex: C:\Users\ObiOneStenobi\AppData\Roaming\Vortex\downloads\cyberpunk2077
