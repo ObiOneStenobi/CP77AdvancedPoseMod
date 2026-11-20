@@ -754,7 +754,10 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
 - SceneProps: prima scene_props.txt, poi le liste dei pacchetti di World Builder (il suo paths_ent.txt solo se manca
   il nostro); scene_props_excluded.txt = template trovati personaggi in gioco (SceneProps::Exclude, nativo
   APM_ScenePropExclude). Script: se l'entità creata è gamePuppet -> eliminata, esclusa, messaggio
-  APM-Msg-ScenePropCharacter. Scheda Scene (e Path...) sempre visibile, anche senza World Builder.
+  APM-Msg-ScenePropCharacter. Scheda Scene visibile anche senza World Builder (c'è il nostro elenco).
+- Path... TOLTO (deciso con l'utente: rischia solo problemi): pulsante, digitazione del percorso, testi; piè di
+  pagina del selettore com'era prima (< 100, testo 236, > 100). Nativo C++ APM_TextEntryBeginPath resta (non usato
+  dagli script). Le props si scelgono solo dall'elenco (o arrivano dalle pose salvate).
 - Ricerca oggetti: pulsante gomma (pick:clear, icona eraser) tra il campo (ora 352) e la X: svuota e riapre la
   digitazione. Testo APM-Tip-ClearSearch (template 361 testi).
 

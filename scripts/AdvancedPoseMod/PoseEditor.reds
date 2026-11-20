@@ -568,8 +568,6 @@ public class APM_PoseEditor extends IScriptable {
     // Scene props: scene objects (.ent) held in the hands, spawned with Codeware's DynamicEntitySystem and moved every
     // update to their character's hand slot. The pose state (APM_GetSceneProp) says what each hand holds; these arrays
     // (index character * 2 + 1 for the right hand) say what is spawned.
-    private let m_scenePropTyping: Bool;     // typing a path (picker, Scene tab)
-    private let m_scenePropPath: String;     // last path typed
     private let m_scenePaths: array<String>;
     private let m_sceneIds: array<EntityID>;
     private let m_sceneActive: array<Bool>;
@@ -651,7 +649,6 @@ public class APM_PoseEditor extends IScriptable {
 
     public func Uninitialize() {
         APM_SetWheelCapture(false);
-        this.StopScenePropTyping(false);
         this.DeleteAllSceneProps("panel closed");
         if this.m_pickerTyping {
             APM_TextEntryEnd();
@@ -730,7 +727,7 @@ public class APM_PoseEditor extends IScriptable {
         this.UpdatePicker();
         this.UpdateDragWheel();
         this.UpdateRightClick();
-        if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerTyping && !this.m_scenePropTyping {
+        if APM_IsPhotoModeActive() && !this.m_renaming && !this.m_pickerTyping {
             let hotkey = APM_PollHotkey();
             if hotkey == 1 {
                 APM_Undo();
@@ -1228,7 +1225,7 @@ public class APM_PoseEditor extends IScriptable {
         this.CreateIconButton(picker, "pick:clear", "eraser", 372.0, 10.0, this.L("APM-Tip-ClearSearch", "Clear the search"));
         this.CreateIconButton(picker, "pick:close", "x", 420.0, 10.0, "");
         // Tabs: All, Weapons, Food, Other, Mods (items from mods, only when there are some), Scene (scene objects: our
-        // list of the game's + World Builder's prop packs, and Path...). Placed by PlacePickerTabs().
+        // list of the game's + World Builder's prop packs, when a list was found). Placed by PlacePickerTabs().
         this.CreateSmallButton(picker, "pick:tab0", this.L("APM-Picker-All", "All"), 16.0, 44.0, 70.0, 28.0);
         this.CreateSmallButton(picker, "pick:tab1", this.L("APM-Picker-Weapons", "Weapons"), 90.0, 44.0, 70.0, 28.0);
         this.CreateSmallButton(picker, "pick:tab2", this.L("APM-Picker-Food", "Food"), 164.0, 44.0, 70.0, 28.0);
@@ -1236,7 +1233,7 @@ public class APM_PoseEditor extends IScriptable {
         let modsTab = this.CreateSmallButton(picker, "pick:tab4", this.L("APM-Button-ItemsMods", "Mods"), 312.0, 44.0, 70.0, 28.0);
         this.TipL(modsTab, "APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
         let sceneTab = this.CreateSmallButton(picker, "pick:tab5", this.L("APM-Button-ItemsScene", "Scene"), 386.0, 44.0, 74.0, 28.0);
-        this.TipL(sceneTab, "APM-Tip-ItemsScene", "Scene objects (.ent) from World Builder's lists: anything in the game, not only items");
+        this.TipL(sceneTab, "APM-Tip-ItemsScene", "Scene objects (.ent): anything in the game, not only items (no characters)");
         let i = 0;
         while i < this.PickerRows() {
             let button = this.CreateButton(picker, "pick:" + IntToString(i), "", 16.0, 80.0 + Cast<Float>(i) * 34.0, 444.0, 30.0);
@@ -1246,10 +1243,8 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
-        this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 80.0, 34.0);
-        let pathButton = this.CreateSmallButton(picker, "pick:path", this.L("APM-Button-ScenePath", "Path..."), 102.0, footer + 3.0, 96.0, 28.0);
-        this.TipL(pathButton, "APM-Tip-ScenePath", "Type the path of any scene object (.ent); Enter puts it in the hand");
-        let pageText = this.CreateText(picker, "", 202.0, footer, 154.0, 34.0, 14, APM_ColorDimText());
+        this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
+        let pageText = this.CreateText(picker, "", 120.0, footer, 236.0, 34.0, 14, APM_ColorDimText());
         pageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
         this.m_pickerPageText = pageText;
         this.CreateButton(picker, "pick:next", ">", 360.0, footer, 100.0, 34.0);
@@ -2786,7 +2781,6 @@ public class APM_PoseEditor extends IScriptable {
 
     private func ClosePicker() {
         this.StopPickerTyping();
-        this.StopScenePropTyping(false);
         this.m_pickerOpen = false;
         this.m_picker.SetVisible(false);
     }
@@ -2798,7 +2792,6 @@ public class APM_PoseEditor extends IScriptable {
         if this.m_renaming {
             this.FinishRename(true);
         }
-        this.StopScenePropTyping(false);
         if !APM_TextEntryBegin(this.m_pickerQuery) {
             this.SetStatus(APM_Text("APM-Msg-TypingUnavailable", "Typing is not available"));
             return;
@@ -2814,10 +2807,13 @@ public class APM_PoseEditor extends IScriptable {
         this.m_pickerTyping = false;
     }
 
-    // Results for the current text: recently used items first when nothing is typed. Scene tab: World Builder's
+    // Results for the current text: recently used items first when nothing is typed. Scene tab: the
     // scene objects (prop indices) matching the text, the prop packs' first.
     private func UpdatePickerResults() {
         ArrayClear(this.m_pickerResults);
+        if this.m_pickerCategory == 5 && !APM_ScenePropsAvailable() {
+            this.m_pickerCategory = 0;
+        }
         if this.m_pickerCategory == 5 {
             let found = APM_ScenePropSearch(this.m_pickerQuery, 30000, false);
             let k = 0;
@@ -2893,12 +2889,6 @@ public class APM_PoseEditor extends IScriptable {
             i += 1;
         }
         this.PlacePickerTabs();
-        let pathButton = this.FindButton("pick:path");
-        if IsDefined(pathButton) {
-            pathButton.root.SetVisible(scene);
-            pathButton.isSelected = this.m_scenePropTyping;
-            pathButton.UpdateLook();
-        }
         let tab = 0;
         while tab < 6 {
             let tabButton = this.FindButton("pick:tab" + IntToString(tab));
@@ -2911,12 +2901,7 @@ public class APM_PoseEditor extends IScriptable {
         let pages = Max(1, (ArraySize(this.m_pickerResults) + this.PickerRows() - 1) / this.PickerRows());
         let countText = scene ? APM_TextWith("APM-Picker-SceneCount", "{0} objects", IntToString(ArraySize(this.m_pickerResults))) : APM_TextWith("APM-Picker-Count", "{0} items", IntToString(ArraySize(this.m_pickerResults)));
         this.m_pickerPageText.SetText(countText + "  " + IntToString(this.m_pickerPage + 1) + "/" + IntToString(pages));
-        if this.m_scenePropTyping {
-            // Typing a path: shown in the search box (its end when long)
-            let typed = APM_TextEntryGetText();
-            this.m_pickerSearch.SetText((StrLen(typed) > 46 ? "..." + StrRight(typed, 43) : typed) + "_");
-            this.m_pickerSearch.SetTintColor(APM_ColorText());
-        } else if this.m_pickerTyping {
+        if this.m_pickerTyping {
             this.m_pickerSearch.SetText(this.m_pickerQuery + "_");
             this.m_pickerSearch.SetTintColor(APM_ColorText());
         } else {
@@ -2965,18 +2950,10 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(arg, "clear") {
             // Empty search, typing again at once (the click already ended any typing).
             this.StopPickerTyping();
-            this.StopScenePropTyping(false);
             this.m_pickerQuery = "";
             this.m_pickerPage = 0;
             this.UpdatePickerResults();
             this.StartPickerTyping();
-        } else if Equals(arg, "path") {
-            if this.m_scenePropTyping {
-                this.StopScenePropTyping(true); // a second click confirms, as Enter
-            } else {
-                this.StartScenePropTyping();
-            }
-            this.RefreshPicker();
         } else if StrBeginsWith(arg, "tab") {
             this.m_pickerCategory = StringToInt(StrAfterFirst(arg, "tab"));
             this.m_pickerPage = 0;
@@ -3468,36 +3445,6 @@ public class APM_PoseEditor extends IScriptable {
     // every update to their character's hand slot (WeaponRight / WeaponLeft, so the hand prop part's edits move them).
     // What each hand holds is pose state (APM_GetSceneProp: saved, loaded, undone, reset); the entities follow it.
 
-    // Typing a path (picker, Scene tab): Enter puts that object in the hand.
-    private func StartScenePropTyping() {
-        if this.m_renaming {
-            this.FinishRename(true);
-        }
-        this.StopPickerTyping();
-        let path = StrLen(this.m_scenePropPath) > 0 ? this.m_scenePropPath : "base\\";
-        if !APM_TextEntryBeginPath(path) {
-            this.SetStatus(APM_Text("APM-Msg-TypingUnavailable", "Typing is not available"));
-            return;
-        }
-        this.m_scenePropTyping = true;
-    }
-
-    private func StopScenePropTyping(confirm: Bool) {
-        if !this.m_scenePropTyping {
-            return;
-        }
-        let text = APM_TextEntryGetText();
-        APM_TextEntryEnd();
-        this.m_scenePropTyping = false;
-        if confirm && StrLen(text) > 0 {
-            this.m_scenePropPath = text;
-            this.ChooseSceneProp(text);
-        }
-        if this.m_pickerOpen {
-            this.RefreshPicker();
-        }
-    }
-
     private func EnsureScenePropArrays() {
         if ArraySize(this.m_scenePaths) == 8 {
             return;
@@ -3578,18 +3525,8 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    // Every update: the path being typed, then the entities follow the pose state (spawned / deleted) and their
-    // characters' hands.
+    // Every update: the entities follow the pose state (spawned / deleted) and their characters' hands.
     private func UpdateSceneProps(timeDelta: Float, active: Bool) {
-        if this.m_scenePropTyping {
-            let state = APM_TextEntryGetState();
-            if !active || state != 1 {
-                this.StopScenePropTyping(active && state == 2);
-                this.Refresh();
-            } else if this.m_pickerOpen {
-                this.RefreshPicker();
-            }
-        }
         this.EnsureScenePropArrays();
         if !active || this.m_exiting {
             this.DeleteAllSceneProps(active ? "leaving Photo Mode" : "Photo Mode closed");
@@ -3627,7 +3564,7 @@ public class APM_PoseEditor extends IScriptable {
                         this.m_sceneSpawned[slot] = true;
                         APM_LogInfo("Scene props: " + wanted + " created in " + FloatToStringPrec(this.m_sceneAge[slot], 2) + " s (character " + IntToString(character) + ", " + (right ? "right" : "left") + " hand, " + (IsDefined(entity) ? NameToString(entity.GetClassName()) : "no entity") + ")");
                         if IsDefined(entity as gamePuppet) {
-                            // A character (NPC templates outside our list: prop packs, typed paths): it would stand
+                            // A character (NPC templates outside our list: prop packs, pose files): it would stand
                             // still in the hand. Removed at once and never offered again.
                             APM_ScenePropExclude(wanted);
                             this.DeleteSceneProp(slot);
@@ -3653,8 +3590,8 @@ public class APM_PoseEditor extends IScriptable {
         }
     }
 
-    // Tab buttons of the picker: Mods only with items from mods, Scene always (Path... works without any list); the
-    // shown ones side by side.
+    // Tab buttons of the picker: Mods only with items from mods, Scene only with a list of scene objects (ours ships
+    // with the mod); the shown ones side by side.
     private func PlacePickerTabs() {
         let s = APM_UiScale();
         let x = 16.0;
@@ -3662,7 +3599,7 @@ public class APM_PoseEditor extends IScriptable {
         while tab < 6 {
             let button = this.FindButton("pick:tab" + IntToString(tab));
             if IsDefined(button) {
-                let shown = tab < 4 || (tab == 4 && this.m_itemModCount > 0) || tab == 5;
+                let shown = tab < 4 || (tab == 4 && this.m_itemModCount > 0) || (tab == 5 && APM_ScenePropsAvailable());
                 button.root.SetVisible(shown);
                 if shown {
                     button.x = x;
@@ -6160,9 +6097,6 @@ public class APM_PoseEditor extends IScriptable {
             this.StopPickerTyping();
             this.RefreshPicker();
         }
-        if this.m_scenePropTyping && !Equals(keepId, "pick:path") {
-            this.StopScenePropTyping(false);
-        }
         if this.m_renaming && !Equals(keepId, "rename") {
             this.FinishRename(true);
         }
@@ -6171,7 +6105,7 @@ public class APM_PoseEditor extends IScriptable {
     // A click outside the panel (the scene, the camera) while typing ends it.
     private func EndTypingOnOutsideClick() {
         let down = APM_IsLeftMouseDown() || APM_IsRightMouseDown();
-        let typing = this.m_pickerTyping || this.m_scenePropTyping || this.m_renaming;
+        let typing = this.m_pickerTyping || this.m_renaming;
         if typing && down && !this.m_typingMouseWasDown && !this.m_panelHovered {
             this.EndTyping("");
         }

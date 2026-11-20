@@ -188,9 +188,7 @@ public class APM_TranslationPackage_xx extends ModLocalizationPackage {
         this.Text("APM-Button-ItemsMods", "Mods");
         this.Text("APM-Tip-ItemsMods", "Only the items added by mods (marked with a puzzle piece)");
         this.Text("APM-Button-ItemsScene", "Scene");
-        this.Text("APM-Tip-ItemsScene", "Scene objects (.ent) from World Builder's lists: anything in the game, not only items");
-        this.Text("APM-Button-ScenePath", "Path...");
-        this.Text("APM-Tip-ScenePath", "Type the path of any scene object (.ent); Enter puts it in the hand");
+        this.Text("APM-Tip-ItemsScene", "Scene objects (.ent): anything in the game, not only items (no characters)");
         this.Text("APM-Help-Title", "Info");
         this.Text("APM-Help-ShapeRotate", "rotate");
         this.Text("APM-Help-ShapeMove", "move");
