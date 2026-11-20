@@ -163,6 +163,7 @@ public native func APM_ConsumeWheel() -> Int32
 public native func APM_GetViewportSize() -> Vector4
 // Keyboard text entry: while typing, keys go to the text instead of the game. Enter confirms, Esc cancels.
 public native func APM_TextEntryBegin(text: String) -> Bool
+public native func APM_TextEntryBeginPath(text: String) -> Bool
 public native func APM_TextEntryEnd()
 // 0 inactive, 1 typing, 2 confirmed, 3 cancelled
 public native func APM_TextEntryGetState() -> Int32

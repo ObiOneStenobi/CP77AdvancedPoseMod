@@ -14,6 +14,8 @@ namespace
 using APM::Ui::TextEntry::State;
 
 constexpr size_t MaxLength = 40;
+constexpr size_t MaxPathLength = 260;
+bool g_path = false; // typing a resource path (scene props): also \ / . and longer
 
 std::mutex g_mutex;
 std::string g_text;
@@ -71,7 +73,13 @@ void TrackRawButtons(LPARAM aParam)
 bool IsAllowed(wchar_t aChar)
 {
     return (aChar >= L'a' && aChar <= L'z') || (aChar >= L'A' && aChar <= L'Z') || (aChar >= L'0' && aChar <= L'9') ||
-           aChar == L' ' || aChar == L'-' || aChar == L'_';
+           aChar == L' ' || aChar == L'-' || aChar == L'_' ||
+           (g_path && (aChar == L'\\' || aChar == L'/' || aChar == L'.'));
+}
+
+size_t Limit()
+{
+    return g_path ? MaxPathLength : MaxLength;
 }
 
 void OnCharacter(wchar_t aChar)
@@ -92,7 +100,7 @@ void OnCharacter(wchar_t aChar)
             g_text.pop_back();
         }
     }
-    else if (IsAllowed(aChar) && g_text.size() < MaxLength)
+    else if (IsAllowed(aChar) && g_text.size() < Limit())
     {
         g_text.push_back(static_cast<char>(aChar));
     }
@@ -270,7 +278,7 @@ bool InstallLocked()
 
 namespace APM::Ui::TextEntry
 {
-bool Begin(const std::string& aText)
+bool Begin(const std::string& aText, bool aPath)
 {
     {
         std::scoped_lock lock(g_mutex);
@@ -278,10 +286,11 @@ bool Begin(const std::string& aText)
         {
             return false;
         }
+        g_path = aPath;
         g_text.clear();
         for (const char ch : aText)
         {
-            if (IsAllowed(static_cast<wchar_t>(static_cast<unsigned char>(ch))) && g_text.size() < MaxLength)
+            if (IsAllowed(static_cast<wchar_t>(static_cast<unsigned char>(ch))) && g_text.size() < Limit())
             {
                 g_text.push_back(ch);
             }

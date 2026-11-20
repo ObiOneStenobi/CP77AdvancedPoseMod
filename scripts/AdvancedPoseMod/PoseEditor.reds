@@ -540,6 +540,7 @@ public class APM_PoseEditor extends IScriptable {
     // Scene props test: a scene object (.ent) spawned with Codeware's DynamicEntitySystem, kept on the right hand
     // prop slot of the character it belongs to (one at a time).
     private let m_scenePropTyping: Bool;     // typing its path
+    private let m_typingMouseWasDown: Bool;  // a mouse button was down at the last update (a click elsewhere ends typing)
     private let m_scenePropActive: Bool;
     private let m_scenePropId: EntityID;
     private let m_scenePropOwner: Int32;     // character it belongs to
@@ -695,6 +696,7 @@ public class APM_PoseEditor extends IScriptable {
             this.m_pressedButtonId = "";
         }
         this.UpdatePhysicsParts();
+        this.EndTypingOnOutsideClick();
         this.UpdateMarkers();
         this.UpdateRename();
         this.UpdateSceneProp(timeDelta, active);
@@ -3373,7 +3375,7 @@ public class APM_PoseEditor extends IScriptable {
             this.ClosePicker();
         }
         let path = StrLen(this.m_scenePropPath) > 0 ? this.m_scenePropPath : "base\\items\\interactive\\accessories\\int_accessories_001__cellphone.ent";
-        if !APM_TextEntryBegin(path) {
+        if !APM_TextEntryBeginPath(path) {
             this.SetStatus(APM_Text("APM-Msg-TypingUnavailable", "Typing is not available"));
             return;
         }
@@ -5999,8 +6001,34 @@ public class APM_PoseEditor extends IScriptable {
         this.SetRowValue(row, value);
     }
 
+    // Typing (item search, scene prop path, a name) ends as soon as the user clicks anything else, so keys never go
+    // to a text box the user no longer sees as active (instead of moving the camera). aKeepId: the clicked button.
+    private func EndTyping(keepId: String) {
+        if this.m_pickerTyping && !Equals(keepId, "pick:search") {
+            this.StopPickerTyping();
+            this.RefreshPicker();
+        }
+        if this.m_scenePropTyping && !Equals(keepId, "sceneprop:open") {
+            this.StopScenePropTyping(false);
+        }
+        if this.m_renaming && !Equals(keepId, "rename") {
+            this.FinishRename(true);
+        }
+    }
+
+    // A click outside the panel (the scene, the camera) while typing ends it.
+    private func EndTypingOnOutsideClick() {
+        let down = APM_IsLeftMouseDown() || APM_IsRightMouseDown();
+        let typing = this.m_pickerTyping || this.m_scenePropTyping || this.m_renaming;
+        if typing && down && !this.m_typingMouseWasDown && !this.m_panelHovered {
+            this.EndTyping("");
+        }
+        this.m_typingMouseWasDown = down;
+    }
+
     private func RunButton(button: ref<APM_Button>) {
         let id = button.id;
+        this.EndTyping(id);
         let prefix = StrBeforeFirst(id, ":");
         let arg = StrAfterFirst(id, ":");
         let keepResetConfirm = false;
@@ -6817,6 +6845,7 @@ public class APM_PoseEditor extends IScriptable {
         if !e.IsAction(n"click") {
             return false;
         }
+        this.EndTyping("");
         this.m_pressedButtonId = "";
         let marker = this.FindMarkerByWidget(e.GetCurrentTarget());
         if !IsDefined(marker) || !marker.isHovered {

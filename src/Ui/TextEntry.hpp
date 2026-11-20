@@ -16,7 +16,8 @@ enum class State : int32_t
     Cancelled = 3,
 };
 
-bool Begin(const std::string& aText);
+// aPath: a resource path (scene props) instead of a file name: also \ / . and up to 260 characters.
+bool Begin(const std::string& aText, bool aPath = false);
 void End();
 State GetState();
 std::string GetText();

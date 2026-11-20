@@ -1087,6 +1087,15 @@ void TextEntryBegin(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
     Return(aOut, APM::Ui::TextEntry::Begin(text.c_str()));
 }
 
+// Same, for a resource path (scene props: backslashes, dots, up to 260 characters).
+void TextEntryBeginPath(IScriptable*, CStackFrame* aFrame, void* aOut, int64_t)
+{
+    CString text;
+    RED4ext::GetParameter(aFrame, &text);
+    aFrame->code++;
+    Return(aOut, APM::Ui::TextEntry::Begin(text.c_str(), true));
+}
+
 void TextEntryEnd(IScriptable*, CStackFrame* aFrame, void*, int64_t)
 {
     aFrame->code++;
@@ -1908,6 +1917,7 @@ void Register()
     ::Register("APM_ConsumeWheel", &ConsumeWheel, "Int32", {});
     ::Register("APM_GetViewportSize", &GetViewportSize, "Vector4", {});
     ::Register("APM_TextEntryBegin", &TextEntryBegin, "Bool", {{"String", "text"}});
+    ::Register("APM_TextEntryBeginPath", &TextEntryBeginPath, "Bool", {{"String", "text"}});
     ::Register("APM_TextEntryEnd", &TextEntryEnd, nullptr, {});
     ::Register("APM_TextEntryGetState", &TextEntryGetState, "Int32", {});
     ::Register("APM_TextEntryGetText", &TextEntryGetText, "String", {});
