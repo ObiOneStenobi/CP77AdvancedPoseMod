@@ -758,6 +758,8 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
 - Path... TOLTO (deciso con l'utente: rischia solo problemi): pulsante, digitazione del percorso, testi; piè di
   pagina del selettore com'era prima (< 100, testo 236, > 100). Nativo C++ APM_TextEntryBeginPath resta (non usato
   dagli script). Le props si scelgono solo dall'elenco (o arrivano dalle pose salvate).
+- Gomma: svuota senza selezionare il campo. Pagina centrata con SetAnchorPoint(0.5, 0) a x 238 (il testo si
+  restringe al contenuto, la centratura nel riquadro largo non bastava). Da verificare in gioco.
 - Selettore: pagina n/N 22 px accento (come la lista pose); conteggio oggetti tolto (testi APM-Picker-Count /
   SceneCount spariti, template 357 testi).
 - Ricerca oggetti: pulsante gomma (pick:clear, icona eraser) tra il campo (ora 352) e la X: svuota e riapre la

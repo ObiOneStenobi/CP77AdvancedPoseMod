@@ -1244,7 +1244,10 @@ public class APM_PoseEditor extends IScriptable {
         }
         let footer = 80.0 + Cast<Float>(this.PickerRows()) * 34.0 + 6.0;
         this.CreateButton(picker, "pick:prev", "<", 16.0, footer, 100.0, 34.0);
-        let pageText = this.CreateText(picker, "", 120.0, footer - 2.0, 236.0, 34.0, 22, APM_ColorAccent());
+        // Placed by its center (238 = middle of the picker): the text widget shrinks to its text, so centering the
+        // text inside a wide box left it near the left edge.
+        let pageText = this.CreateText(picker, "", 238.0, footer - 2.0, 236.0, 34.0, 22, APM_ColorAccent());
+        pageText.SetAnchorPoint(0.5, 0.0);
         pageText.SetHorizontalAlignment(textHorizontalAlignment.Center);
         this.m_pickerPageText = pageText;
         this.CreateButton(picker, "pick:next", ">", 360.0, footer, 100.0, 34.0);
@@ -2947,12 +2950,11 @@ public class APM_PoseEditor extends IScriptable {
         } else if Equals(arg, "search") {
             this.StartPickerTyping();
         } else if Equals(arg, "clear") {
-            // Empty search, typing again at once (the click already ended any typing).
+            // Empty search; the field is not selected (click it to type).
             this.StopPickerTyping();
             this.m_pickerQuery = "";
             this.m_pickerPage = 0;
             this.UpdatePickerResults();
-            this.StartPickerTyping();
         } else if StrBeginsWith(arg, "tab") {
             this.m_pickerCategory = StringToInt(StrAfterFirst(arg, "tab"));
             this.m_pickerPage = 0;
