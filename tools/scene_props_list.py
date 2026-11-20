@@ -8,6 +8,9 @@ A template is left out when:
   - an appearance comes from a "characters\\" folder, an animated component uses a character rig or a skinned mesh
     is a character's (bodies made of plain entities);
   - it is an instanced crowd (entInstancedAnimationComponent: stadium and street crowds);
+  - it is a game system (world map, UI previews, cameras, Photo Mode's light, debug spawners, covers...): the world
+    map crashed the game;
+  - it has nothing to see (no mesh, particles, decal, light or appearance);
   - it could not be read.
 Usage: python -I scene_props_list.py <extracted folder> <output scene_props.txt> [report.txt]
 """
@@ -30,6 +33,19 @@ def depot(value):
         return ""
 
 
+# Game systems, not props: the world map (a second one crashed the game, test 20/11), UI previews, Photo Mode's own
+# camera and light, debug spawners, AI covers, metro station markers.
+SYSTEM_TYPES = {
+    "gameuiWorldMapGameObject", "gameuiEntityPreviewGameObject", "gamePhotomodeLightObject", "dbgSpawner",
+    "gameCoverObject", "NcartStationMarker",
+}
+# Components that render to a texture or drive the UI's cameras.
+SYSTEM_COMPONENTS = {"entRenderToTextureCameraComponent", "gameuiHolocallCameraComponent"}
+# Something to see: meshes, particles, decals, lights (or an appearance, checked apart).
+VISIBLE = ("MeshComponent", "ParticlesComponent", "DecalComponent", "LightComponent", "DestructionComponent",
+           "ClothComponent")
+
+
 def classify(path):
     """Returns (keep, reason, root type)."""
     try:
@@ -42,6 +58,12 @@ def classify(path):
     kind = chunks[0].get("$type", "") if chunks else ""
     if "Puppet" in kind:
         return False, "puppet", kind
+    types = [chunk.get("$type", "") for chunk in chunks]
+    camera = "Camera" in kind and kind != "SurveillanceCamera"  # security cameras are devices with a mesh
+    if kind in SYSTEM_TYPES or camera or any(t in SYSTEM_COMPONENTS for t in types):
+        return False, "game system", kind
+    if not (root.get("appearances") or []) and not any(v in t for t in types for v in VISIBLE):
+        return False, "nothing visible", kind
     for appearance in root.get("appearances", []) or []:
         if "\\characters\\" in "\\" + depot(appearance.get("appearanceResource")):
             return False, "character appearance", kind

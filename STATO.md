@@ -758,6 +758,11 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
 - Path... TOLTO (deciso con l'utente: rischia solo problemi): pulsante, digitazione del percorso, testi; piè di
   pagina del selettore com'era prima (< 100, testo 236, > 100). Nativo C++ APM_TextEntryBeginPath resta (non usato
   dagli script). Le props si scelgono solo dall'elenco (o arrivano dalle pose salvate).
+- Crash 20/11 23:17: 3dmap_view.ent (gameuiWorldMapGameObject) in mano -> crash 0,1 s dopo (lettura 0x5D, niente
+  nella mod). Classificatore: tolti sistemi di gioco (160: mappa, anteprime UI, camere tranne SurveillanceCamera,
+  luce di Photo Mode, dbgSpawner, coperture, NcartStationMarker, componenti RenderToTexture/HolocallCamera) e template
+  senza niente da vedere (1.054: niente mesh/particelle/decal/luci/distruzione/cloth né aspetto; es. pezzi d'arma,
+  slot del loot). Elenco ora 11.557 voci, copiato in dist, dist231 e gioco.
 - Gomma: svuota senza selezionare il campo. Pagina centrata con SetAnchorPoint(0.5, 0) a x 238 (il testo si
   restringe al contenuto, la centratura nel riquadro largo non bastava). Da verificare in gioco.
 - Selettore: pagina n/N 22 px accento (come la lista pose); conteggio oggetti tolto (testi APM-Picker-Count /
