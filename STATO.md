@@ -778,7 +778,21 @@ palpebre (screenshot, Look at camera spento, mod della testa/viso, slider palpeb
   (dispositivi, porte, luci, loot...). Elenco 9.176 voci, copiato.
 - Linguette del selettore su due righe: stella (40) + All/Weapons/Food/Other (97) a y 44; Mods/Scene (97) a y 76;
   righe da y 112 (prima 80), piè di pagina di conseguenza. Script copiati.
-- Proposto: oggetti delle schede All/Weapons/Food/Other senza mesh trovati prima (factory + .ent/.app con WolvenKit).
+- 23/11: log "placed" con il nome del selettore (ItemPickerName) + record, mai vuoto; ItemPickerName anche per il
+  nome nel pannello (ItemName), HeldItemName e i messaggi NoLeftHand/NoModel. Script copiati.
+- Specchio ossa fisiche (FATTO 23/11, build 2.31/2.5 ok, DLL in dist, dist231, gioco; DA PROVARE): PhotoModeUi.cpp
+  MirrorPhysicsChain (da MirrorGroup per i gruppi "~", da MoveChainBone e SetPartKeepsPhysics). Copia tutta la
+  catena dell'osso toccato sulla catena opposta: rotazioni con la ricetta del corpo sulla posa di riferimento dello
+  scheletro fisico (GetPhysicsReference via TargetRegistry::ForEach, rig+entità; posizioni di riposo calcolate),
+  offset del seno, interruttore fisica. Coppia (PhysicsPartner): nome (left/right, Left/Right, l_/r_, _l/_r, _l_/_r_)
+  verificato con la posizione di riposo specchiata entro 3 cm, altrimenti osso proprio alla posizione specchiata
+  entro 1 cm; ossa al centro (|x| < 1 cm) senza opposto. Catena senza modifiche (reset) -> ResetBone sull'opposta.
+  Pin non specchiati. Ipotesi: spazio modello degli scheletri fisici = quello del corpo (X = sinistra/destra).
+- 23/11 verifica oggetti senza mesh con WolvenKit (factories\items|quest *.csv -> 580 nomi di entità): 305 con mesh
+  proprie, 163 solo aspetti, 36 senza niente, 76 non lette. Ma i template condivisi senza mesh (weapon_root,
+  blank_weapon, generic_item_drop, cyberware root) servono a moltissimi oggetti che prendono il modello
+  dall'aspetto (weapons_appearances.csv, parts_appearances.csv): escluderli per template toglierebbe le armi.
+  Conclusione: niente filtro offline, resta il controllo in gioco (3 s, items_without_model.txt).
 - Gomma: svuota senza selezionare il campo. Pagina centrata con SetAnchorPoint(0.5, 0) a x 238 (il testo si
   restringe al contenuto, la centratura nel riquadro largo non bastava). Da verificare in gioco.
 - Selettore: pagina n/N 22 px accento (come la lista pose); conteggio oggetti tolto (testi APM-Picker-Count /

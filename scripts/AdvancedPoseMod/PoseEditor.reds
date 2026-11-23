@@ -3148,7 +3148,7 @@ public class APM_PoseEditor extends IScriptable {
 
     private func ItemName(record: Uint64) -> String {
         let itemRecord = TweakDBInterface.GetItemRecord(APM_RecordFromNumber(record));
-        return IsDefined(itemRecord) ? GetLocalizedItemNameByCName(itemRecord.DisplayName()) : "Item";
+        return IsDefined(itemRecord) ? this.ItemPickerName(itemRecord) : "Item"; // as in the picker, never empty
     }
 
     private func RefreshProps() {
@@ -3298,7 +3298,7 @@ public class APM_PoseEditor extends IScriptable {
         if leftWeapon && !IsDefined(held) {
             // Not a missing model: the game does not keep this weapon in the left hand (it stays offered for the right).
             ArrayPush(this.m_noLeftItems, this.m_checkRecord);
-            this.SetStatus(APM_TextWith("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand", GetLocalizedItemNameByCName(record.DisplayName())));
+            this.SetStatus(APM_TextWith("APM-Msg-NoLeftHand", "{0} cannot be held in the left hand", this.ItemPickerName(record)));
             APM_LogInfo("Items: weapon not kept in the left hand, removed from the left hand list");
             if this.m_pickerOpen {
                 this.UpdatePickerResults();
@@ -3307,7 +3307,7 @@ public class APM_PoseEditor extends IScriptable {
         }
         ArrayPush(this.m_noModelItems, this.m_checkRecord);
         APM_ItemMarkWithoutModel(this.m_checkRecord); // left out of the list in later sessions too
-        this.SetStatus(APM_TextWith("APM-Msg-NoModel", "{0} has no model to hold", IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : APM_Text("APM-Item-ThisItem", "This item")));
+        this.SetStatus(APM_TextWith("APM-Msg-NoModel", "{0} has no model to hold", IsDefined(record) ? this.ItemPickerName(record) : APM_Text("APM-Item-ThisItem", "This item")));
         APM_LogInfo("Items: no model to hold, removed from the list");
         if this.m_pickerOpen {
             this.UpdatePickerResults();
@@ -3362,7 +3362,8 @@ public class APM_PoseEditor extends IScriptable {
             }
         }
         let placed = transactions.AddItemToSlot(puppet, slot, itemID, true, null, ERenderingPlane.RPl_Scene, false, true);
-        APM_LogInfo(who + GetLocalizedItemNameByCName(itemRecord.DisplayName()) + (placed ? " placed" : " could not be placed"));
+        // Same name as in the picker (display name, then friendly or model name) and the record, never empty.
+        APM_LogInfo(who + this.ItemPickerName(itemRecord) + " (" + TDBID.ToStringDEBUG(id) + ")" + (placed ? " placed" : " could not be placed"));
         if isWeapon && !right {
             APM_LogInfo("Items: left hand weapon placed: right slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponRight")) + ", left slot " + this.HeldItemName(transactions.GetItemInSlot(puppet, t"AttachmentSlots.WeaponLeft")));
         }
@@ -3377,7 +3378,7 @@ public class APM_PoseEditor extends IScriptable {
             return "empty";
         }
         let record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item.GetItemID()));
-        return IsDefined(record) ? GetLocalizedItemNameByCName(record.DisplayName()) : "unknown item";
+        return IsDefined(record) ? this.ItemPickerName(record) : "unknown item";
     }
 
     // Leaving Photo Mode: the items the mod put in the Photo Mode puppets' hands are taken out (as resetting them by hand

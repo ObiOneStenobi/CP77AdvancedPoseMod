@@ -26,6 +26,7 @@
 #include <string_view>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
@@ -50,6 +51,7 @@ float g_eyeFocus = 150.f;
 float g_shownEyeFocus = 0.f; // focus distance shown (cm), eased; 0 = not measured yet
 void MirrorCurrentPart();
 void MirrorCurrentChain();
+void MirrorPhysicsChain(const Ui::CatalogEntry& aEntry);
 constexpr const char* ActionLabels[] = {"-", "Apply"};
 
 // Distances are shown in centimeters: the game's sliders only update live with whole-number steps.
@@ -1331,6 +1333,7 @@ bool MoveChainBone(int32_t aPart, const Math::Vec3& aModelDelta)
         }
     }
     g_bodyPart = aPart;
+    MirrorCurrentPart();
     RequestRefresh();
     return done;
 }
@@ -1466,6 +1469,7 @@ void SetPartKeepsPhysics(int32_t aPart, bool aKeep)
     }
     Pose::PoseOverrides::Checkpoint();
     Pose::PoseOverrides::SetKeepPhysics(catalog[aPart].chainRoot, aKeep);
+    MirrorPhysicsChain(catalog[aPart]); // mirror mode: the chain on the other side too
     RequestRefresh();
 }
 
@@ -1802,10 +1806,258 @@ void MirrorChain(int32_t aSource, const Pose::TargetRegistry::ReferencePose& aRe
     }
 }
 
+// --- Mirror of physics bones (hair, breasts, clothes) ---------------------------------------------------------------
+
+// Reference pose of a physics skeleton, with each bone's model-space position at rest.
+struct PhysicsReference
+{
+    std::vector<uint64_t> names;
+    std::vector<int16_t> parents;
+    std::vector<Math::Quat> local;
+    std::vector<Math::Quat> model;
+    std::vector<Math::Vec3> positions;
+};
+
+bool GetPhysicsReference(const Pose::GizmoState::PhysicsSkeleton& aSkeleton, PhysicsReference& aOut)
+{
+    bool found = false;
+    Pose::TargetRegistry::ForEach(
+        [&](const Pose::Target& aTarget)
+        {
+            if (found || aTarget.rig != aSkeleton.rig || aTarget.entity != aSkeleton.entity ||
+                aTarget.refRotationsMS.size() != aTarget.boneNames.size() ||
+                aTarget.refRotationsLS.size() != aTarget.boneNames.size() ||
+                aTarget.refTranslationsLS.size() != aTarget.boneNames.size() ||
+                aTarget.parents.size() != aTarget.boneNames.size())
+            {
+                return;
+            }
+            found = true;
+            aOut.names = aTarget.boneNames;
+            aOut.parents = aTarget.parents;
+            aOut.local = aTarget.refRotationsLS;
+            aOut.model = aTarget.refRotationsMS;
+            aOut.positions.assign(aTarget.boneNames.size(), Math::Vec3{});
+            for (size_t i = 0; i < aOut.positions.size(); ++i)
+            {
+                const int16_t p = aOut.parents[i];
+                aOut.positions[i] = p >= 0 && static_cast<size_t>(p) < i
+                                        ? aOut.positions[p] + Math::Rotate(aOut.model[p], aTarget.refTranslationsLS[i])
+                                        : aTarget.refTranslationsLS[i];
+            }
+        });
+    return found;
+}
+
+// The name with its side swapped ("dyng_left_chain_02" <-> "dyng_right_chain_02", "l_chest_..." <-> "r_chest_...",
+// "..._l" <-> "..._r"), or "" when the name has no side.
+std::string SwapSideName(const std::string& aName)
+{
+    static const std::pair<const char*, const char*> words[] = {{"left", "right"}, {"Left", "Right"}, {"LEFT", "RIGHT"}};
+    for (const auto& [a, b] : words)
+    {
+        for (const auto& [from, to] : {std::pair{a, b}, std::pair{b, a}})
+        {
+            const size_t at = aName.find(from);
+            if (at != std::string::npos)
+            {
+                return aName.substr(0, at) + to + aName.substr(at + std::strlen(from));
+            }
+        }
+    }
+    static const std::pair<const char*, const char*> marks[] = {{"_l_", "_r_"}, {"_L_", "_R_"}};
+    for (const auto& [a, b] : marks)
+    {
+        for (const auto& [from, to] : {std::pair{a, b}, std::pair{b, a}})
+        {
+            const size_t at = aName.find(from);
+            if (at != std::string::npos)
+            {
+                return aName.substr(0, at) + to + aName.substr(at + 3);
+            }
+        }
+    }
+    if (aName.size() > 2)
+    {
+        const std::string head = aName.substr(0, 2);
+        const std::string tail = aName.substr(aName.size() - 2);
+        if (head == "l_" || head == "r_" || head == "L_" || head == "R_")
+        {
+            const char side = head[0] == 'l' ? 'r' : head[0] == 'r' ? 'l' : head[0] == 'L' ? 'R' : 'L';
+            return std::string(1, side) + aName.substr(1);
+        }
+        if (tail == "_l" || tail == "_r" || tail == "_L" || tail == "_R")
+        {
+            const char side = tail[1] == 'l' ? 'r' : tail[1] == 'r' ? 'l' : tail[1] == 'L' ? 'R' : 'L';
+            return aName.substr(0, aName.size() - 1) + side;
+        }
+    }
+    return {};
+}
+
+// The physics bone on the other side of bone aIndex, or -1: by name (left / right, l_ / r_), checked against the
+// rest pose mirrored across the body (within 3 cm: asymmetric hair is left alone), else the own bone found at the
+// mirrored rest position (within 1 cm). Bones in the middle have no other side.
+int32_t PhysicsPartner(const Pose::GizmoState::PhysicsSkeleton& aSkeleton, const PhysicsReference& aReference,
+                       size_t aIndex)
+{
+    if (aIndex >= aReference.positions.size() || aIndex >= aSkeleton.bones.size())
+    {
+        return -1;
+    }
+    const Math::Vec3 rest = aReference.positions[aIndex];
+    const Math::Vec3 mirrored{-rest.x, rest.y, rest.z};
+    if (std::abs(rest.x) < 0.01f)
+    {
+        return -1; // in the middle
+    }
+    const auto own = [&](size_t aBone) { return aBone < aSkeleton.bones.size() && aSkeleton.bones[aBone].chainRoot >= 0; };
+    const char* name = RED4ext::CName(aReference.names[aIndex]).ToString();
+    const std::string other = name ? SwapSideName(name) : std::string{};
+    if (!other.empty())
+    {
+        const uint64_t hash = RED4ext::CName(other.c_str()).hash;
+        const auto it = std::find(aReference.names.begin(), aReference.names.end(), hash);
+        if (it == aReference.names.end())
+        {
+            return -1;
+        }
+        const size_t index = static_cast<size_t>(std::distance(aReference.names.begin(), it));
+        return own(index) && Math::Length(aReference.positions[index] - mirrored) < 0.03f ? static_cast<int32_t>(index) : -1;
+    }
+    int32_t best = -1;
+    float bestDistance = 0.01f;
+    for (size_t j = 0; j < aReference.positions.size(); ++j)
+    {
+        const float distance = Math::Length(aReference.positions[j] - mirrored);
+        if (j != aIndex && own(j) && distance < bestDistance)
+        {
+            best = static_cast<int32_t>(j);
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+// Mirror mode on a physics bone: its whole chain is copied to the chain on the other side (rotations as a mirror
+// image from the skeleton's own reference pose, offsets of the breast bones, the chain's physics switch). Pins are not
+// mirrored.
+void MirrorPhysicsChain(const CatalogEntry& aEntry)
+{
+    if (!g_mirror || !aEntry.skeleton || !aEntry.chainRoot || aEntry.bones.empty())
+    {
+        return;
+    }
+    const uint64_t moved = RED4ext::CName(aEntry.bones.front()).hash;
+    for (const auto& skeleton : Pose::GizmoState::GetPhysicsSkeletons())
+    {
+        const auto at = std::find_if(skeleton.bones.begin(), skeleton.bones.end(),
+                                     [&](const auto& b) { return b.hash == moved && b.chainRoot >= 0; });
+        if (at == skeleton.bones.end())
+        {
+            continue;
+        }
+        PhysicsReference reference;
+        if (!GetPhysicsReference(skeleton, reference) || reference.names.size() != skeleton.bones.size())
+        {
+            return;
+        }
+        const int16_t chain = at->chainRoot;
+        // Bones of the chain that have another side, and whether the chain has any edit left.
+        struct Pair
+        {
+            size_t s;
+            int32_t t;
+            const char* sourceName;
+            const char* targetName;
+        };
+        std::vector<Pair> pairs;
+        bool edited = false;
+        for (size_t s = 0; s < skeleton.bones.size(); ++s)
+        {
+            if (skeleton.bones[s].chainRoot != chain)
+            {
+                continue;
+            }
+            const char* sourceName = RED4ext::CName(reference.names[s]).ToString();
+            if (!sourceName)
+            {
+                continue;
+            }
+            std::array<float, 3> values{};
+            std::array<float, 3> pinTarget{};
+            edited = edited || Pose::PoseOverrides::GetUiAngles(sourceName, values) ||
+                     Pose::PoseOverrides::GetTranslation(sourceName, values) ||
+                     Pose::PoseOverrides::GetKeepPhysics(sourceName) || Pose::PoseOverrides::GetPin(sourceName, pinTarget);
+            const int32_t t = PhysicsPartner(skeleton, reference, s);
+            const char* targetName = t >= 0 ? RED4ext::CName(reference.names[t]).ToString() : nullptr;
+            if (targetName)
+            {
+                pairs.push_back({s, t, sourceName, targetName});
+            }
+        }
+        if (!edited)
+        {
+            // The chain was reset: the other one goes back to its physics too (not held in the mirrored pose).
+            for (const auto& pair : pairs)
+            {
+                Pose::PoseOverrides::ResetBone(pair.targetName);
+            }
+            return;
+        }
+        for (const auto& [s, t, sourceName, targetName] : pairs)
+        {
+            Math::Quat animatedSource{};
+            Math::Quat animatedTarget{};
+            Math::Vec3 unused{};
+            if (!Pose::GizmoState::GetAnimatedLocal(reference.names[s], animatedSource, unused) ||
+                !Pose::GizmoState::GetAnimatedLocal(reference.names[t], animatedTarget, unused))
+            {
+                continue;
+            }
+            // Same recipe as the body: the change from the reference pose, seen in model space, mirrored.
+            std::array<float, 3> angles{};
+            Pose::PoseOverrides::GetUiAngles(sourceName, angles);
+            const Math::Quat local = Math::Mul(animatedSource, AnglesToRotation(sourceName, angles, false));
+            const Math::Quat change = Math::Mul(Math::Conjugate(reference.local[s]), local);
+            const Math::Quat changeModel =
+                Math::Mul(Math::Mul(reference.model[s], change), Math::Conjugate(reference.model[s]));
+            const Math::Quat targetChange =
+                Math::Mul(Math::Mul(Math::Conjugate(reference.model[t]), MirrorModel(changeModel)), reference.model[t]);
+            SetLocalRotation(targetName, animatedTarget, Math::Normalize(Math::Mul(reference.local[t], targetChange)), false);
+
+            if (aEntry.allowsTranslation)
+            {
+                std::array<float, 3> offset{};
+                Pose::PoseOverrides::GetTranslation(sourceName, offset);
+                const int16_t ps = reference.parents[s];
+                const int16_t pt = reference.parents[t];
+                if (ps >= 0 && pt >= 0)
+                {
+                    const Math::Vec3 model = Math::Rotate(reference.model[ps], Math::Vec3{offset[0], offset[1], offset[2]});
+                    const Math::Vec3 other =
+                        Math::Rotate(Math::Conjugate(reference.model[pt]), Math::Vec3{-model.x, model.y, model.z});
+                    Pose::PoseOverrides::SetTranslation(targetName, other.x, other.y, other.z);
+                }
+            }
+            if (static_cast<int16_t>(s) == chain && skeleton.bones[t].chainRoot == t)
+            {
+                Pose::PoseOverrides::SetKeepPhysics(targetName, Pose::PoseOverrides::GetKeepPhysics(sourceName));
+            }
+        }
+        return;
+    }
+}
+
 // Mirror mode: the whole tab of the part just edited ("Left arm", "Right hand", ...) is copied to the other side as a
-// mirror image - the other limb jumps to the same pose and then follows every change.
+// mirror image - the other limb jumps to the same pose and then follows every change. Physics bones: their chain.
 void MirrorGroup(const std::string& aGroup)
 {
+    if (g_mirror && !aGroup.empty() && aGroup[0] == '~')
+    {
+        MirrorPhysicsChain(CurrentEntry());
+        return;
+    }
     Pose::TargetRegistry::ReferencePose reference;
     if (!g_mirror || aGroup.empty() || aGroup == "Head" || !Pose::TargetRegistry::GetReferencePose(reference))
     {
